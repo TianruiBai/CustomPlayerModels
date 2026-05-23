@@ -71,8 +71,8 @@ public class OverflowPopup extends PopupPanel {
 			Button okBtn = new Button(gui, gui.i18nFormat("button.cpm.ok"), () -> {
 				String fn = txtf.getText();
 				// Check if local server is available; if so, upload overflow as part of model
-				com.tom.cpm.shared.network.NetHandler<?, ?, ?> netHandler = MinecraftClientAccess.get().getNetHandler();
-				if (netHandler != null && netHandler.hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER)) {
+				com.tom.cpm.shared.network.NetHandler<?, ?, ?> nh = MinecraftClientAccess.get().getNetHandler();
+				if (nh != null && nh.hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER)) {
 					// Upload to local server: include overflow data with the model
 					// Generate a local link for the overflow
 					Link localLink = new Link("cpmdb_overflow", fn + "_" + System.currentTimeMillis());

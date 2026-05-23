@@ -55,7 +55,7 @@ public final class CpmServerConfig {
         ConfigEntry cfg = ModConfig.getCommonConfig();
         StringBuilder warnings = new StringBuilder();
 
-        boolean enabled = cfg.getBoolean("cpmServer.enabled", false);
+        boolean enabled = cfg.getBoolean("cpmServer.enabled", true);
         if (!enabled) {
             Log.info("CPM built-in server is disabled (cpmServer.enabled=false)");
             return null;
