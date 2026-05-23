@@ -60,6 +60,23 @@ import com.tom.cpm.shared.network.packet.SetScaleC2S;
 import com.tom.cpm.shared.network.packet.SetSkinC2S;
 import com.tom.cpm.shared.network.packet.SetSkinS2C;
 import com.tom.cpm.shared.network.packet.SubEventC2S;
+import com.tom.cpm.shared.network.packet.ModelListReqC2S;
+import com.tom.cpm.shared.network.packet.ModelListResS2C;
+import com.tom.cpm.shared.network.packet.ModelUploadInitC2S;
+import com.tom.cpm.shared.network.packet.ModelUploadInitAckS2C;
+import com.tom.cpm.shared.network.packet.ModelDataChunkC2S;
+import com.tom.cpm.shared.network.packet.ModelDataChunkAckS2C;
+import com.tom.cpm.shared.network.packet.ModelUploadCompleteC2S;
+import com.tom.cpm.shared.network.packet.ModelUploadResultS2C;
+import com.tom.cpm.shared.network.packet.ModelUploadCancelC2S;
+import com.tom.cpm.shared.network.packet.ModelUploadResumeC2S;
+import com.tom.cpm.shared.network.packet.ModelUploadResumeAckS2C;
+import com.tom.cpm.shared.network.packet.ModelDownloadReqC2S;
+import com.tom.cpm.shared.network.packet.ModelDownloadChunkS2C;
+import com.tom.cpm.shared.network.packet.ModelSetActiveC2S;
+import com.tom.cpm.shared.network.packet.ModelSetDefaultC2S;
+import com.tom.cpm.shared.network.packet.ModelDeleteReqC2S;
+import com.tom.cpm.shared.network.packet.ModelDeleteResultS2C;
 import com.tom.cpm.shared.parts.anim.menu.CommandAction.LegacyCommandActionWriter;
 import com.tom.cpm.shared.parts.anim.menu.CommandAction.ServerCommandAction;
 import com.tom.cpm.shared.util.Log;
@@ -77,8 +94,26 @@ public class NetHandler<RL, P, NET> {
 	public static final String SERVER_ANIMATION = "srv_anim";
 	public static final String PLUGIN = "plugin";
 	public static final String REQUEST_PLAYER = "req_pl";
+	// CPM Built-in Model Server packet IDs
+	public static final String MODEL_LIST = "mdl_lst";
+	public static final String MODEL_UPLOAD_INIT = "mdl_upi";
+	public static final String MODEL_UPLOAD_CHUNK = "mdl_upc";
+	public static final String MODEL_UPLOAD_COMPLETE = "mdl_ucp";
+	public static final String MODEL_UPLOAD_CANCEL = "mdl_ucn";
+	public static final String MODEL_UPLOAD_RESUME = "mdl_urs";
+	public static final String MODEL_DOWNLOAD = "mdl_dwn";
+	public static final String MODEL_SET_ACTIVE = "mdl_act";
+	public static final String MODEL_SET_DEFAULT = "mdl_def";
+	public static final String MODEL_DELETE = "mdl_del";
+	public static final String MODEL_TIME_SYNC = "mdl_tms";
 
 	protected Function<P, UUID> getPlayerUUID;
+
+	/** Public accessor for the player UUID function. Used by model packet handlers. */
+	@SuppressWarnings("unchecked")
+	public <T> UUID resolvePlayerUUID(T player) {
+		return getPlayerUUID.apply((P) player);
+	}
 	private TriConsumer<NET, RL, byte[]> sendPacket;
 	private TriConsumer<P, RL, byte[]> sendToAllTracking;
 	protected IntFunction<P> getPlayerById;
@@ -100,6 +135,16 @@ public class NetHandler<RL, P, NET> {
 	private List<ConfigChangeRequest<?, ?>> recommendedSettingChanges = new ArrayList<>();
 	private EnumSet<ServerCaps> serverCaps = EnumSet.noneOf(ServerCaps.class);
 	private boolean scalingWarning;
+
+	// CPM Built-in Model Server integration
+	private IModelServerHandler cpmModelPacketHandler;
+
+	public void setCpmModelPacketHandler(IModelServerHandler handler) {
+		this.cpmModelPacketHandler = handler;
+	}
+	public IModelServerHandler getCpmModelPacketHandler() {
+		return cpmModelPacketHandler;
+	}
 
 	protected Map<RL, Supplier<IPacket>> packetS2C = new HashMap<>(), packetC2S = new HashMap<>();
 	protected Map<Class<? extends IPacket>, RL> packetLookup = new HashMap<>();
@@ -133,6 +178,25 @@ public class NetHandler<RL, P, NET> {
 		register(packetS2C, PLUGIN, PluginMessageS2C.class, PluginMessageS2C::new);
 
 		register(packetC2S, REQUEST_PLAYER, RequestPlayerC2S.class, RequestPlayerC2S::new);
+
+		// CPM Built-in Model Server packets
+		register(packetC2S, MODEL_LIST, ModelListReqC2S.class, ModelListReqC2S::new);
+		register(packetS2C, MODEL_LIST, ModelListResS2C.class, ModelListResS2C::new);
+		register(packetC2S, MODEL_UPLOAD_INIT, ModelUploadInitC2S.class, ModelUploadInitC2S::new);
+		register(packetS2C, MODEL_UPLOAD_INIT, ModelUploadInitAckS2C.class, ModelUploadInitAckS2C::new);
+		register(packetC2S, MODEL_UPLOAD_CHUNK, ModelDataChunkC2S.class, ModelDataChunkC2S::new);
+		register(packetS2C, MODEL_UPLOAD_CHUNK, ModelDataChunkAckS2C.class, ModelDataChunkAckS2C::new);
+		register(packetC2S, MODEL_UPLOAD_COMPLETE, ModelUploadCompleteC2S.class, ModelUploadCompleteC2S::new);
+		register(packetS2C, MODEL_UPLOAD_COMPLETE, ModelUploadResultS2C.class, ModelUploadResultS2C::new);
+		register(packetC2S, MODEL_UPLOAD_CANCEL, ModelUploadCancelC2S.class, ModelUploadCancelC2S::new);
+		register(packetC2S, MODEL_UPLOAD_RESUME, ModelUploadResumeC2S.class, ModelUploadResumeC2S::new);
+		register(packetS2C, MODEL_UPLOAD_RESUME, ModelUploadResumeAckS2C.class, ModelUploadResumeAckS2C::new);
+		register(packetC2S, MODEL_DOWNLOAD, ModelDownloadReqC2S.class, ModelDownloadReqC2S::new);
+		register(packetS2C, MODEL_DOWNLOAD, ModelDownloadChunkS2C.class, ModelDownloadChunkS2C::new);
+		register(packetC2S, MODEL_SET_ACTIVE, ModelSetActiveC2S.class, ModelSetActiveC2S::new);
+		register(packetC2S, MODEL_SET_DEFAULT, ModelSetDefaultC2S.class, ModelSetDefaultC2S::new);
+		register(packetC2S, MODEL_DELETE, ModelDeleteReqC2S.class, ModelDeleteReqC2S::new);
+		register(packetS2C, MODEL_DELETE, ModelDeleteResultS2C.class, ModelDeleteResultS2C::new);
 	}
 
 	@SuppressWarnings("unchecked")

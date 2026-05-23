@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import com.tom.cpm.shared.io.IOHelper;
 import com.tom.cpm.shared.network.IC2SPacket;
+import com.tom.cpm.shared.network.IModelServerHandler;
 import com.tom.cpm.shared.network.NetH.ServerNetH;
 import com.tom.cpm.shared.network.NetHandler;
 
@@ -22,6 +23,7 @@ public class ModelListReqC2S implements IC2SPacket {
 
 	@Override
 	public <P> void handle(NetHandler<?, P, ?> handler, ServerNetH net, P player) {
-		// Dispatched by CpmModelPacketHandler
+		IModelServerHandler h = handler.getCpmModelPacketHandler();
+		if (h != null) h.handleModelList(handler, net, player);
 	}
 }

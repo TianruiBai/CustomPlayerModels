@@ -12,11 +12,15 @@ import net.neoforged.neoforge.event.entity.living.LivingEvent.LivingJumpEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerRespawnEvent;
+import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 import com.mojang.brigadier.CommandDispatcher;
 
+import com.tom.cpm.server.CpmModelPacketHandler;
+import com.tom.cpm.server.CpmServerInit;
 import com.tom.cpm.shared.network.NetH;
 import com.tom.cpm.shared.network.NetHandler;
 import com.tom.cpm.shared.network.packet.HelloS2C;
@@ -66,6 +70,24 @@ public class ServerHandler extends ServerHandlerBase {
 	@SubscribeEvent
 	public void onTick(ServerTickEvent.Post evt) {
 		netHandler.tick();
+	}
+
+	// CPM Built-in Model Server lifecycle
+	@SubscribeEvent
+	public void onServerStarting(ServerStartingEvent evt) {
+		CpmServerInit.init();
+		if (CpmServerInit.get() != null && CpmServerInit.get().isInitialized()) {
+			netHandler.setCpmModelPacketHandler(new CpmModelPacketHandler(
+				CpmServerInit.get().getModelService(),
+				CpmServerInit.get().getChunkedReceiver(),
+				CpmServerInit.get().getTransferResumeManager()
+			));
+		}
+	}
+
+	@SubscribeEvent
+	public void onServerStopping(ServerStoppingEvent evt) {
+		CpmServerInit.shutdown();
 	}
 
 	@SubscribeEvent

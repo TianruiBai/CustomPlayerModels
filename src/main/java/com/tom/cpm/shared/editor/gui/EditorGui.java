@@ -70,6 +70,10 @@ import com.tom.cpm.shared.gui.KeybindsPopup;
 import com.tom.cpm.shared.model.SkinType;
 import com.tom.cpm.shared.model.TextureSheetType;
 import com.tom.cpm.shared.paste.PastePopup;
+import com.tom.cpm.shared.network.ServerCaps;
+import com.tom.cpm.shared.network.NetHandler;
+import com.tom.cpm.server.client.CpmModelTransferClient;
+import com.tom.cpm.shared.editor.Exporter;
 import com.tom.cpm.shared.util.ErrorLog;
 import com.tom.cpm.shared.util.ErrorLog.LogLevel;
 import com.tom.cpm.shared.util.Log;
@@ -578,6 +582,11 @@ public class EditorGui extends Frame {
 
 		pp.addButton(gui.i18nFormat("button.cpm.edit.pastes"), () -> new PastePopup(this).open());
 
+		// Upload to local CPM built-in server (only if server has the capability)
+		pp.addButton(gui.i18nFormat("button.cpm.edit.uploadServer"), () -> {
+			triggerServerUpload();
+		});
+
 		pp.addButton(gui.i18nFormat("label.cpm.wiki.title"), () -> openPopup(new WikiBrowserPopup(gui)));
 
 		if (ModConfig.getCommonConfig().getBoolean(ConfigKeys.UPDATE_CHECKER, true)) {
@@ -585,6 +594,53 @@ public class EditorGui extends Frame {
 		}
 
 		MinecraftClientAccess.get().populatePlatformSettings("editPopup", pp);
+	}
+
+	private void triggerServerUpload() {
+		NetHandler<?, ?, ?> netHandler = MinecraftClientAccess.get().getNetHandler();
+		if (netHandler == null || !netHandler.hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER)) {
+			gui.displayMessagePopup(
+				gui.i18nFormat("label.cpm.error"),
+				gui.i18nFormat("label.cpm.uploadServer.notAvailable"));
+			return;
+		}
+		// Export model data and start chunked upload
+		try {
+			byte[] modelData = Exporter.exportToByteArray(editor, gui);
+			if (modelData == null) {
+				gui.displayMessagePopup(
+					gui.i18nFormat("label.cpm.error"),
+					gui.i18nFormat("label.cpm.export_success.desc", ""));
+				return;
+			}
+
+			// Get or create the transfer client
+			var transferClient = CpmModelTransferClient.getInstance(
+				new com.tom.cpm.server.crypto.CryptoService());
+
+			String modelName = editor.description != null && editor.description.name != null ?
+				editor.description.name : "Unnamed Model";
+			String modelDesc = "";
+
+			transferClient.startUpload(modelData, modelName, modelDesc, progress -> {
+				// Progress callback: update UI as chunks are sent
+				if (progress.ok()) {
+					int pct = (int) progress.getPercent();
+					Log.info("Upload progress: " + pct + "% (" +
+						(progress.lastAckedChunk() + 1) + "/" + progress.totalChunks() + ")");
+				} else {
+					Log.warn("Upload progress error: " + progress.error());
+				}
+			});
+
+			// Start sending chunks over the network
+			transferClient.sendNextChunk(); // kicks off init + first chunk
+		} catch (Exception ex) {
+			Log.error("Failed to start server upload", ex);
+			gui.displayMessagePopup(
+				gui.i18nFormat("label.cpm.error"),
+				gui.i18nFormat("label.cpm.uploadServer.error", ex.getMessage()));
+		}
 	}
 
 	private void initEffectMenu() {

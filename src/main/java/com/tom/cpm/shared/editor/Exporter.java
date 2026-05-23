@@ -176,6 +176,27 @@ public class Exporter {
 				}), false);
 	}
 
+	/**
+	 * Export model definition to a byte array for server upload.
+	 * @param e the editor state
+	 * @param gui the GUI context
+	 * @return the serialized model bytes, or null on failure
+	 */
+	public static byte[] exportToByteArray(Editor e, UI gui) {
+		try {
+			PartCollection def = prepareExport(e);
+			ByteArrayOutputStream baos = new ByteArrayOutputStream();
+			baos.write(ModelDefinitionLoader.HEADER);
+			ChecksumOutputStream cos = new ChecksumOutputStream(baos);
+			def.writePackage(new IOHelper(cos));
+			cos.close();
+			return baos.toByteArray();
+		} catch (Exception ex) {
+			Log.error("Failed to export model to byte array", ex);
+			return null;
+		}
+	}
+
 	private static PartCollection prepareExport(Editor e) throws IOException {
 		if (ModConfig.getCommonConfig().getBoolean(ConfigKeys.EDITOR_EXPERIMENTAL_EXPORT, false)) {
 			return ExporterImpl.prepareExport(e);
