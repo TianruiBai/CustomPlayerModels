@@ -15,7 +15,6 @@ import javax.crypto.SecretKey;
 
 import com.tom.cpm.server.crypto.CryptoService;
 import com.tom.cpm.server.crypto.EncryptedModelBlob;
-import com.tom.cpm.server.crypto.MemoryProtector;
 import com.tom.cpm.server.db.DatabaseManager;
 import com.tom.cpm.shared.util.Log;
 

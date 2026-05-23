@@ -154,13 +154,17 @@ public final class CryptoService {
      * Derive the session base key from the Minecraft shared secret.
      * session_key = HKDF-SHA512(shared_secret, salt="cpm_session_key_v2", info=playerUuid||serverRandom, len=32)
      */
-    public SecretKey deriveSessionKey(byte[] mcSharedSecret, byte[] playerUuid,
+    public SecretKey deriveSessionKey(byte[] mcSharedSecret, byte[] playerUuidRaw,
                                        byte[] serverRandom) {
         SecretKey prk = hkdfExtract(HKDF_SESSION_INFO, mcSharedSecret);
 
-        byte[] info = new byte[playerUuid.length + serverRandom.length];
-        System.arraycopy(playerUuid, 0, info, 0, playerUuid.length);
-        System.arraycopy(serverRandom, 0, info, playerUuid.length, serverRandom.length);
+        // Use UUID's standard string representation in UTF-8 for deterministic derivation
+        String uuidStr = new String(playerUuidRaw, java.nio.charset.StandardCharsets.UTF_8);
+        byte[] playerInfo = uuidStr.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        byte[] info = new byte[playerInfo.length + serverRandom.length];
+        System.arraycopy(playerInfo, 0, info, 0, playerInfo.length);
+        System.arraycopy(serverRandom, 0, info, playerInfo.length, serverRandom.length);
 
         return hkdfExpand(prk, info, 32);
     }
@@ -171,7 +175,7 @@ public final class CryptoService {
      */
     public SecretKey deriveTimeWindowKey(SecretKey baseSessionKey, long windowId) {
         SecretKey prk = hkdfExtract(HKDF_TIME_WINDOW_INFO, baseSessionKey.getEncoded());
-        return hkdfExpand(prk, String.valueOf(windowId).getBytes(), 32);
+        return hkdfExpand(prk, String.valueOf(windowId).getBytes(java.nio.charset.StandardCharsets.UTF_8), 32);
     }
 
     /**

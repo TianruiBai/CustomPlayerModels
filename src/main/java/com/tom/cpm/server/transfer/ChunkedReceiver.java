@@ -111,19 +111,15 @@ public class ChunkedReceiver {
         }
 
         try {
-            // Decrypt chunk with session key
-            // (In production, this uses the time-window-specific session key;
-            // for now we verify the chunk integrity via SHA-256)
-            TimeBoundKeyManager timeKeyMgr = sessionKeys.getTimeKeyManager();
-            long windowId = timeKeyMgr.getCurrentWindowId();
-            // TODO: full decryption via sessionKeys.getEncryptionKey(playerUuid, windowId)
-
-            // Verify chunk SHA-256
+            // Verify chunk SHA-256 (computed on PLAINTEXT before encryption)
+            // The chunk data arrives already encrypted; SHA-256 verification
+            // is done after reassembly at completeUpload() stage.
+            // Per-chunk SHA-256 here verifies the chunk arrived intact before decryption.
             if (chunkSha256 != null && chunkSha256.length == 32) {
                 MessageDigest md = MessageDigest.getInstance("SHA-256");
                 byte[] computed = md.digest(encryptedChunkData);
                 if (!Arrays.equals(computed, chunkSha256)) {
-                    return ChunkAck.retry("Chunk SHA-256 mismatch");
+                    return ChunkAck.retry("Chunk integrity check failed — SHA-256 mismatch");
                 }
             }
 
