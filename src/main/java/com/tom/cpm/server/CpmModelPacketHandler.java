@@ -260,6 +260,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
                                      NBTTagCompound tag) {
         UUID uuid = handler.resolvePlayerUUID(player);
         long modelId = tag.getLong("mid");
+        if (modelId <= 0) modelId = tag.getLong("modelId");
         Log.info("Set active model: player=" + uuid + " modelId=" + modelId);
 
         try {
@@ -288,6 +289,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
                                       NBTTagCompound tag) {
         UUID uuid = handler.resolvePlayerUUID(player);
         long modelId = tag.getLong("mid");
+        if (modelId <= 0) modelId = tag.getLong("modelId");
         try {
             modelService.getRepo().setDefaultModel(uuid.toString(), modelId);
             Log.info("Set default model: player=" + uuid + " modelId=" + modelId);
@@ -301,6 +303,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
                                   NBTTagCompound tag) {
         UUID uuid = handler.resolvePlayerUUID(player);
         long modelId = tag.getLong("mid");
+        if (modelId <= 0) modelId = tag.getLong("modelId");
 
         NBTTagCompound resp = new NBTTagCompound();
         resp.setLong("mid", modelId);

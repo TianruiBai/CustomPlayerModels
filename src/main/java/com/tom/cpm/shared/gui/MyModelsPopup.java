@@ -16,12 +16,14 @@ import com.tom.cpl.gui.elements.MessagePopup;
 import com.tom.cpl.gui.elements.Panel;
 import com.tom.cpl.gui.elements.PopupPanel;
 import com.tom.cpl.gui.elements.ScrollPanel;
+import com.tom.cpl.gui.util.HorizontalLayout;
 import com.tom.cpl.gui.util.TabbedPanelManager;
 import com.tom.cpl.math.Box;
 import com.tom.cpl.nbt.NBTTagCompound;
 import com.tom.cpl.nbt.NBTTagList;
 import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.MinecraftClientAccess.ServerStatus;
+import com.tom.cpm.shared.editor.gui.EditorGui;
 import com.tom.cpm.shared.config.ConfigKeys;
 import com.tom.cpm.shared.config.ModConfig;
 import com.tom.cpm.shared.network.NetHandler;
@@ -48,6 +50,8 @@ public class MyModelsPopup extends PopupPanel {
 
 	private final Frame frame;
 	private final TabbedPanelManager tabs;
+	private final Panel tabButtonPanel;
+	private final HorizontalLayout tabButtons;
 	private ScrollPanel localScp, serverScp, pasteScp;
 	private Panel localPanel, serverPanel, pastePanel;
 	private Button refreshLocalBtn, refreshServerBtn;
@@ -68,8 +72,14 @@ public class MyModelsPopup extends PopupPanel {
 		refreshServerBtn.setBounds(new Box(120, 0, 110, 20));
 		addElement(refreshServerBtn);
 
+		tabButtonPanel = new Panel(gui);
+		tabButtonPanel.setBounds(new Box(5, 22, bounds.w - 10, 20));
+		tabButtonPanel.setBackgroundColor(gui.getColors().menu_bar_background);
+		addElement(tabButtonPanel);
+		tabButtons = new HorizontalLayout(tabButtonPanel);
+
 		tabs = new TabbedPanelManager(gui);
-		tabs.setBounds(new Box(0, 20, bounds.w, bounds.h - 20));
+		tabs.setBounds(new Box(0, 42, bounds.w, bounds.h - 42));
 		addElement(tabs);
 
 		// ---- Local Models Tab ----
@@ -106,9 +116,9 @@ public class MyModelsPopup extends PopupPanel {
 
 	private void addTab(String key, ScrollPanel scp) {
 		Panel tabPanel = new Panel(gui);
-		tabPanel.setBounds(new Box(0, 0, 430, bounds.h - 20));
+		tabPanel.setBounds(new Box(0, 0, 430, bounds.h - 42));
 		tabPanel.addElement(scp);
-		tabs.createTab(gui.i18nFormat("label.cpm.myModels.tab." + key), tabPanel);
+		tabButtons.add(tabs.createTab(gui.i18nFormat("label.cpm.myModels.tab." + key), tabPanel));
 	}
 
 	private void refreshLocalModels() {
@@ -169,11 +179,18 @@ public class MyModelsPopup extends PopupPanel {
 			localPanel.addElement(metaLbl);
 
 			Button setBtn = new Button(gui, gui.i18nFormat("button.cpm.setActive"), () -> setLocalActive(f));
-			setBtn.setBounds(new Box(270, y, 65, 20));
+			setBtn.setBounds(new Box(255, y, 70, 20));
 			localPanel.addElement(setBtn);
 
+			Button editBtn = new Button(gui, gui.i18nFormat("button.cpm.openInEditor"), () -> {
+				setLocalActive(f);
+				MinecraftClientAccess.get().openGui(EditorGui::new);
+			});
+			editBtn.setBounds(new Box(330, y, 40, 20));
+			localPanel.addElement(editBtn);
+
 			Button delBtn = new Button(gui, gui.i18nFormat("button.cpm.delete"), () -> deleteLocal(f, entry));
-			delBtn.setBounds(new Box(340, y, 65, 20));
+			delBtn.setBounds(new Box(375, y, 35, 20));
 			localPanel.addElement(delBtn);
 
 			y += ENTRY_HEIGHT;
@@ -189,8 +206,8 @@ public class MyModelsPopup extends PopupPanel {
 	}
 
 	private void deleteLocal(File f, ModelEntry entry) {
-		frame.openPopup(new ConfirmPopup(frame, gui.i18nFormat("button.cpm.delete"),
-			"Delete local model: " + f.getName() + "?", () -> {
+		frame.openPopup(new ConfirmPopup(frame,
+			gui.i18nFormat("label.cpm.myModels.confirmDelete", f.getName()), () -> {
 				if (f.delete()) {
 					localEntries.remove(entry);
 					refreshLocalModels();
@@ -232,82 +249,86 @@ public class MyModelsPopup extends PopupPanel {
 
 	/**
 	 * Called from CpmModelTransferClient.handleModelList() to populate the
-	 * server models tab with the actual data.
+	 * server models tab with the actual data. Runs on game thread for GUI safety.
 	 */
 	public void populateServerModels(NBTTagCompound data) {
-		serverPanel.getElements().clear();
-		serverEntries.clear();
+		MinecraftClientAccess.get().executeOnGameThread(() -> {
+			serverPanel.getElements().clear();
+			serverEntries.clear();
 
-		NBTTagList list = data.getTagList("models", 10); // 10 = NBTTagCompound type
-		if (list == null || list.tagCount() == 0) {
-			Label lbl = new Label(gui, gui.i18nFormat("label.cpm.myModels.noServer"));
-			lbl.setBounds(new Box(5, 10, 0, 0));
-			serverPanel.addElement(lbl);
-			serverPanel.setBounds(new Box(0, 0, 410, 28));
-			return;
-		}
+			NBTTagList list = data.getTagList("models", 10); // 10 = NBTTagCompound type
+			if (list == null || list.tagCount() == 0) {
+				Label lbl = new Label(gui, gui.i18nFormat("label.cpm.myModels.noServer"));
+				lbl.setBounds(new Box(5, 10, 0, 0));
+				serverPanel.addElement(lbl);
+				serverPanel.setBounds(new Box(0, 0, 410, 28));
+				return;
+			}
 
-		int y = 0;
-		for (int i = 0; i < list.tagCount(); i++) {
-			NBTTagCompound entry = (NBTTagCompound) list.get(i);
-			long id = entry.getLong("id");
-			String name = entry.getString("name");
-			int size = entry.getInteger("size");
-			boolean isDefault = entry.getBoolean("default");
-			long created = entry.getLong("created");
+			int y = 0;
+			for (int i = 0; i < list.tagCount(); i++) {
+				NBTTagCompound entry = (NBTTagCompound) list.get(i);
+				long id = entry.getLong("id");
+				String name = entry.getString("name");
+				int size = entry.getInteger("size");
+				boolean isDefault = entry.getBoolean("default");
+				long created = entry.getLong("created");
 
-			ModelEntry model = new ModelEntry(name, size, id, created, "server", null);
-			serverEntries.add(model);
+				ModelEntry model = new ModelEntry(name, size, id, created, "server", null);
+				serverEntries.add(model);
 
-			// Name label (with default indicator)
-			String labelText = name + (isDefault ? gui.i18nFormat("label.cpm.myModels.defaultFlag") : "");
-			Label nameLbl = new Label(gui, labelText);
-			nameLbl.setBounds(new Box(5, y, 200, 10));
-			serverPanel.addElement(nameLbl);
+				// Name label (with default indicator)
+				String labelText = name + (isDefault ? gui.i18nFormat("label.cpm.myModels.defaultFlag") : "");
+				Label nameLbl = new Label(gui, labelText);
+				nameLbl.setBounds(new Box(5, y, 200, 10));
+				serverPanel.addElement(nameLbl);
 
-			Label metaLbl = new Label(gui, formatSize(size) + " | " + formatTime(created));
-			metaLbl.setBounds(new Box(5, y + 12, 220, 10));
-			serverPanel.addElement(metaLbl);
+				Label metaLbl = new Label(gui, formatSize(size) + " | " + formatTime(created));
+				metaLbl.setBounds(new Box(5, y + 12, 220, 10));
+				serverPanel.addElement(metaLbl);
 
-			int btnX = 230;
-			Button activeBtn = new Button(gui, gui.i18nFormat("button.cpm.setActive"), () -> setServerActive(id));
-			activeBtn.setBounds(new Box(btnX, y, 55, 20));
-			serverPanel.addElement(activeBtn);
-			btnX += 60;
+				int btnX = 230;
+				Button activeBtn = new Button(gui, gui.i18nFormat("button.cpm.setActive"), () -> setServerActive(id));
+				activeBtn.setBounds(new Box(btnX, y, 55, 20));
+				serverPanel.addElement(activeBtn);
+				btnX += 60;
 
-			Button defBtn = new Button(gui, gui.i18nFormat("button.cpm.setDefault"), () -> setServerDefault(id));
-			defBtn.setBounds(new Box(btnX, y, 55, 20));
-			serverPanel.addElement(defBtn);
-			btnX += 60;
+				Button defBtn = new Button(gui, gui.i18nFormat("button.cpm.setDefault"), () -> setServerDefault(id));
+				defBtn.setBounds(new Box(btnX, y, 55, 20));
+				serverPanel.addElement(defBtn);
+				btnX += 60;
 
-			Button delBtn = new Button(gui, gui.i18nFormat("button.cpm.delete"), () -> deleteServer(id, model));
-			delBtn.setBounds(new Box(btnX, y, 55, 20));
-			serverPanel.addElement(delBtn);
+				Button delBtn = new Button(gui, gui.i18nFormat("button.cpm.delete"), () -> deleteServer(id, model));
+				delBtn.setBounds(new Box(btnX, y, 55, 20));
+				serverPanel.addElement(delBtn);
 
-			y += ENTRY_HEIGHT;
-		}
-		serverPanel.setBounds(new Box(0, 0, 410, Math.max(28, y)));
+				y += ENTRY_HEIGHT;
+			}
+			serverPanel.setBounds(new Box(0, 0, 410, Math.max(28, y)));
+		});
 	}
 
 	private void setServerActive(long modelId) {
 		NBTTagCompound tag = new NBTTagCompound();
-		tag.setLong("modelId", modelId);
+		tag.setLong("mid", modelId);
 		MinecraftClientAccess.get().getNetHandler().sendPacketToServer(new ModelSetActiveC2S(tag));
-		frame.openPopup(new MessagePopup(frame, gui.i18nFormat("button.cpm.setActive"), "Requested server model activation."));
+		frame.openPopup(new MessagePopup(frame, gui.i18nFormat("button.cpm.setActive"),
+			gui.i18nFormat("label.cpm.modelSetActive", "#" + modelId)));
 	}
 
 	private void setServerDefault(long modelId) {
 		NBTTagCompound tag = new NBTTagCompound();
-		tag.setLong("modelId", modelId);
+		tag.setLong("mid", modelId);
 		MinecraftClientAccess.get().getNetHandler().sendPacketToServer(new ModelSetDefaultC2S(tag));
-		frame.openPopup(new MessagePopup(frame, gui.i18nFormat("button.cpm.setDefault"), "Requested server default model update."));
+		frame.openPopup(new MessagePopup(frame, gui.i18nFormat("button.cpm.setDefault"),
+			gui.i18nFormat("label.cpm.modelSetDefault")));
 	}
 
 	private void deleteServer(long modelId, ModelEntry entry) {
-		frame.openPopup(new ConfirmPopup(frame, gui.i18nFormat("button.cpm.delete"),
-			"Delete server model #" + modelId + "?", () -> {
+		frame.openPopup(new ConfirmPopup(frame,
+			gui.i18nFormat("label.cpm.myModels.confirmDelete", "#" + modelId), () -> {
 				NBTTagCompound tag = new NBTTagCompound();
-				tag.setLong("modelId", modelId);
+				tag.setLong("mid", modelId);
 				MinecraftClientAccess.get().getNetHandler().sendPacketToServer(new ModelDeleteReqC2S(tag));
 				serverEntries.remove(entry);
 				refreshServerModels();

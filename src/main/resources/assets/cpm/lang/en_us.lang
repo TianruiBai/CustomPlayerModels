@@ -1008,6 +1008,23 @@ label.cpm.dir.north=North
 label.cpm.dir.south=South
 label.cpm.dir.east=East
 label.cpm.dir.west=West
+
+# My Models popup
+label.cpm.myModels.title=My Models
+label.cpm.myModels.tab.local=Local
+label.cpm.myModels.tab.server=Server
+label.cpm.myModels.tab.paste=Paste
+label.cpm.myModels.noLocal=No local models found.
+label.cpm.myModels.noServer=No server models found.
+label.cpm.myModels.confirmDelete=Delete model: %s?
+label.cpm.myModels.pasteInfo=Open the Paste site to browse models.
+label.cpm.myModels.defaultFlag= (Default)
+label.cpm.myModels.metaFormat=%1$s | %2$s
+button.cpm.setActive=Set Active
+button.cpm.setDefault=Set Default
+label.cpm.modelSetActive=Model set as active: %s
+label.cpm.modelSetDefault=Default model updated.
+button.cpm.openInEditor=Edit
 label.cpm.rot.rot_0=Rotation: 0
 label.cpm.rot.rot_90=Rotation: 90
 label.cpm.rot.rot_180=Rotation: 180
