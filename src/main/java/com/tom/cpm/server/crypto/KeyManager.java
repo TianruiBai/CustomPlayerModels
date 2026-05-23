@@ -90,7 +90,8 @@ public class KeyManager {
                 save();
                 Log.warn("Generated new DB master key — STORE THIS SAFELY. If lost, models are irrecoverable.");
             }
-        } catch (java.security.NoSuchAlgorithmException | java.security.UnrecoverableEntryException e) {
+        } catch (java.security.NoSuchAlgorithmException | java.security.UnrecoverableEntryException
+                | java.security.KeyStoreException e) {
             throw new IOException("Failed to access DB master key in keystore", e);
         }
 
@@ -113,7 +114,8 @@ public class KeyManager {
                     new KeyStore.PasswordProtection(keystorePassword));
                 save();
             }
-        } catch (java.security.NoSuchAlgorithmException | java.security.UnrecoverableEntryException e) {
+        } catch (java.security.NoSuchAlgorithmException | java.security.UnrecoverableEntryException
+                | java.security.KeyStoreException e) {
             throw new IOException("Failed to access DB file password in keystore", e);
         }
 
