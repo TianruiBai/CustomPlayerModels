@@ -125,7 +125,8 @@ public class ModelPartDefinition implements IModelPart, IResolvedModelPart, Part
 
 	@Override
 	public void writePackage(IOHelper dout) throws IOException {
-		write(dout);
+		dout.writeObjectBlock(this);
+		dout.writeObjectBlock(ModelPartEnd.END);
 	}
 
 	@Override

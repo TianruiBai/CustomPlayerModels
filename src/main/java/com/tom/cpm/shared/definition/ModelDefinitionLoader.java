@@ -12,6 +12,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -87,24 +88,56 @@ public class ModelDefinitionLoader<GP> {
 				Log.debug("Loading key model for " + key.profile);
 				player.setModelDefinition(CompletableFuture.supplyAsync(() -> loadModel(b64, player), THREAD_POOL), true);
 			} else if(serverModels.containsKey(key)) {
-			Log.info("Loading server model for " + key.profile + " uuid=" + key.uuid);
+				Log.info("Loading server model for " + key.profile + " uuid=" + key.uuid);
 				player.setModelDefinition(CompletableFuture.supplyAsync(() -> loadModel(serverModels.get(key), player), THREAD_POOL), true);
 			} else {
-				Log.debug("Loading skin model for " + key.profile);
-				player.setModelDefinition(texLoad.thenCompose(v -> player.getTextures().getTexture(TextureType.SKIN)).thenApplyAsync(skin -> {
-					if(skin != null && player.getModelDefinition() == null) {
-						return loadModel(skin, player);
-					} else if(!player.getTextures().hasTexture(TextureType.SKIN) && player.isClientPlayer()) {
-						return new ModelDefinition(new LocalizedIOException("Custom skin not found", new FormatText("error.cpm.no_skin_url")), player);
-					} else {
-						return null;
-					}
-				}, THREAD_POOL), false);
+				// Offline-mode UUID mismatch fallback: search serverModels by player name
+				byte[] foundModel = findServerModelByName(key);
+				if (foundModel != null) {
+					Log.info("Loading server model (name-matched) for " + key.profile + " uuid=" + key.uuid);
+					player.setModelDefinition(CompletableFuture.supplyAsync(() -> loadModel(foundModel, player), THREAD_POOL), true);
+				} else {
+					Log.debug("Loading skin model for " + key.profile);
+					player.setModelDefinition(texLoad.thenCompose(v -> player.getTextures().getTexture(TextureType.SKIN)).thenApplyAsync(skin -> {
+						if(skin != null && player.getModelDefinition() == null) {
+							return loadModel(skin, player);
+						} else if(!player.getTextures().hasTexture(TextureType.SKIN) && player.isClientPlayer()) {
+							return new ModelDefinition(new LocalizedIOException("Custom skin not found", new FormatText("error.cpm.no_skin_url")), player);
+						} else {
+							return null;
+						}
+					}, THREAD_POOL), false);
+				}
 			}
 		} catch (Exception e) {
 			player.setModelDefinition(CompletableFuture.completedFuture(new ModelDefinition(e, player)), false);
 		}
 		return player;
+	}
+
+	/**
+	 * Offline-mode fallback: search serverModels for a model matching the given
+	 * player's name when the UUID-based lookup fails.
+	 * In offline mode, the client and server may derive different UUIDs for
+	 * the same player name (e.g. launcher-provided UUID vs
+	 * {@code UUID.nameUUIDFromBytes("OfflinePlayer:" + name)}).
+	 */
+	private byte[] findServerModelByName(Key key) {
+		if (key.uuid == null || key.profile == null) return null;
+		String targetName = getName.apply(key.profile);
+		if (targetName == null || targetName.isEmpty()) return null;
+		for (var entry : serverModels.entrySet()) {
+			Key serverKey = entry.getKey();
+			if (serverKey.profile != null) {
+				String serverName = getName.apply(serverKey.profile);
+				if (targetName.equalsIgnoreCase(serverName)) {
+					Log.info("findServerModelByName: matched '" + targetName
+						+ "' server-uuid=" + serverKey.uuid + " lookup-uuid=" + key.uuid);
+					return entry.getValue();
+				}
+			}
+		}
+		return null;
 	}
 
 	private static final Map<String, ResourceLoader> LOADERS = new HashMap<>();
@@ -155,6 +188,17 @@ public class ModelDefinitionLoader<GP> {
 
 	public ModelDefinition loadModel(byte[] data, Player<?> player) {
 		Log.info("loadModel(byte[]): starting for " + player.getUUID() + " size=" + data.length + " header=0x" + Integer.toHexString(data[0] & 0xFF));
+		// Hex dump first 64 bytes for diagnosis
+		StringBuilder hexDump = new StringBuilder("loadModel(byte[]): first bytes: ");
+		int dumpLen = Math.min(data.length, 64);
+		for (int i = 0; i < dumpLen; i++) {
+			hexDump.append(String.format("%02x ", data[i] & 0xFF));
+		}
+		Log.info(hexDump.toString());
+		int checksumOffset = data.length - 2;
+		Log.info("loadModel(byte[]): last 2 bytes (checksum) at offset " + checksumOffset + ": 0x"
+			+ String.format("%02x%02x", data[checksumOffset] & 0xFF, data[checksumOffset + 1] & 0xFF)
+			+ " embedded-short=" + (short)(((data[checksumOffset] & 0xFF) << 8) | (data[checksumOffset + 1] & 0xFF)));
 		try(ByteArrayInputStream in = new ByteArrayInputStream(data)) {
 			ModelDefinition def = loadModel(in, player);
 			if (def == null) {
@@ -186,8 +230,17 @@ public class ModelDefinitionLoader<GP> {
 			ChecksumInputStream cis = new ChecksumInputStream(in);
 			IOHelper din = new IOHelper(cis);
 			List<IModelPart> parts = new ArrayList<>();
+			int blockCount = 0;
 			while(true) {
+				short sumBefore = cis.getSum();
 				IModelPart part = din.readObjectBlock(ModelPartType.VALUES, (t, d) -> t.getFactory().create(d, def));
+				short sumAfter = cis.getSum();
+				blockCount++;
+				if (part != null) {
+					Log.info("loadModel: block #" + blockCount + " type=" + part.getType().name() + " (ordinal=" + part.getType().ordinal() + ") csum-delta=" + (sumAfter - sumBefore) + " running-csum=" + sumAfter);
+				} else {
+					Log.info("loadModel: block #" + blockCount + " type=UNKNOWN csum-delta=" + (sumAfter - sumBefore) + " running-csum=" + sumAfter);
+				}
 				if(part == null)continue;
 				if(part instanceof ModelPartSkinType && in instanceof SkinDataInputStream) {
 					SkinDataInputStream sin = (SkinDataInputStream) in;
@@ -203,6 +256,7 @@ public class ModelDefinitionLoader<GP> {
 					} catch (IOException e) {
 						Log.warn("Checksum verification failed (data integrity verified by SHA-256): " + e.getMessage());
 					}
+					Log.info("loadModel: END at block #" + blockCount + " total-parts=" + parts.size() + " final-csum=" + cis.getSum());
 					break;
 				}
 				parts.add(part);
@@ -269,6 +323,34 @@ public class ModelDefinitionLoader<GP> {
 			Key key = new Key(forPlayer, null);
 			serverModels.put(key, data);
 			Log.info("ModelDefinitionLoader.setModel: stored server model for " + getUUID.apply(forPlayer) + " size=" + data.length + " forced=" + forced);
+
+			// Offline-mode UUID mismatch: if the player name matches the client player
+			// but the UUID differs, also store under the client's local UUID so the
+			// model can be found when rendering the local player.
+			try {
+				Object clientPlayerObj = MinecraftClientAccess.get().getCurrentPlayerIDObject();
+				if (clientPlayerObj != null) {
+					@SuppressWarnings("unchecked")
+					GP clientGP = (GP) clientPlayerObj;
+					String serverName = getName.apply(forPlayer);
+					String clientName = getName.apply(clientGP);
+					UUID serverUUID = getUUID.apply(forPlayer);
+					UUID clientUUID = getUUID.apply(clientGP);
+					if (serverName != null && serverName.equalsIgnoreCase(clientName)
+							&& !Objects.equals(serverUUID, clientUUID)) {
+						Key clientKey = new Key(clientUUID);
+						serverModels.put(clientKey, data);
+						Log.info("ModelDefinitionLoader.setModel: also stored under client UUID " + clientUUID
+								+ " (offline-mode name match: " + serverName + ")");
+						// Also reload under the client UUID so the model is picked up
+						Player<?> clientPlayer = reloadPlayer(clientGP, PLAYER_UNIQUE);
+						clientPlayer.forcedSkin = forced;
+					}
+				}
+			} catch (Exception e) {
+				Log.warn("ModelDefinitionLoader.setModel: failed to store under client UUID", e);
+			}
+
 			Player<?> player = reloadPlayer(forPlayer, PLAYER_UNIQUE);
 			player.forcedSkin = forced;
 		}
