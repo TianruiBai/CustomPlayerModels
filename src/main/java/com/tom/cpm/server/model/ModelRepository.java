@@ -263,6 +263,64 @@ public class ModelRepository {
     }
 
     /**
+     * Gap 5: Update a model's encrypted data in-place, preserving its ID.
+     * The plaintext model bytes are encrypted and the row is UPDATEd.
+     * This avoids the delete+reinsert pattern which changes the modelId.
+     *
+     * @param modelId     the existing model to update
+     * @param modelData   the new plaintext model data (will be encrypted)
+     * @param iconData    optional new icon data (null to keep existing)
+     * @return true if the update succeeded, false if model not found
+     */
+    public boolean updateModel(long modelId, byte[] modelData, byte[] iconData) throws SQLException {
+        // Compute SHA-256 of plaintext
+        byte[] sha256;
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            sha256 = md.digest(modelData);
+        } catch (Exception e) {
+            throw new SQLException("SHA-256 not available", e);
+        }
+
+        // Encrypt with the per-row key derived from the model ID
+        SecretKey perRowKey = crypto.derivePerRowKey(columnMasterKey, modelId);
+        EncryptedModelBlob blob = new EncryptedModelBlob(modelData, perRowKey);
+        // modelData is now wiped by EncryptedModelBlob constructor
+
+        EncryptedModelBlob iconBlob = null;
+        if (iconData != null && iconData.length > 0) {
+            iconBlob = new EncryptedModelBlob(iconData, perRowKey);
+        }
+
+        String sql;
+        if (iconBlob != null) {
+            sql = "UPDATE models SET data_enc=?, data_iv=?, data_tag=?, " +
+                  "icon_enc=?, icon_iv=?, icon_tag=?, size_bytes=?, sha256=?, " +
+                  "updated_at=CURRENT_TIMESTAMP WHERE id=?";
+        } else {
+            sql = "UPDATE models SET data_enc=?, data_iv=?, data_tag=?, " +
+                  "size_bytes=?, sha256=?, updated_at=CURRENT_TIMESTAMP WHERE id=?";
+        }
+
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setBytes(1, blob.getCiphertext());
+            ps.setBytes(2, blob.getIv());
+            ps.setBytes(3, blob.getGcmTag());
+            int idx = 4;
+            if (iconBlob != null) {
+                ps.setBytes(idx++, iconBlob.getCiphertext());
+                ps.setBytes(idx++, iconBlob.getIv());
+                ps.setBytes(idx++, iconBlob.getGcmTag());
+            }
+            ps.setInt(idx++, blob.getPlaintextSize());
+            ps.setBytes(idx++, sha256);
+            ps.setLong(idx, modelId);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /**
      * Set a model as the player's default.
      */
     public void setDefaultModel(String playerUuid, long modelId) throws SQLException {

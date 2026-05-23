@@ -153,6 +153,60 @@ public class NetHandler<RL, P, NET> {
 		return cpmModelClientHandler;
 	}
 
+	// Gap 4: Model download synchronization — used by CpmDbResourceLoader
+	private final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.CompletableFuture<byte[]>> downloadFutures =
+		new java.util.concurrent.ConcurrentHashMap<>();
+
+	/**
+	 * Request a model download from the server and block until complete.
+	 * Used by CpmDbResourceLoader to synchronously load a model from the server DB.
+	 *
+	 * @param modelId the server model ID to download
+	 * @return the decrypted model bytes
+	 * @throws IOException if download fails or times out
+	 */
+	public byte[] requestModelDownloadSync(long modelId) throws java.io.IOException {
+		java.util.concurrent.CompletableFuture<byte[]> future = new java.util.concurrent.CompletableFuture<>();
+		downloadFutures.put(modelId, future);
+
+		// Send the download request
+		NBTTagCompound tag = new NBTTagCompound();
+		tag.setLong("modelId", modelId);
+		sendPacketToServer(new ModelDownloadReqC2S(tag));
+
+		try {
+			// Block until the download completes (with 30-second timeout)
+			return future.get(30, java.util.concurrent.TimeUnit.SECONDS);
+		} catch (java.util.concurrent.TimeoutException e) {
+			downloadFutures.remove(modelId);
+			throw new java.io.IOException("Model download timed out for modelId=" + modelId);
+		} catch (Exception e) {
+			downloadFutures.remove(modelId);
+			throw new java.io.IOException("Model download failed for modelId=" + modelId, e);
+		}
+	}
+
+	/**
+	 * Complete a pending download future with the reassembled model data.
+	 * Called by CpmModelTransferClient when all download chunks have been received.
+	 */
+	public void completeDownload(long modelId, byte[] modelData) {
+		java.util.concurrent.CompletableFuture<byte[]> future = downloadFutures.remove(modelId);
+		if (future != null) {
+			future.complete(modelData);
+		}
+	}
+
+	/**
+	 * Fail a pending download future with an error.
+	 */
+	public void failDownload(long modelId, Throwable error) {
+		java.util.concurrent.CompletableFuture<byte[]> future = downloadFutures.remove(modelId);
+		if (future != null) {
+			future.completeExceptionally(error);
+		}
+	}
+
 	protected Map<RL, Supplier<IPacket>> packetS2C = new HashMap<>(), packetC2S = new HashMap<>();
 	protected Map<Class<? extends IPacket>, RL> packetLookup = new HashMap<>();
 	private BiFunction<String, String, RL> keyFactory;

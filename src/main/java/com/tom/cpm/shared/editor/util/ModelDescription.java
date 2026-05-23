@@ -13,6 +13,15 @@ public class ModelDescription {
 	public CopyProtection copyProtection = CopyProtection.NORMAL;
 	public UUID uuid;
 
+	/** Server model ID — set when this model is uploaded to/downloaded from the built-in server.
+	 *  Null means the model has no server association. Non-null means it exists on the server
+	 *  and can be updated via "Update on Server" in the export dialog. */
+	public Long serverModelId;
+
+	/** Paste/Gist link — set when loading a model that was previously shared via paste site.
+	 *  Used by ExportPopup to enable the "Export Definition" (update existing) button. */
+	public String pasteLink;
+
 	public static enum CopyProtection {
 		NORMAL,
 		UUID_LOCK,

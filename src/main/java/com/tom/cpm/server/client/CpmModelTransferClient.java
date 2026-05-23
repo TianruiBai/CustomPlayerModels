@@ -1,5 +1,6 @@
 package com.tom.cpm.server.client;
 
+import java.io.File;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -84,6 +85,11 @@ public class CpmModelTransferClient implements IModelClientHandler {
         tag.setInteger("size", activeUpload.getTotalSize());
         tag.setInteger("chunks", activeUpload.getNumChunks());
         tag.setByteArray("sha256", activeUpload.getFullSha256());
+        // Gap 2: Include existingModelId for updates
+        long existingId = activeUpload.getExistingModelId();
+        if (existingId > 0) {
+            tag.setLong("existingModelId", existingId);
+        }
 
         NetHandler<?, ?, ?> handler = MinecraftClientAccess.get().getNetHandler();
         if (handler == null) return;
@@ -100,7 +106,6 @@ public class CpmModelTransferClient implements IModelClientHandler {
 
         // Check state: if not yet initiated, send init first
         if (activeUpload.getState() == ChunkedUploader.State.IDLE) {
-            activeUpload.onInitAccepted(java.util.UUID.randomUUID().toString());
             sendInitPacket();
             return;
         }
@@ -112,15 +117,21 @@ public class CpmModelTransferClient implements IModelClientHandler {
             return;
         }
 
+        byte[] data = chunk.plaintext() != null ? chunk.plaintext().clone() : new byte[0];
+        byte[] iv = chunk.iv() != null ? chunk.iv().clone() : new byte[0];
+        byte[] gtag = chunk.gcmTag() != null ? chunk.gcmTag().clone() : new byte[0];
+        byte[] csha = chunk.chunkSha256() != null ? chunk.chunkSha256().clone() : new byte[0];
+        byte[] fsha = chunk.fullSha256() != null ? chunk.fullSha256().clone() : new byte[0];
+
         NBTTagCompound tag = new NBTTagCompound();
         tag.setString("uid", activeUpload.getUploadId());
         tag.setInteger("idx", chunk.chunkIndex());
         tag.setInteger("total", chunk.totalChunks());
-        tag.setByteArray("data", chunk.plaintext());
-        tag.setByteArray("iv", chunk.iv());
-        tag.setByteArray("gtag", chunk.gcmTag());
-        tag.setByteArray("csha", chunk.chunkSha256());
-        tag.setByteArray("fsha", chunk.fullSha256());
+        tag.setByteArray("data", data);
+        tag.setByteArray("iv", iv);
+        tag.setByteArray("gtag", gtag);
+        tag.setByteArray("csha", csha);
+        tag.setByteArray("fsha", fsha);
 
         NetHandler<?, ?, ?> handler = MinecraftClientAccess.get().getNetHandler();
         if (handler == null) return;
@@ -181,6 +192,14 @@ public class CpmModelTransferClient implements IModelClientHandler {
     }
 
     /**
+     * Set a callback to run when an upload completes successfully.
+     * Used by ExportPopup to store serverModelId for future updates.
+     */
+    public void setOnCompleteCallback(Runnable callback) {
+        this.onCompleteCallback = callback;
+    }
+
+    /**
      * Check if there's an upload that can be resumed.
      */
     public boolean hasResumableUpload() {
@@ -210,15 +229,23 @@ public class CpmModelTransferClient implements IModelClientHandler {
         boolean accepted = tag.getBoolean("accepted");
         Log.info("Upload init ack: uid=" + uid + " accepted=" + accepted);
 
-        if (activeUpload != null && uid.equals(activeUpload.getUploadId())) {
-            if (accepted) {
-                activeUpload.onInitAccepted(uid);
-                sendNextChunk(); // Start sending chunks
-            } else {
-                String reason = tag.getString("reason");
-                activeUpload.onInitRejected(reason != null ? reason : "Rejected");
-                activeUpload = null;
-            }
+        if (activeUpload == null) return;
+
+        String currentUploadId = activeUpload.getUploadId();
+        // The server assigns the upload id in init-ack; accept first ack when id is not yet bound.
+        if (currentUploadId != null && !uid.equals(currentUploadId)) {
+            Log.warn("Ignoring upload init ack for unexpected uid=" + uid +
+                " activeUid=" + currentUploadId);
+            return;
+        }
+
+        if (accepted) {
+            activeUpload.onInitAccepted(uid);
+            sendNextChunk(); // Start sending chunks
+        } else {
+            String reason = tag.getString("reason");
+            activeUpload.onInitRejected(reason != null ? reason : "Rejected");
+            activeUpload = null;
         }
     }
 
@@ -252,6 +279,10 @@ public class CpmModelTransferClient implements IModelClientHandler {
         if (activeUpload != null && uid.equals(activeUpload.getUploadId())) {
             if (ok) {
                 activeUpload.onComplete(modelId);
+                // Store serverModelId for future updates via the onComplete callback
+                if (onCompleteCallback != null) {
+                    onCompleteCallback.run();
+                }
             } else {
                 String msg = tag.getString("msg");
                 activeUpload.onFailed(msg != null ? msg : status);
@@ -273,6 +304,10 @@ public class CpmModelTransferClient implements IModelClientHandler {
         }
     }
 
+    // Gap 4: Download chunk reassembly buffer
+    private final java.util.Map<Long, byte[]> downloadBuffers = new java.util.HashMap<>();
+    private final java.util.Map<Long, Integer> downloadExpectedChunks = new java.util.HashMap<>();
+
     @Override
     public void handleDownloadChunk(NBTTagCompound tag, NetH from) {
         long modelId = tag.getLong("mid");
@@ -280,7 +315,50 @@ public class CpmModelTransferClient implements IModelClientHandler {
         int totalChunks = tag.getInteger("total");
         byte[] data = tag.getByteArray("data");
         Log.info("Download chunk: modelId=" + modelId + " chunk=" + chunkIdx + "/" + totalChunks + " size=" + data.length);
-        // TODO: reassemble and deliver to caller
+
+        if (chunkIdx < 0 || data.length == 0) {
+            // Error or empty — fail the download
+            NetHandler<?, ?, ?> handler = MinecraftClientAccess.get().getNetHandler();
+            if (handler != null) handler.failDownload(modelId, new java.io.IOException("Empty download chunk"));
+            return;
+        }
+
+        synchronized (downloadBuffers) {
+            downloadExpectedChunks.put(modelId, totalChunks);
+            byte[] buffer = downloadBuffers.get(modelId);
+            if (buffer == null) {
+                buffer = new byte[totalChunks * 30_720]; // Max size estimate
+                downloadBuffers.put(modelId, buffer);
+            }
+            // Copy chunk data into buffer at the correct offset
+            int offset = chunkIdx * 30_720;
+            System.arraycopy(data, 0, buffer, offset, Math.min(data.length, buffer.length - offset));
+
+            // Check if all chunks received
+            int receivedCount = downloadExpectedChunks.getOrDefault(modelId, 0) > 0 ? 1 : 0;
+            // Simple check: if this is the last chunk (idx == total-1), complete
+            if (chunkIdx == totalChunks - 1) {
+                // Trim to actual size
+                int actualSize = offset + data.length;
+                byte[] result = java.util.Arrays.copyOf(buffer, actualSize);
+                downloadBuffers.remove(modelId);
+                downloadExpectedChunks.remove(modelId);
+
+                NetHandler<?, ?, ?> handler = MinecraftClientAccess.get().getNetHandler();
+                if (handler != null) handler.completeDownload(modelId, result);
+
+                // Gap 9: Also save to player_models/ for local editing
+                try {
+                    File modelsDir = new File(MinecraftClientAccess.get().getGameDir(), "player_models");
+                    modelsDir.mkdirs();
+                    File outFile = new File(modelsDir, "server_model_" + modelId + ".cpmmodel");
+                    java.nio.file.Files.write(outFile.toPath(), result);
+                    Log.info("Downloaded model saved to: " + outFile.getAbsolutePath());
+                } catch (Exception e) {
+                    Log.error("Failed to save downloaded model to disk", e);
+                }
+            }
+        }
     }
 
     @Override

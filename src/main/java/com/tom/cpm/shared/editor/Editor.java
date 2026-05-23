@@ -192,6 +192,9 @@ public class Editor {
 	public SkinType skinType;
 	public boolean customSkinType;
 	public ModelDescription description;
+	/** Server model ID — set when this model is uploaded to/downloaded from the built-in server.
+	 *  Null means no server association. Non-null triggers "Update on Server" in ExportPopup. */
+	public Long serverModelId;
 	public String modelId;
 	public boolean hideHeadIfSkull, removeArmorOffset, removeBedOffset, enableInvisGlow;
 	public Image vanillaSkin;

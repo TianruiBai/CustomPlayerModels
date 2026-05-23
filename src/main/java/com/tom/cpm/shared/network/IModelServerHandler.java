@@ -39,4 +39,7 @@ public interface IModelServerHandler {
 
     /** Handle model deletion. Tag contains: modelId. */
     <P> void handleDelete(NetHandler<?, P, ?> handler, ServerNetH net, P player, NBTTagCompound tag);
+
+    /** Handle model update (single-packet, ≤30KB). Tag contains: modelId, data (encrypted), dataIv, dataTag, sha256. */
+    <P> void handleModelUpdate(NetHandler<?, P, ?> handler, ServerNetH net, P player, NBTTagCompound tag);
 }

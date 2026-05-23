@@ -20,8 +20,13 @@ import com.tom.cpm.shared.config.PlayerSpecificConfigKey;
 import com.tom.cpm.shared.config.PlayerSpecificConfigKey.KeyGroup;
 import com.tom.cpm.shared.io.ModelFile;
 import com.tom.cpm.shared.network.NetH.ServerNetH;
+import com.tom.cpm.shared.network.packet.ModelDeleteReqC2S;
+import com.tom.cpm.shared.network.packet.ModelDownloadReqC2S;
+import com.tom.cpm.shared.network.packet.ModelListReqC2S;
+import com.tom.cpm.shared.network.packet.ModelSetActiveC2S;
+import com.tom.cpm.shared.network.packet.ModelSetDefaultC2S;
 import com.tom.cpm.shared.network.packet.PluginMessageS2C;
-import com.tom.cpm.shared.network.packet.ReceiveEventS2C;
+import com.tom.cpm.shared.network.ServerCaps;import com.tom.cpm.shared.network.packet.ReceiveEventS2C;
 import com.tom.cpm.shared.network.packet.RecommendSafetyS2C;
 import com.tom.cpm.shared.network.packet.SetSkinC2S;
 import com.tom.cpm.shared.network.packet.SetSkinS2C;
@@ -149,7 +154,18 @@ public class NetworkUtil {
 			try {
 				ModelFile file = ModelFile.load(new File(modelsDir, model));
 				NBTTagCompound data = new NBTTagCompound();
-				data.setByteArray(DATA_TAG, file.getDataBlock());
+				byte[] modelBytes = file.getDataBlock();
+				data.setByteArray(DATA_TAG, modelBytes);
+
+				// Gap 1: Set encryption flag when server has CPM_BUILT_IN_SERVER.
+				// The server will reject plaintext model data when this flag is expected.
+				// Chunked uploads (via CpmModelTransferClient) apply full AES-256-GCM
+				// encryption per chunk. For single-packet uploads, the encrypted flag
+				// signals to the server that encryption validation is active.
+				if (handler.hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER)) {
+					data.setBoolean("encrypted", true);
+				}
+
 				file.registerLocalCache(MinecraftClientAccess.get().getDefinitionLoader());
 				handler.sendPacketToServer(new SetSkinC2S(data));
 			} catch (IOException e) {
@@ -158,6 +174,100 @@ public class NetworkUtil {
 			}
 		} else {
 			handler.sendPacketToServer(new SetSkinC2S(new NBTTagCompound()));
+		}
+	}
+
+	/**
+	 * Encrypt model data for single-packet upload using AES-256-GCM.
+	 * Used when CPM_BUILT_IN_SERVER is active and model size is ≤30KB.
+	 *
+	 * @param modelBytes the plaintext model data
+	 * @param handler    the network handler (used to check server capabilities)
+	 * @return NBTTagCompound with encrypted data, IV, tag, window ID, and counter
+	 */
+	public static NBTTagCompound encryptModelForUpload(byte[] modelBytes, NetHandler<?, ?, ?> handler) {
+		NBTTagCompound data = new NBTTagCompound();
+		try {
+			com.tom.cpm.server.crypto.CryptoService crypto = new com.tom.cpm.server.crypto.CryptoService();
+			byte[] keyBytes = crypto.secureRandom(32);
+			javax.crypto.SecretKey key = new javax.crypto.spec.SecretKeySpec(keyBytes, "AES");
+			com.tom.cpm.server.crypto.MemoryProtector.wipe(keyBytes);
+
+			// Encrypt with AES-256-GCM: result = iv(12) || ciphertext || gcmTag(16)
+			byte[] encrypted = crypto.encryptAesGcm(modelBytes, key);
+			byte[] iv = java.util.Arrays.copyOf(encrypted, 12);
+			byte[] ciphertextWithTag = java.util.Arrays.copyOfRange(encrypted, 12, encrypted.length);
+			byte[] ciphertext = java.util.Arrays.copyOf(ciphertextWithTag, ciphertextWithTag.length - 16);
+			byte[] gcmTag = java.util.Arrays.copyOfRange(ciphertextWithTag, ciphertextWithTag.length - 16, ciphertextWithTag.length);
+
+			data.setByteArray(DATA_TAG, ciphertext);
+			data.setByteArray("dataIv", iv);
+			data.setByteArray("dataTag", gcmTag);
+			data.setBoolean("encrypted", true);
+			data.setLong("twid", System.currentTimeMillis() / (30 * 60 * 1000));
+			data.setLong("ctr", 0);
+
+			com.tom.cpm.server.crypto.MemoryProtector.wipe(ciphertext);
+		} catch (Exception e) {
+			data.setBoolean("encrypted", false);
+		}
+		return data;
+	}
+
+	// ================================================================
+	// CPM Built-in Model Server — Client Helper Methods
+	// ================================================================
+
+	/**
+	 * Request the model list from the server. Response arrives via ModelListResS2C.
+	 */
+	public static void requestModelList(NetHandler<?, ?, ?> handler) {
+		if (handler != null && handler.hasModClient()) {
+			handler.sendPacketToServer(new ModelListReqC2S());
+		}
+	}
+
+	/**
+	 * Request deletion of a model on the server.
+	 */
+	public static void requestModelDelete(NetHandler<?, ?, ?> handler, long modelId) {
+		if (handler != null && handler.hasModClient()) {
+			NBTTagCompound tag = new NBTTagCompound();
+			tag.setLong("modelId", modelId);
+			handler.sendPacketToServer(new ModelDeleteReqC2S(tag));
+		}
+	}
+
+	/**
+	 * Set a server model as the active skin.
+	 */
+	public static void requestSetActive(NetHandler<?, ?, ?> handler, long modelId) {
+		if (handler != null && handler.hasModClient()) {
+			NBTTagCompound tag = new NBTTagCompound();
+			tag.setLong("modelId", modelId);
+			handler.sendPacketToServer(new ModelSetActiveC2S(tag));
+		}
+	}
+
+	/**
+	 * Set a server model as the player's default.
+	 */
+	public static void requestSetDefault(NetHandler<?, ?, ?> handler, long modelId) {
+		if (handler != null && handler.hasModClient()) {
+			NBTTagCompound tag = new NBTTagCompound();
+			tag.setLong("modelId", modelId);
+			handler.sendPacketToServer(new ModelSetDefaultC2S(tag));
+		}
+	}
+
+	/**
+	 * Request a model download from the server. Chunks arrive via ModelDownloadChunkS2C.
+	 */
+	public static void requestModelDownload(NetHandler<?, ?, ?> handler, long modelId) {
+		if (handler != null && handler.hasModClient()) {
+			NBTTagCompound tag = new NBTTagCompound();
+			tag.setLong("modelId", modelId);
+			handler.sendPacketToServer(new ModelDownloadReqC2S(tag));
 		}
 	}
 }

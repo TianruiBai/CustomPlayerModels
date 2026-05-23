@@ -4,6 +4,8 @@ import java.util.UUID;
 
 import com.tom.cpl.nbt.NBTTagCompound;
 import com.tom.cpl.nbt.NBTTagList;
+import com.tom.cpm.server.crypto.CryptoService;
+import com.tom.cpm.server.crypto.SessionKeyManager;
 import com.tom.cpm.server.model.ModelEntity;
 import com.tom.cpm.server.model.ModelService;
 import com.tom.cpm.server.transfer.ChunkedReceiver;
@@ -16,6 +18,7 @@ import com.tom.cpm.shared.network.NetHandler;
 import com.tom.cpm.shared.network.packet.ModelDataChunkAckS2C;
 import com.tom.cpm.shared.network.packet.ModelDeleteResultS2C;
 import com.tom.cpm.shared.network.packet.ModelListResS2C;
+import com.tom.cpm.shared.network.packet.ModelUpdateResultS2C;
 import com.tom.cpm.shared.network.packet.ModelUploadInitAckS2C;
 import com.tom.cpm.shared.network.packet.ModelUploadResumeAckS2C;
 import com.tom.cpm.shared.network.packet.ModelUploadResultS2C;
@@ -23,7 +26,7 @@ import com.tom.cpm.shared.util.Log;
 
 /**
  * Dispatches CPM model server packets to the appropriate backend services.
- * Handles: model list, chunked upload, download, set active/default, delete.
+ * Handles: model list, chunked upload, download, set active/default, delete, update.
  * All S2C responses are sent back through the native Minecraft port.
  */
 public class CpmModelPacketHandler implements IModelServerHandler {
@@ -31,13 +34,19 @@ public class CpmModelPacketHandler implements IModelServerHandler {
     private final ModelService modelService;
     private final ChunkedReceiver chunkedReceiver;
     private final TransferResumeManager resumeManager;
+    private final CryptoService cryptoService;
+    private final SessionKeyManager sessionKeyManager;
 
     public CpmModelPacketHandler(ModelService modelService,
                                   ChunkedReceiver chunkedReceiver,
-                                  TransferResumeManager resumeManager) {
+                                  TransferResumeManager resumeManager,
+                                  CryptoService cryptoService,
+                                  SessionKeyManager sessionKeyManager) {
         this.modelService = modelService;
         this.chunkedReceiver = chunkedReceiver;
         this.resumeManager = resumeManager;
+        this.cryptoService = cryptoService;
+        this.sessionKeyManager = sessionKeyManager;
     }
 
     // ---- Model List ----
@@ -81,11 +90,26 @@ public class CpmModelPacketHandler implements IModelServerHandler {
     public <P> void handleUploadInit(NetHandler<?, P, ?> handler, ServerNetH net, P player,
                                       NBTTagCompound tag) {
         UUID uuid = handler.resolvePlayerUUID(player);
+        String username = player instanceof net.minecraft.world.entity.player.Player p
+            ? p.getGameProfile().getName()
+            : uuid.toString();
         String modelName = tag.getString("name");
         String modelDesc = tag.getString("desc");
         int totalSize = tag.getInteger("size");
         int numChunks = tag.getInteger("chunks");
         byte[] sha256 = tag.getByteArray("sha256");
+
+        try {
+            modelService.getRepo().upsertPlayer(uuid.toString(), username);
+        } catch (Exception e) {
+            Log.error("Failed to register player before upload init: " + uuid, e);
+            NBTTagCompound ack = new NBTTagCompound();
+            ack.setString("uid", "");
+            ack.setBoolean("accepted", false);
+            ack.setString("reason", "Unable to register player");
+            handler.sendPacketTo(net, new ModelUploadInitAckS2C(ack));
+            return;
+        }
 
         InitResult result = chunkedReceiver.initUpload(uuid, modelName, modelDesc,
             totalSize, numChunks, sha256);
@@ -298,5 +322,94 @@ public class CpmModelPacketHandler implements IModelServerHandler {
             resp.setString("msg", e.getMessage());
         }
         handler.sendPacketTo(net, new ModelDeleteResultS2C(resp));
+    }
+
+    // ---- Model Update (single-packet, ≤30KB) ----
+
+    @Override
+    public <P> void handleModelUpdate(NetHandler<?, P, ?> handler, ServerNetH net, P player,
+                                       NBTTagCompound tag) {
+        UUID uuid = handler.resolvePlayerUUID(player);
+        long modelId = tag.getLong("mid");
+        byte[] encryptedData = tag.getByteArray("data");
+        byte[] dataIv = tag.getByteArray("iv");
+        byte[] dataTag = tag.getByteArray("gtag");
+        long windowId = tag.getLong("twid");
+        long msgCounter = tag.getLong("ctr");
+
+        NBTTagCompound resp = new NBTTagCompound();
+        resp.setLong("mid", modelId);
+
+        try {
+            // Decrypt the model data using the player's time-window session key
+            javax.crypto.SecretKey key = sessionKeyManager.getEncryptionKey(uuid, windowId);
+            // Combine data || tag for decryptAesGcm which expects iv || ciphertext || tag
+            byte[] combined = new byte[dataIv.length + encryptedData.length + dataTag.length];
+            System.arraycopy(dataIv, 0, combined, 0, dataIv.length);
+            System.arraycopy(encryptedData, 0, combined, dataIv.length, encryptedData.length);
+            System.arraycopy(dataTag, 0, combined, dataIv.length + encryptedData.length, dataTag.length);
+            byte[] modelData = cryptoService.decryptAesGcm(combined, key);
+            if (modelData == null) {
+                resp.setBoolean("ok", false);
+                resp.setString("status", "DECRYPT_FAILED");
+                resp.setString("msg", "Failed to decrypt model data — possible time-window mismatch");
+                handler.sendPacketTo(net, new ModelUpdateResultS2C(resp));
+                return;
+            }
+
+            try {
+                // Basic format validation: check magic header
+                if (modelData.length == 0 || modelData[0] != 0x53) {
+                    resp.setBoolean("ok", false);
+                    resp.setString("status", "VALIDATION_FAILED");
+                    resp.setString("msg", "Invalid model data: missing CPM header byte 0x53");
+                    handler.sendPacketTo(net, new ModelUpdateResultS2C(resp));
+                    return;
+                }
+
+                // Check ownership
+                var models = modelService.getRepo().listModelsForPlayer(uuid.toString());
+                var existing = models.stream().filter(m -> m.getId() == modelId).findFirst();
+                if (existing.isEmpty()) {
+                    resp.setBoolean("ok", false);
+                    resp.setString("status", "NOT_OWNER");
+                    resp.setString("msg", "You can only update your own models");
+                    handler.sendPacketTo(net, new ModelUpdateResultS2C(resp));
+                    return;
+                }
+
+                String modelName = existing.get().getName();
+
+                // Gap 5: Use in-place updateModel to preserve the modelId
+                boolean updated = modelService.getRepo().updateModel(modelId, modelData, null);
+                if (!updated) {
+                    resp.setBoolean("ok", false);
+                    resp.setString("status", "NOT_FOUND");
+                    handler.sendPacketTo(net, new ModelUpdateResultS2C(resp));
+                    return;
+                }
+
+                resp.setBoolean("ok", true);
+                resp.setString("status", "OK");
+                resp.setLong("mid", modelId); // Same ID preserved
+
+                modelService.getRepo().logAction(uuid.toString(), "UPDATE", uuid.toString(),
+                    modelId, "Updated in-place by owner", null);
+
+                // Re-broadcast if this was the active model
+                handler.setSkin((P) player, modelData, false);
+                handler.getSNetH((P) player).cpm$getEncodedModelData().setModel(modelData, false, true);
+
+                Log.info("Model updated in-place: modelId=" + modelId + " player=" + uuid);
+            } finally {
+                com.tom.cpm.server.crypto.MemoryProtector.wipe(modelData);
+            }
+        } catch (Exception e) {
+            Log.error("Failed to update model: modelId=" + modelId, e);
+            resp.setBoolean("ok", false);
+            resp.setString("status", "ERROR");
+            resp.setString("msg", e.getMessage());
+        }
+        handler.sendPacketTo(net, new ModelUpdateResultS2C(resp));
     }
 }

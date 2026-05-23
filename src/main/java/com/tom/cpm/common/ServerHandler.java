@@ -80,7 +80,9 @@ public class ServerHandler extends ServerHandlerBase {
 			netHandler.setCpmModelPacketHandler(new CpmModelPacketHandler(
 				CpmServerInit.get().getModelService(),
 				CpmServerInit.get().getChunkedReceiver(),
-				CpmServerInit.get().getTransferResumeManager()
+				CpmServerInit.get().getTransferResumeManager(),
+				CpmServerInit.get().getCryptoService(),
+				CpmServerInit.get().getSessionKeyManager()
 			));
 		}
 	}

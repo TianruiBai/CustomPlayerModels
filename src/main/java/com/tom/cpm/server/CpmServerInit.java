@@ -171,7 +171,7 @@ public class CpmServerInit {
 
     public ModelService getModelService() { return modelService; }
     public SessionKeyManager getSessionKeyManager() { return sessionKeyManager; }
-    public CryptoService getCrypto() { return crypto; }
+    public CryptoService getCryptoService() { return crypto; }
     public boolean isInitialized() { return initialized; }
     public ChunkedReceiver getChunkedReceiver() { return chunkedReceiver; }
     public TransferResumeManager getTransferResumeManager() { return transferResumeManager; }

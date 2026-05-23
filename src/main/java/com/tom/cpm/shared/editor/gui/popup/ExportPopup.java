@@ -21,6 +21,7 @@ import com.tom.cpl.gui.elements.TextField;
 import com.tom.cpl.gui.elements.Tooltip;
 import com.tom.cpl.gui.util.ButtonGroup;
 import com.tom.cpl.math.Box;
+import com.tom.cpl.nbt.NBTTagCompound;
 import com.tom.cpl.util.EmbeddedLocalizations;
 import com.tom.cpl.util.Util;
 import com.tom.cpm.shared.MinecraftClientAccess;
@@ -40,6 +41,8 @@ import com.tom.cpm.shared.gui.SelectSkinPopup;
 import com.tom.cpm.shared.gui.SkinUploadPopup;
 import com.tom.cpm.shared.io.ModelFile;
 import com.tom.cpm.shared.model.SkinType;
+import com.tom.cpm.shared.network.NetworkUtil;
+import com.tom.cpm.shared.network.ServerCaps;
 import com.tom.cpm.shared.parts.ModelPartDefinitionLink;
 import com.tom.cpm.shared.parts.ModelPartLink;
 import com.tom.cpm.shared.util.Log;
@@ -507,8 +510,8 @@ public abstract class ExportPopup extends PopupPanel {
 		private EditorTexture icon;
 		private Checkbox skinCompat, chbxClone, chbxUUIDLock;
 		private Link defLink;
-		private Button okDef;
-		private boolean gist;
+		private Button okDef, okUploadServer;
+		private boolean gist, uploadToServer;
 
 		protected Model(EditorGui e) {
 			super(e, 320, 260, ExportMode.MODEL);
@@ -609,6 +612,31 @@ public abstract class ExportPopup extends PopupPanel {
 			okDef.setBounds(new Box(90, 235, 80, 20));
 			addElement(okDef);
 
+			// ---- "Upload to Server" / "Update on Server" button ----
+			boolean hasServer = MinecraftClientAccess.get().getServerSideStatus() == ServerStatus.INSTALLED
+				&& MinecraftClientAccess.get().getNetHandler() != null
+				&& MinecraftClientAccess.get().getNetHandler().hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER);
+			boolean isUpdate = hasServer && e.getEditor().serverModelId != null;
+
+			okUploadServer = new Button(gui, isUpdate ?
+				gui.i18nFormat("button.cpm.export.updateOnServer") :
+				gui.i18nFormat("button.cpm.export.uploadToServer"),
+				() -> {
+					uploadToServer = true;
+					close();
+					export();
+				});
+			okUploadServer.setBounds(new Box(175, 235, 100, 20));
+			if (!hasServer) {
+				okUploadServer.setEnabled(false);
+				okUploadServer.setTooltip(new Tooltip(e, gui.i18nFormat("tooltip.cpm.export.noServer")));
+			} else {
+				okUploadServer.setTooltip(new Tooltip(e, isUpdate ?
+					gui.i18nFormat("tooltip.cpm.export.updateOnServer") :
+					gui.i18nFormat("tooltip.cpm.export.uploadToServer")));
+			}
+			addElement(okUploadServer);
+
 			updateLink();
 		}
 
@@ -638,6 +666,58 @@ public abstract class ExportPopup extends PopupPanel {
 
 			if(gist) {
 				Exporter.exportUpdate(editor, gui, defLink);
+			} else if(uploadToServer) {
+				// Gap 2: Route to chunked upload for models >30KB, single-packet for ≤30KB.
+				byte[] modelBytes = Exporter.exportToByteArray(editor, gui);
+				if (modelBytes != null) {
+					try {
+						int size = modelBytes.length;
+						boolean hasChunkedCap = MinecraftClientAccess.get().getNetHandler()
+							.hasServerCap(ServerCaps.CPM_CHUNKED_TRANSFER);
+
+						if (size > 30_720 && hasChunkedCap) {
+							// Chunked upload path (>30KB): encrypts via ChunkedUploader
+							byte[] uploadBytes = modelBytes.clone();
+							com.tom.cpm.server.client.CpmModelTransferClient client =
+								com.tom.cpm.server.client.CpmModelTransferClient.getInstance(null);
+							var uploader = client.startUpload(uploadBytes,
+								editor.description != null ? editor.description.name : nameField.getText(),
+								editor.description != null ? editor.description.desc : descField.getText(),
+								progress -> { /* UI progress tracking via UploadProgressTracker */ });
+							if (uploader != null) {
+								if (editor.serverModelId != null) {
+									// Update mode: set existing model ID
+									uploader.setExistingModelId(editor.serverModelId);
+								}
+								client.sendInitPacket();
+								// Subsequent chunks are sent by CpmModelTransferClient.sendNextChunk()
+								// after each ACK. The serverModelId is stored by
+								// CpmModelTransferClient.handleUploadResult().
+							}
+						} else {
+							// Single-packet upload path (≤30KB or no chunked cap):
+							// encrypt model data and send via SetSkinC2S
+							NBTTagCompound encryptedData = NetworkUtil.encryptModelForUpload(modelBytes,
+								MinecraftClientAccess.get().getNetHandler());
+							MinecraftClientAccess.get().getNetHandler().sendPacketToServer(
+								new com.tom.cpm.shared.network.packet.SetSkinC2S(encryptedData));
+						}
+					} finally {
+						com.tom.cpm.server.crypto.MemoryProtector.wipe(modelBytes);
+					}
+				}
+
+				// Also save locally so the player has a copy
+				File modelsDir = new File(MinecraftClientAccess.get().getGameDir(), "player_models");
+				modelsDir.mkdirs();
+				String fileName = nameField.getText().replaceAll("[^a-zA-Z0-9\\.\\-]", "") + ".cpmmodel";
+				File selFile = new File(modelsDir, fileName);
+				Exporter.exportModel(editor, gui, selFile, editor.description, skinCompat.isSelected());
+
+				// Update editor state for future "Update on Server" detection
+				if (editor.description != null && editor.serverModelId != null) {
+					editor.description.serverModelId = editor.serverModelId;
+				}
 			} else {
 				File modelsDir = new File(MinecraftClientAccess.get().getGameDir(), "player_models");
 				modelsDir.mkdirs();

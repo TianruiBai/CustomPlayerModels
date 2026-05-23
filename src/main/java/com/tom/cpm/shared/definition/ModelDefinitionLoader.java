@@ -48,6 +48,7 @@ import com.tom.cpm.shared.io.SkinDataInputStream;
 import com.tom.cpm.shared.loaders.GistResourceLoader;
 import com.tom.cpm.shared.loaders.GithubRepoResourceLoader;
 import com.tom.cpm.shared.loaders.ModelsCDNResourceLoader;
+import com.tom.cpm.shared.loaders.CpmDbResourceLoader;
 import com.tom.cpm.shared.loaders.PasteResourceLoader;
 import com.tom.cpm.shared.loaders.PastebinResourceLoader;
 import com.tom.cpm.shared.model.SkinType;
@@ -116,6 +117,7 @@ public class ModelDefinitionLoader<GP> {
 		LOADERS.put("p", new PasteResourceLoader());
 		LOADERS.put("pb", new PastebinResourceLoader());
 		LOADERS.put("ms", new ModelsCDNResourceLoader());
+		LOADERS.put("cpmdb", new CpmDbResourceLoader());
 		LOADERS.put("local", new ResourceLoader() {
 
 			@Override

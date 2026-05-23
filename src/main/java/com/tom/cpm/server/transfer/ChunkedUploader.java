@@ -33,6 +33,7 @@ public class ChunkedUploader {
     private int lastAckedChunk = -1;
     private State state = State.IDLE;
     private SecretKey sessionKey; // Set by CpmModelTransferClient before upload starts
+    private long existingModelId; // Non-zero when updating an existing server model
 
     public enum State { IDLE, INITIATING, UPLOADING, COMPLETING, DONE, CANCELLED, FAILED }
 
@@ -75,6 +76,18 @@ public class ChunkedUploader {
      */
     public void setSessionKey(SecretKey key) {
         this.sessionKey = key;
+    }
+
+    /**
+     * Set an existing model ID to update instead of creating a new model.
+     * Set to 0 or negative for new model uploads.
+     */
+    public void setExistingModelId(long modelId) {
+        this.existingModelId = modelId;
+    }
+
+    public long getExistingModelId() {
+        return existingModelId;
     }
 
     /**
