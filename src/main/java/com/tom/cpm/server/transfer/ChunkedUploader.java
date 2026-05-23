@@ -5,6 +5,8 @@ import java.util.Arrays;
 import java.util.UUID;
 import java.util.function.Consumer;
 
+import javax.crypto.SecretKey;
+
 import com.tom.cpm.server.crypto.CryptoService;
 import com.tom.cpm.server.crypto.MemoryProtector;
 
@@ -30,6 +32,7 @@ public class ChunkedUploader {
     private String uploadId;
     private int lastAckedChunk = -1;
     private State state = State.IDLE;
+    private SecretKey sessionKey; // Set by CpmModelTransferClient before upload starts
 
     public enum State { IDLE, INITIATING, UPLOADING, COMPLETING, DONE, CANCELLED, FAILED }
 
@@ -65,6 +68,14 @@ public class ChunkedUploader {
     public String getModelDesc() { return modelDesc; }
     public String getUploadId() { return uploadId; }
     public State getState() { return state; }
+
+    /**
+     * Set the session key for chunk encryption.
+     * Must be called before any chunks are sent.
+     */
+    public void setSessionKey(SecretKey key) {
+        this.sessionKey = key;
+    }
 
     /**
      * Called when the server accepts the upload init.
@@ -111,17 +122,29 @@ public class ChunkedUploader {
             return null;
         }
 
-        // Encrypt chunk with AES-256-GCM
-        // In production, uses session key from CPM handshake
-        // For now, wrap with encryption metadata
+        // Encrypt chunk with AES-256-GCM using the session key
         byte[] iv = crypto.secureRandom(12);
+        byte[] ciphertext;
+        byte[] gcmTag;
 
-        // TODO: full encryption using session key
-        // For now, chunk is stored with placeholder encryption metadata
-        // Actual encryption key comes from CpmModelTransferClient
+        if (sessionKey != null) {
+            // Full AES-256-GCM encryption: result = iv(12) || ciphertext || gcmTag(16)
+            byte[] encrypted = crypto.encryptAesGcm(chunkPlaintext, sessionKey);
+            iv = Arrays.copyOf(encrypted, 12);
+            byte[] ciphertextWithTag = Arrays.copyOfRange(encrypted, 12, encrypted.length);
+            // Last 16 bytes are the GCM tag
+            ciphertext = Arrays.copyOf(ciphertextWithTag, ciphertextWithTag.length - 16);
+            gcmTag = Arrays.copyOfRange(ciphertextWithTag, ciphertextWithTag.length - 16, ciphertextWithTag.length);
+            // Wipe the plaintext after encryption
+            MemoryProtector.wipe(chunkPlaintext);
+        } else {
+            // No session key — plaintext passthrough (for testing / unencrypted servers)
+            ciphertext = chunkPlaintext;
+            gcmTag = new byte[16];
+        }
 
-        return new ChunkData(chunkIdx, numChunks, chunkPlaintext, iv,
-            new byte[16], chunkSha256, fullSha256);
+        return new ChunkData(chunkIdx, numChunks, ciphertext, iv,
+            gcmTag, chunkSha256, fullSha256);
     }
 
     /**

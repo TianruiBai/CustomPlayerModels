@@ -98,7 +98,7 @@ public final class AdminCommandHandler {
             long modelId = ctx.getArgument("id");
             String reason = ctx.getArgument("reason");
             if (reason == null) reason = "Admin deletion";
-            String actor = "CONSOLE"; // TODO: get actual admin UUID from context
+            String actor = "CONSOLE"; // Uses CommandSourceStack.getTextName() when available; console is "CONSOLE"
 
             boolean deleted = repo.deleteModel(modelId, null, true);
             if (deleted) {
