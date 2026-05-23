@@ -121,6 +121,9 @@ public class CommandCPM {
 										run(c -> setInvisGlow(c, c.getArgument("enable")))
 										)
 								)
+						).
+				then(new LiteralCommandBuilder("admin").
+						thenAll(CommandCPM::buildAdmin)
 						)
 				;
 		dispatcher.register(cpm, true);
@@ -445,6 +448,113 @@ public class CommandCPM {
 			});
 		else
 			l.addAll(pd.animNames.keySet());
+		return l;
+	}
+
+	// ================================================================
+	// Admin command registration (server module hooks into this)
+	// ================================================================
+
+	/**
+	 * Hook interface for admin command implementations.
+	 * The server module sets this during initialization to wire up
+	 * the database-backed admin operations.
+	 */
+	public interface AdminCommandHook {
+		void listModels(CommandCtx<?> ctx);
+		void modelInfo(CommandCtx<?> ctx);
+		void deleteModel(CommandCtx<?> ctx);
+		void forceModel(CommandCtx<?> ctx);
+		void unforceModel(CommandCtx<?> ctx);
+		void blockPlayer(CommandCtx<?> ctx);
+		void unblockPlayer(CommandCtx<?> ctx);
+		void playerInfo(CommandCtx<?> ctx);
+		void viewAudit(CommandCtx<?> ctx);
+		void dbBackup(CommandCtx<?> ctx);
+		void dbStats(CommandCtx<?> ctx);
+	}
+
+	private static AdminCommandHook adminHook;
+
+	/** Called by the server module on initialization. */
+	public static void setAdminHook(AdminCommandHook hook) {
+		adminHook = hook;
+	}
+
+	private static List<LiteralCommandBuilder> buildAdmin() {
+		if (adminHook == null) return Collections.emptyList();
+
+		List<LiteralCommandBuilder> l = new ArrayList<>();
+
+		l.add(new LiteralCommandBuilder("models").
+				then(new LiteralCommandBuilder("list").
+						run(adminHook::listModels).
+						then(new RequiredCommandBuilder("player", ArgType.STRING, false).
+								run(adminHook::listModels)
+								)
+						).
+				then(new LiteralCommandBuilder("info").
+						then(new RequiredCommandBuilder("id", ArgType.INT).
+								run(adminHook::modelInfo)
+								)
+						).
+				then(new LiteralCommandBuilder("delete").
+						then(new RequiredCommandBuilder("id", ArgType.INT).
+								run(adminHook::deleteModel).
+								then(new RequiredCommandBuilder("reason", ArgType.STRING, true).
+										run(adminHook::deleteModel)
+										)
+								)
+						).
+				then(new LiteralCommandBuilder("force").
+						then(new RequiredCommandBuilder("id", ArgType.INT).
+								run(adminHook::forceModel)
+								)
+						).
+				then(new LiteralCommandBuilder("unforce").
+						then(new RequiredCommandBuilder("id", ArgType.INT).
+								run(adminHook::unforceModel)
+								)
+						)
+				);
+
+		l.add(new LiteralCommandBuilder("players").
+				then(new LiteralCommandBuilder("block").
+						then(new RequiredCommandBuilder("uuid", ArgType.STRING, false).
+								run(adminHook::blockPlayer)
+								)
+						).
+				then(new LiteralCommandBuilder("unblock").
+						then(new RequiredCommandBuilder("uuid", ArgType.STRING, false).
+								run(adminHook::unblockPlayer)
+								)
+						).
+				then(new LiteralCommandBuilder("info").
+						then(new RequiredCommandBuilder("uuid", ArgType.STRING, false).
+								run(adminHook::playerInfo)
+								)
+						)
+				);
+
+		l.add(new LiteralCommandBuilder("audit").
+				run(adminHook::viewAudit).
+				then(new RequiredCommandBuilder("page", ArgType.INT).
+						run(adminHook::viewAudit).
+						then(new RequiredCommandBuilder("player", ArgType.STRING, false).
+								run(adminHook::viewAudit)
+								)
+						)
+				);
+
+		l.add(new LiteralCommandBuilder("db").
+				then(new LiteralCommandBuilder("backup").
+						run(adminHook::dbBackup)
+						).
+				then(new LiteralCommandBuilder("stats").
+						run(adminHook::dbStats)
+						)
+				);
+
 		return l;
 	}
 }
