@@ -678,9 +678,19 @@ public abstract class ExportPopup extends PopupPanel {
 						if (size > 30_720 && hasChunkedCap) {
 							// Chunked upload path (>30KB): encrypts via ChunkedUploader
 							byte[] uploadBytes = modelBytes.clone();
+							// Extract icon PNG bytes
+							byte[] iconBytes = null;
+							if (editor.description != null && editor.description.icon != null) {
+								try (java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream()) {
+									editor.description.icon.storeTo(baos);
+									iconBytes = baos.toByteArray();
+								} catch (java.io.IOException e) {
+									Log.warn("Failed to extract icon for upload", e);
+								}
+							}
 							com.tom.cpm.server.client.CpmModelTransferClient client =
 								com.tom.cpm.server.client.CpmModelTransferClient.getInstance(null);
-							var uploader = client.startUpload(uploadBytes,
+							var uploader = client.startUpload(uploadBytes, iconBytes,
 								editor.description != null ? editor.description.name : nameField.getText(),
 								editor.description != null ? editor.description.desc : descField.getText(),
 								progress -> { /* UI progress tracking via UploadProgressTracker */ });

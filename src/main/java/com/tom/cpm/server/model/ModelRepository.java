@@ -206,6 +206,31 @@ public class ModelRepository {
     }
 
     /**
+     * Load a model's encrypted icon data. Returns decrypted PNG bytes, or null.
+     */
+    public byte[] loadModelIcon(long modelId) throws SQLException {
+        String sql = "SELECT icon_enc, icon_iv, icon_tag FROM models WHERE id = ?";
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, modelId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    byte[] iconEnc = rs.getBytes("icon_enc");
+                    byte[] iconIv = rs.getBytes("icon_iv");
+                    byte[] iconTag = rs.getBytes("icon_tag");
+
+                    if (iconEnc == null || iconEnc.length == 0) return null;
+
+                    SecretKey perRowKey = crypto.derivePerRowKey(columnMasterKey, modelId);
+                    EncryptedModelBlob blob = new EncryptedModelBlob(iconEnc, iconIv, iconTag, 0, perRowKey);
+                    return blob.getDecrypted();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * List models for a specific player.
      */
     public List<ModelEntity> listModelsForPlayer(String playerUuid) throws SQLException {

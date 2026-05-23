@@ -617,15 +617,25 @@ public class EditorGui extends Frame {
 				return;
 			}
 
+			// Extract icon PNG bytes from editor description
+			byte[] iconData = null;
+			if (editor.description != null && editor.description.icon != null) {
+				try (java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream()) {
+					editor.description.icon.storeTo(baos);
+					iconData = baos.toByteArray();
+				}
+			}
+
 			// Get or create the transfer client
 			CpmModelTransferClient transferClient = CpmModelTransferClient.getInstance(
 				new com.tom.cpm.server.crypto.CryptoService());
 
 			String modelName = editor.description != null && editor.description.name != null ?
 				editor.description.name : "Unnamed Model";
-			String modelDesc = "";
+			String modelDesc = editor.description != null && editor.description.desc != null ?
+				editor.description.desc : "";
 
-			transferClient.startUpload(modelData, modelName, modelDesc, progress -> {
+			transferClient.startUpload(modelData, iconData, modelName, modelDesc, progress -> {
 				// Progress callback: update UI as chunks are sent
 				if (progress.ok()) {
 					int pct = (int) progress.getPercent();

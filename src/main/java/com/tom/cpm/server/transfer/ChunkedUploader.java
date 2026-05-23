@@ -23,6 +23,7 @@ public class ChunkedUploader {
 
     private final CryptoService crypto;
     private final byte[] fullData;
+    private final byte[] iconData;
     private final String modelName;
     private final String modelDesc;
     private final int numChunks;
@@ -40,14 +41,17 @@ public class ChunkedUploader {
     /**
      * @param crypto       crypto service for chunk encryption
      * @param fullData     the complete model byte array (will NOT be wiped — caller owns it)
+     * @param iconData     optional icon PNG bytes (may be null)
      * @param modelName    model name
      * @param modelDesc    model description
      * @param progressCallback receives progress updates (chunk index / total chunks)
      */
-    public ChunkedUploader(CryptoService crypto, byte[] fullData, String modelName,
-                           String modelDesc, Consumer<Progress> progressCallback) {
+    public ChunkedUploader(CryptoService crypto, byte[] fullData, byte[] iconData,
+                           String modelName, String modelDesc,
+                           Consumer<Progress> progressCallback) {
         this.crypto = crypto;
         this.fullData = fullData;
+        this.iconData = iconData;
         this.modelName = modelName;
         this.modelDesc = modelDesc;
         this.numChunks = ChunkProtocol.chunkCount(fullData.length);
@@ -67,6 +71,7 @@ public class ChunkedUploader {
     public byte[] getFullSha256() { return fullSha256; }
     public String getModelName() { return modelName; }
     public String getModelDesc() { return modelDesc; }
+    public byte[] getIconData() { return iconData; }
     public String getUploadId() { return uploadId; }
     public State getState() { return state; }
 

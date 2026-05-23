@@ -55,8 +55,8 @@ public class CpmModelTransferClient implements IModelClientHandler {
     /**
      * Start uploading a model to the server.
      */
-    public ChunkedUploader startUpload(byte[] modelData, String modelName,
-                                        String modelDesc,
+    public ChunkedUploader startUpload(byte[] modelData, byte[] iconData,
+                                        String modelName, String modelDesc,
                                         Consumer<Progress> progressListener) {
         if (activeUpload != null && activeUpload.getState() != ChunkedUploader.State.DONE) {
             Log.warn("Upload already in progress, cancelling previous");
@@ -64,7 +64,7 @@ public class CpmModelTransferClient implements IModelClientHandler {
         }
 
         ChunkedUploader uploader = new ChunkedUploader(
-            crypto, modelData, modelName, modelDesc, progress -> {
+            crypto, modelData, iconData, modelName, modelDesc, progress -> {
                 if (progressListener != null) progressListener.accept(progress);
                 if (globalProgressListener != null) globalProgressListener.accept(progress);
             }
@@ -91,6 +91,11 @@ public class CpmModelTransferClient implements IModelClientHandler {
         tag.setInteger("size", activeUpload.getTotalSize());
         tag.setInteger("chunks", activeUpload.getNumChunks());
         tag.setByteArray("sha256", activeUpload.getFullSha256());
+        // Include icon data if available
+        byte[] iconData = activeUpload.getIconData();
+        if (iconData != null && iconData.length > 0) {
+            tag.setByteArray("icon", iconData);
+        }
         // Gap 2: Include existingModelId for updates
         long existingId = activeUpload.getExistingModelId();
         if (existingId > 0) {

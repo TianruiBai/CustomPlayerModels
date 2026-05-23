@@ -46,7 +46,8 @@ public class ChunkedReceiver {
      * Called when ModelUploadInitC2S is received.
      */
     public InitResult initUpload(UUID playerUuid, String modelName, String modelDesc,
-                                  int totalSize, int numChunks, byte[] fullSha256) {
+                                  int totalSize, int numChunks, byte[] fullSha256,
+                                  byte[] iconData) {
         // Validate against limits
         if (totalSize > ChunkProtocol.MAX_MODEL_SIZE) {
             return InitResult.reject("Model exceeds maximum size: " +
@@ -75,7 +76,7 @@ public class ChunkedReceiver {
         String uploadId = UUID.randomUUID().toString();
         PendingUpload upload = new PendingUpload(
             uploadId, playerUuid, modelName, modelDesc,
-            totalSize, numChunks, fullSha256
+            totalSize, numChunks, fullSha256, iconData
         );
         pendingUploads.put(uploadId, upload);
 
@@ -197,7 +198,7 @@ public class ChunkedReceiver {
                 upload.modelName,
                 upload.modelDesc,
                 reassembled,
-                null // icon — extracted from model data in future enhancement
+                upload.iconData
             );
             // reassembled is now wiped by storeModel -> EncryptedModelBlob constructor
 
@@ -301,6 +302,7 @@ public class ChunkedReceiver {
         final int numChunks;
         final long createdAt;
         byte[] fullSha256;
+        byte[] iconData;
         boolean completed;
 
         private final byte[][] chunks;
@@ -308,7 +310,7 @@ public class ChunkedReceiver {
         private int receivedCount;
 
         PendingUpload(String uploadId, UUID playerUuid, String modelName, String modelDesc,
-                      int totalSize, int numChunks, byte[] fullSha256) {
+                      int totalSize, int numChunks, byte[] fullSha256, byte[] iconData) {
             this.uploadId = uploadId;
             this.playerUuid = playerUuid;
             this.modelName = modelName;
@@ -316,6 +318,7 @@ public class ChunkedReceiver {
             this.totalSize = totalSize;
             this.numChunks = numChunks;
             this.fullSha256 = fullSha256 != null ? Arrays.copyOf(fullSha256, fullSha256.length) : null;
+            this.iconData = iconData != null ? Arrays.copyOf(iconData, iconData.length) : null;
             this.createdAt = System.currentTimeMillis();
             this.chunks = new byte[numChunks][];
             this.received = new boolean[numChunks];

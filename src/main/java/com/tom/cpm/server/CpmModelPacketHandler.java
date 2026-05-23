@@ -70,6 +70,15 @@ public class CpmModelPacketHandler implements IModelServerHandler {
                 entry.setBoolean("forced", m.isForced());
                 entry.setLong("created", m.getCreatedAt() != null ?
                     m.getCreatedAt().getTime() : 0L);
+                // Load icon data
+                try {
+                    byte[] iconData = modelService.getRepo().loadModelIcon(m.getId());
+                    if (iconData != null && iconData.length > 0) {
+                        entry.setByteArray("icon", iconData);
+                    }
+                } catch (Exception e) {
+                    Log.debug("Failed to load icon for model " + m.getId() + ": " + e.getMessage());
+                }
                 list.appendTag(entry);
             }
             tag.setTag("models", list);
@@ -98,6 +107,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
         int totalSize = tag.getInteger("size");
         int numChunks = tag.getInteger("chunks");
         byte[] sha256 = tag.getByteArray("sha256");
+        byte[] iconData = tag.hasKey("icon") ? tag.getByteArray("icon") : null;
 
         try {
             modelService.getRepo().upsertPlayer(uuid.toString(), username);
@@ -112,7 +122,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
         }
 
         InitResult result = chunkedReceiver.initUpload(uuid, modelName, modelDesc,
-            totalSize, numChunks, sha256);
+            totalSize, numChunks, sha256, iconData);
 
         NBTTagCompound ack = new NBTTagCompound();
         ack.setString("uid", result.uploadId());

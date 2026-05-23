@@ -1,5 +1,6 @@
 package com.tom.cpm.shared.gui;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -9,6 +10,7 @@ import java.util.Locale;
 
 import com.tom.cpl.gui.Frame;
 import com.tom.cpl.gui.IGui;
+import com.tom.cpl.gui.MouseEvent;
 import com.tom.cpl.gui.elements.Button;
 import com.tom.cpl.gui.elements.ConfirmPopup;
 import com.tom.cpl.gui.elements.Label;
@@ -19,8 +21,10 @@ import com.tom.cpl.gui.elements.ScrollPanel;
 import com.tom.cpl.gui.util.HorizontalLayout;
 import com.tom.cpl.gui.util.TabbedPanelManager;
 import com.tom.cpl.math.Box;
+import com.tom.cpl.math.Vec2i;
 import com.tom.cpl.nbt.NBTTagCompound;
 import com.tom.cpl.nbt.NBTTagList;
+import com.tom.cpl.util.Image;
 import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.MinecraftClientAccess.ServerStatus;
 import com.tom.cpm.shared.editor.gui.EditorGui;
@@ -28,6 +32,8 @@ import com.tom.cpm.shared.config.ConfigKeys;
 import com.tom.cpm.shared.config.ModConfig;
 import com.tom.cpm.shared.network.NetHandler;
 import com.tom.cpm.shared.network.packet.ModelDeleteReqC2S;
+import com.tom.cpm.shared.skin.TextureProvider;
+import com.tom.cpm.shared.util.Log;
 import com.tom.cpm.shared.network.packet.ModelListReqC2S;
 import com.tom.cpm.shared.network.packet.ModelSetActiveC2S;
 import com.tom.cpm.shared.network.packet.ModelSetDefaultC2S;
@@ -58,6 +64,7 @@ public class MyModelsPopup extends PopupPanel {
 	private List<ModelEntry> localEntries = new ArrayList<>();
 	private List<ModelEntry> serverEntries = new ArrayList<>();
 	private List<ModelEntry> pasteEntries = new ArrayList<>();
+	private List<TextureProvider> serverModelIcons = new ArrayList<>();
 
 	public MyModelsPopup(Frame frame) {
 		super(frame.getGui());
@@ -129,6 +136,10 @@ public class MyModelsPopup extends PopupPanel {
 
 	private void refreshServerModels() {
 		serverEntries.clear();
+		for (TextureProvider tex : serverModelIcons) {
+			if (tex != null) tex.free();
+		}
+		serverModelIcons.clear();
 		serverPanel.getElements().clear();
 		loadServerModels();
 	}
@@ -255,6 +266,10 @@ public class MyModelsPopup extends PopupPanel {
 		MinecraftClientAccess.get().executeOnGameThread(() -> {
 			serverPanel.getElements().clear();
 			serverEntries.clear();
+			for (TextureProvider tex : serverModelIcons) {
+				if (tex != null) tex.free();
+			}
+			serverModelIcons.clear();
 
 			NBTTagList list = data.getTagList("models", 10); // 10 = NBTTagCompound type
 			if (list == null || list.tagCount() == 0) {
@@ -273,18 +288,36 @@ public class MyModelsPopup extends PopupPanel {
 				int size = entry.getInteger("size");
 				boolean isDefault = entry.getBoolean("default");
 				long created = entry.getLong("created");
+				byte[] iconData = entry.hasKey("icon") ? entry.getByteArray("icon") : null;
 
 				ModelEntry model = new ModelEntry(name, size, id, created, "server", null);
 				serverEntries.add(model);
 
+				boolean hasIcon = iconData != null && iconData.length > 0;
+				int iconW = hasIcon ? ENTRY_HEIGHT : 0;
+				if (hasIcon) {
+					try {
+						Image img = Image.loadFrom(new ByteArrayInputStream(iconData));
+						TextureProvider tex = new TextureProvider(img, new Vec2i(img.getWidth(), img.getHeight()));
+						serverModelIcons.add(tex);
+						ModelIconPanel iconPnl = new ModelIconPanel(gui, tex, ENTRY_HEIGHT - 4, ENTRY_HEIGHT - 4);
+						iconPnl.setBounds(new Box(3, y + 2, ENTRY_HEIGHT - 4, ENTRY_HEIGHT - 4));
+						serverPanel.addElement(iconPnl);
+					} catch (Exception e) {
+						Log.warn("Failed to load icon for model " + id + ": " + e.getMessage());
+						hasIcon = false;
+						iconW = 0;
+					}
+				}
+
 				// Name label (with default indicator)
 				String labelText = name + (isDefault ? gui.i18nFormat("label.cpm.myModels.defaultFlag") : "");
 				Label nameLbl = new Label(gui, labelText);
-				nameLbl.setBounds(new Box(5, y, 200, 10));
+				nameLbl.setBounds(new Box(5 + iconW, y, 200, 10));
 				serverPanel.addElement(nameLbl);
 
 				Label metaLbl = new Label(gui, formatSize(size) + " | " + formatTime(created));
-				metaLbl.setBounds(new Box(5, y + 12, 220, 10));
+				metaLbl.setBounds(new Box(5 + iconW, y + 12, 220, 10));
 				serverPanel.addElement(metaLbl);
 
 				int btnX = 230;
@@ -391,5 +424,33 @@ public class MyModelsPopup extends PopupPanel {
 	public void onClosed() {
 		super.onClosed();
 		CpmModelTransferClient.getInstance(new CryptoService()).removeModelListListener(this::populateServerModels);
+		for (TextureProvider tex : serverModelIcons) {
+			if (tex != null) tex.free();
+		}
+		serverModelIcons.clear();
+	}
+
+	// ================================================================
+	// Icon panel element — renders a model icon in the server list
+	// ================================================================
+
+	private static class ModelIconPanel extends Panel {
+		private final TextureProvider icon;
+		private final int iconW, iconH;
+
+		ModelIconPanel(IGui gui, TextureProvider icon, int w, int h) {
+			super(gui);
+			this.icon = icon;
+			this.iconW = w;
+			this.iconH = h;
+		}
+
+		@Override
+		public void draw(MouseEvent event, float partialTicks) {
+			if (icon != null) {
+				icon.bind();
+				gui.drawTexture(bounds.x, bounds.y, iconW, iconH, 0, 0, 1, 1);
+			}
+		}
 	}
 }
