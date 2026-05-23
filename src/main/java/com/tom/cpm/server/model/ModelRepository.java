@@ -98,67 +98,85 @@ public class ModelRepository {
             throw new SQLException("SHA-256 not available", e);
         }
 
-        // Generate a temporary ID for key derivation (we need the ID for the key,
-        // but we need the key to encrypt... use a placeholder, then update)
-        // Actually, we use a random row ID strategy: derive key from UUID, store,
-        // then the auto-increment ID is used for future re-encryption on key rotation.
-
-        String sql = """
+        String insertSql = """
             INSERT INTO models (player_uuid, name, description,
                 data_enc, data_iv, data_tag,
                 icon_enc, icon_iv, icon_tag,
                 size_bytes, sha256, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """;
+        String updateSql = """
+            UPDATE models
+            SET data_enc=?, data_iv=?, data_tag=?,
+                icon_enc=?, icon_iv=?, icon_tag=?,
+                size_bytes=?, sha256=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """;
 
-        // Encrypt with a unique per-row key derived from a random seed
-        byte[] rowSeed = crypto.secureRandom(16);
-        SecretKey perRowKey = crypto.derivePerRowKey(columnMasterKey,
-            java.nio.ByteBuffer.wrap(rowSeed).getLong());
+        try (Connection conn = dbManager.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                long modelId;
+                try (PreparedStatement ps = conn.prepareStatement(insertSql, Statement.RETURN_GENERATED_KEYS)) {
+                    ps.setString(1, playerUuid);
+                    ps.setString(2, name);
+                    ps.setString(3, description);
+                    ps.setBytes(4, new byte[0]);
+                    ps.setBytes(5, new byte[12]);
+                    ps.setBytes(6, new byte[16]);
+                    ps.setNull(7, java.sql.Types.BLOB);
+                    ps.setNull(8, java.sql.Types.BINARY);
+                    ps.setNull(9, java.sql.Types.BINARY);
+                    ps.setInt(10, modelData.length);
+                    ps.setBytes(11, sha256);
+                    ps.executeUpdate();
 
-        EncryptedModelBlob blob = new EncryptedModelBlob(modelData, perRowKey);
-        // modelData is now wiped by EncryptedModelBlob constructor
-
-        EncryptedModelBlob iconBlob = null;
-        if (iconData != null && iconData.length > 0) {
-            iconBlob = new EncryptedModelBlob(iconData, perRowKey);
-        }
-
-        try (Connection conn = dbManager.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            ps.setString(1, playerUuid);
-            ps.setString(2, name);
-            ps.setString(3, description);
-            ps.setBytes(4, blob.getCiphertext());
-            ps.setBytes(5, blob.getIv());
-            ps.setBytes(6, blob.getGcmTag());
-            if (iconBlob != null) {
-                ps.setBytes(7, iconBlob.getCiphertext());
-                ps.setBytes(8, iconBlob.getIv());
-                ps.setBytes(9, iconBlob.getGcmTag());
-            } else {
-                ps.setNull(7, java.sql.Types.BLOB);
-                ps.setNull(8, java.sql.Types.BINARY);
-                ps.setNull(9, java.sql.Types.BINARY);
-            }
-            ps.setInt(10, blob.getPlaintextSize());
-            ps.setBytes(11, sha256);
-            ps.executeUpdate();
-
-            try (ResultSet rs = ps.getGeneratedKeys()) {
-                if (rs.next()) {
-                    long modelId = rs.getLong(1);
-
-                    // Store the row seed for future key derivation
-                    // (We'll store it in a separate column in a future migration;
-                    // for now, the per-row key is derived deterministically from the ID
-                    // which is known after insert)
-
-                    return modelId;
+                    try (ResultSet rs = ps.getGeneratedKeys()) {
+                        if (!rs.next()) {
+                            throw new SQLException("Failed to store model — no ID returned");
+                        }
+                        modelId = rs.getLong(1);
+                    }
                 }
+
+                SecretKey perRowKey = crypto.derivePerRowKey(columnMasterKey, modelId);
+                EncryptedModelBlob blob = new EncryptedModelBlob(modelData, perRowKey);
+                EncryptedModelBlob iconBlob = null;
+                if (iconData != null && iconData.length > 0) {
+                    iconBlob = new EncryptedModelBlob(iconData, perRowKey);
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement(updateSql)) {
+                    ps.setBytes(1, blob.getCiphertext());
+                    ps.setBytes(2, blob.getIv());
+                    ps.setBytes(3, blob.getGcmTag());
+                    if (iconBlob != null) {
+                        ps.setBytes(4, iconBlob.getCiphertext());
+                        ps.setBytes(5, iconBlob.getIv());
+                        ps.setBytes(6, iconBlob.getGcmTag());
+                    } else {
+                        ps.setNull(4, java.sql.Types.BLOB);
+                        ps.setNull(5, java.sql.Types.BINARY);
+                        ps.setNull(6, java.sql.Types.BINARY);
+                    }
+                    ps.setInt(7, blob.getPlaintextSize());
+                    ps.setBytes(8, sha256);
+                    ps.setLong(9, modelId);
+                    if (ps.executeUpdate() != 1) {
+                        throw new SQLException("Failed to finalize encrypted model row: " + modelId);
+                    }
+                }
+
+                conn.commit();
+                return modelId;
+            } catch (Exception e) {
+                conn.rollback();
+                if (e instanceof SQLException sqlEx) throw sqlEx;
+                throw new SQLException("Failed to store encrypted model", e);
+            } finally {
+                conn.setAutoCommit(true);
             }
         }
-        throw new SQLException("Failed to store model — no ID returned");
     }
 
     /**

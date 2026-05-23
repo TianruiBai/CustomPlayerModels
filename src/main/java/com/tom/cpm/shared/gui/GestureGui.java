@@ -315,11 +315,11 @@ public class GestureGui extends Frame implements IGestureButtonContainer {
 			btnSkinMenu.setTooltip(new Tooltip(this, gui.i18nFormat("label.cpm.feature_unavailable")));
 		}
 
-		if(TestIngameManager.isTesting()) {
-			Button btnOpenEditor = new Button(gui, gui.i18nFormat("button.cpm.open_editor"), () -> MinecraftClientAccess.get().openGui(EditorGui::new));
-			btnOpenEditor.setBounds(new Box(0, 20, 160, 20));
-			btnPanel3.addElement(btnOpenEditor);
+		Button btnOpenEditor = new Button(gui, gui.i18nFormat("button.cpm.open_editor"), () -> MinecraftClientAccess.get().openGui(EditorGui::new));
+		btnOpenEditor.setBounds(new Box(0, 20, 160, 20));
+		btnPanel3.addElement(btnOpenEditor);
 
+		if(TestIngameManager.isTesting()) {
 			Button btnOpenFP = new Button(gui, gui.i18nFormat("button.cpm.effect.setFpHandPos"), () -> MinecraftClientAccess.get().openGui(FirstPersonHandPosGui::new));
 			btnOpenFP.setBounds(new Box(0, 0, 160, 20));
 			btnPanel3.addElement(btnOpenFP);

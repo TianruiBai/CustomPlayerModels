@@ -41,7 +41,7 @@ public class PlayerData {
 	}
 
 	public void setModel(byte[] data, boolean forced, boolean save) {
-		this.data = data;
+		this.data = data != null ? data.clone() : null;
 		this.forced = forced;
 		this.save = save;
 	}
