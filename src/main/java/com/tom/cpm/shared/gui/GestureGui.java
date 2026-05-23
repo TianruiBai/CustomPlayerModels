@@ -307,7 +307,7 @@ public class GestureGui extends Frame implements IGestureButtonContainer {
 		btnPanel3.setBounds(new Box(0, height - 60, 160, 60));
 		p.addElement(btnPanel3);
 
-		Button btnSkinMenu = new Button(gui, gui.i18nFormat("button.cpm.models"), () -> MinecraftClientAccess.get().openGui(ModelsGui::new));
+		Button btnSkinMenu = new Button(gui, gui.i18nFormat("button.cpm.models"), () -> new MyModelsPopup(this).open());
 		btnSkinMenu.setBounds(new Box(0, 40, 160, 20));
 		btnPanel3.addElement(btnSkinMenu);
 		if(status != ServerStatus.INSTALLED) {

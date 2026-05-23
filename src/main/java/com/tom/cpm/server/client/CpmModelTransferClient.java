@@ -1,7 +1,10 @@
 package com.tom.cpm.server.client;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 import com.tom.cpm.server.transfer.ChunkedUploader;
@@ -17,6 +20,7 @@ import com.tom.cpm.shared.network.packet.ModelUploadCompleteC2S;
 import com.tom.cpm.shared.network.packet.ModelUploadCancelC2S;
 import com.tom.cpm.shared.util.Log;
 import com.tom.cpl.nbt.NBTTagCompound;
+import com.tom.cpl.nbt.NBTTagList;
 
 /**
  * Client-side coordinator for model transfer operations.
@@ -33,6 +37,8 @@ public class CpmModelTransferClient implements IModelClientHandler {
     private ChunkedUploader activeUpload;
     private Consumer<Progress> globalProgressListener;
     private Runnable onCompleteCallback;
+    private final ModelListCache modelListCache = new ModelListCache();
+    private final List<Consumer<NBTTagCompound>> modelListListeners = new CopyOnWriteArrayList<>();
 
     /** Get or create the singleton instance. */
     public static CpmModelTransferClient getInstance(CryptoService crypto) {
@@ -199,6 +205,18 @@ public class CpmModelTransferClient implements IModelClientHandler {
         this.onCompleteCallback = callback;
     }
 
+    public ModelListCache getModelListCache() {
+        return modelListCache;
+    }
+
+    public void addModelListListener(Consumer<NBTTagCompound> listener) {
+        if (listener != null) modelListListeners.add(listener);
+    }
+
+    public void removeModelListListener(Consumer<NBTTagCompound> listener) {
+        if (listener != null) modelListListeners.remove(listener);
+    }
+
     /**
      * Check if there's an upload that can be resumed.
      */
@@ -220,7 +238,29 @@ public class CpmModelTransferClient implements IModelClientHandler {
     @Override
     public void handleModelList(NBTTagCompound tag) {
         Log.debug("Received model list: total=" + tag.getInteger("total"));
-        // ModelListCache or UI will consume this
+        List<ModelListCache.CachedModel> fresh = new ArrayList<>();
+        NBTTagList list = tag.getTagList("models", 10);
+        if (list != null) {
+            for (int i = 0; i < list.tagCount(); i++) {
+                NBTTagCompound e = (NBTTagCompound) list.get(i);
+                fresh.add(new ModelListCache.CachedModel(
+                    e.getLong("id"),
+                    e.getString("name"),
+                    e.getInteger("size"),
+                    e.getBoolean("default"),
+                    e.getBoolean("forced"),
+                    Long.toString(e.getLong("created"))
+                ));
+            }
+        }
+        modelListCache.update(fresh);
+        for (Consumer<NBTTagCompound> l : modelListListeners) {
+            try {
+                l.accept(tag);
+            } catch (Exception ex) {
+                Log.warn("Model list listener failed", ex);
+            }
+        }
     }
 
     @Override
@@ -279,6 +319,7 @@ public class CpmModelTransferClient implements IModelClientHandler {
         if (activeUpload != null && uid.equals(activeUpload.getUploadId())) {
             if (ok) {
                 activeUpload.onComplete(modelId);
+                modelListCache.invalidate();
                 // Store serverModelId for future updates via the onComplete callback
                 if (onCompleteCallback != null) {
                     onCompleteCallback.run();
@@ -346,17 +387,6 @@ public class CpmModelTransferClient implements IModelClientHandler {
 
                 NetHandler<?, ?, ?> handler = MinecraftClientAccess.get().getNetHandler();
                 if (handler != null) handler.completeDownload(modelId, result);
-
-                // Gap 9: Also save to player_models/ for local editing
-                try {
-                    File modelsDir = new File(MinecraftClientAccess.get().getGameDir(), "player_models");
-                    modelsDir.mkdirs();
-                    File outFile = new File(modelsDir, "server_model_" + modelId + ".cpmmodel");
-                    java.nio.file.Files.write(outFile.toPath(), result);
-                    Log.info("Downloaded model saved to: " + outFile.getAbsolutePath());
-                } catch (Exception e) {
-                    Log.error("Failed to save downloaded model to disk", e);
-                }
             }
         }
     }
@@ -367,5 +397,6 @@ public class CpmModelTransferClient implements IModelClientHandler {
         boolean ok = tag.getBoolean("ok");
         String status = tag.getString("status");
         Log.info("Delete result: modelId=" + modelId + " ok=" + ok + " status=" + status);
+        if (ok) modelListCache.invalidate();
     }
 }

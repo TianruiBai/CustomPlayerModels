@@ -29,6 +29,8 @@ import com.tom.cpm.shared.network.packet.ModelDownloadReqC2S;
 import com.tom.cpm.shared.network.packet.ModelListReqC2S;
 import com.tom.cpm.shared.network.packet.ModelSetActiveC2S;
 import com.tom.cpm.shared.network.packet.ModelSetDefaultC2S;
+import com.tom.cpm.server.client.CpmModelTransferClient;
+import com.tom.cpm.server.crypto.CryptoService;
 import com.tom.cpm.shared.paste.PasteClient;
 import com.tom.cpm.shared.paste.PastePopup;
 import com.tom.cpm.shared.util.Log;
@@ -169,6 +171,10 @@ public class MyModelsPopup extends PopupPanel {
 		lbl.setBounds(new Box(5, 10, 0, 0));
 		serverPanel.addElement(lbl);
 
+		CpmModelTransferClient client = CpmModelTransferClient.getInstance(new CryptoService());
+		client.removeModelListListener(this::populateServerModels);
+		client.addModelListListener(this::populateServerModels);
+
 		// Send the list request
 		NetHandler<?, ?, ?> nh = MinecraftClientAccess.get().getNetHandler();
 		if (nh != null) {
@@ -300,5 +306,11 @@ public class MyModelsPopup extends PopupPanel {
 
 	public void open() {
 		frame.openPopup(this);
+	}
+
+	@Override
+	public void onClosed() {
+		super.onClosed();
+		CpmModelTransferClient.getInstance(new CryptoService()).removeModelListListener(this::populateServerModels);
 	}
 }

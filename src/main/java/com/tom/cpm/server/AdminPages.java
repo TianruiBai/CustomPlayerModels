@@ -172,7 +172,11 @@ ${m.isForced?'<button class="delete-btn" onclick="unforce('+m.id+')">Unforce</bu
 </td></tr>`).join('')||'<tr><td colspan="7">No models found</td></tr>'}
 async function deleteModel(id){
 if(!confirm('Delete model #'+id+'?'))return;
-await api('/api/admin/models/'+id,{method:'DELETE'});loadModels()}
+const r=await api('/api/admin/models/'+id,{method:'DELETE'});
+if(!r)return;
+const d=await r.json().catch(()=>null);
+if(!r.ok){alert((d&&d.error)||'Delete failed');return;}
+loadModels()}
 async function forceModel(id){await api('/api/admin/models/'+id+'/force',{method:'PUT'});loadModels()}
 async function unforce(id){await api('/api/admin/models/'+id+'/force',{method:'DELETE'});loadModels()}
 async function triggerBackup(){await api('/api/admin/db/backup',{method:'POST'});alert('Backup triggered')}
