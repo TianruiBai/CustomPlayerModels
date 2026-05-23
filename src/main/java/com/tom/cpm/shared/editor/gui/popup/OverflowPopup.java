@@ -48,7 +48,7 @@ public class OverflowPopup extends PopupPanel {
 			Panel paste = new Panel(gui);
 			addTab("paste", paste, 5);
 
-			var netHandler = MinecraftClientAccess.get().getNetHandler();
+			com.tom.cpm.shared.network.NetHandler<?, ?, ?> netHandler = MinecraftClientAccess.get().getNetHandler();
 			boolean hasServer = netHandler != null && netHandler.hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER);
 
 			Label lbl1 = new Label(gui, gui.i18nFormat("label.cpm." + reason + "Overflow"));
@@ -71,7 +71,7 @@ public class OverflowPopup extends PopupPanel {
 			Button okBtn = new Button(gui, gui.i18nFormat("button.cpm.ok"), () -> {
 				String fn = txtf.getText();
 				// Check if local server is available; if so, upload overflow as part of model
-				var netHandler = MinecraftClientAccess.get().getNetHandler();
+				com.tom.cpm.shared.network.NetHandler<?, ?, ?> netHandler = MinecraftClientAccess.get().getNetHandler();
 				if (netHandler != null && netHandler.hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER)) {
 					// Upload to local server: include overflow data with the model
 					// Generate a local link for the overflow

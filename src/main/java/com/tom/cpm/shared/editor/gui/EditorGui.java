@@ -623,7 +623,7 @@ public class EditorGui extends Frame {
 			}
 
 			// Get or create the transfer client
-			var transferClient = CpmModelTransferClient.getInstance(
+			CpmModelTransferClient transferClient = CpmModelTransferClient.getInstance(
 				new com.tom.cpm.server.crypto.CryptoService());
 
 			String modelName = editor.description != null && editor.description.name != null ?
