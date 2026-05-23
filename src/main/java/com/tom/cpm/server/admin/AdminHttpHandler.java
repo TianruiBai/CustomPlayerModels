@@ -53,6 +53,13 @@ public class AdminHttpHandler {
             String path = uri.substring("/api/admin".length());
             Map<String, String> query = parseQuery(rawQuery);
 
+            // Force password change when default admin password is still active.
+            String currentHash = getConfigValue("cpmServer.admin.passwordHash", "");
+            boolean mustChangePassword = com.tom.cpm.server.CpmServerConfig.isDefaultAdminPassword(currentHash);
+            if (mustChangePassword && !path.startsWith("/password")) {
+                return json(428, "{\"error\":\"Password change required\",\"changePasswordRequired\":true}");
+            }
+
             if (path.startsWith("/models")) {
                 return handleModels(method, path, query);
             }

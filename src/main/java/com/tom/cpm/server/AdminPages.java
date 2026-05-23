@@ -57,7 +57,9 @@ method:'POST',headers:{'Content-Type':'application/json'},
 body:JSON.stringify({username:u,password:p})});
 const d=await r.json();
 if(r.ok){localStorage.setItem('cpm_token',d.token);
-localStorage.setItem('cpm_user',d.username);window.location='/admin/index.html'}
+localStorage.setItem('cpm_user',d.username);
+if(d.changePasswordRequired){localStorage.setItem('cpm_change_pwd','1')}else{localStorage.removeItem('cpm_change_pwd')}
+window.location='/admin/index.html'}
 else{err.textContent=d.error||'Login failed';err.style.display='block'}
 }catch(e){err.textContent='Network error';err.style.display='block'}});
 </script>
@@ -97,6 +99,14 @@ tr:hover{background:#1a1a4e}
 border-radius:4px;cursor:pointer;font-size:.8rem}
 .delete-btn:hover{background:#e94560;color:#fff}
 .logout{color:#e94560!important}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:1000}
+.overlay.hidden{display:none}
+.modal{background:#16213e;border:1px solid #0f3460;border-radius:10px;padding:1.2rem;max-width:420px;width:92%}
+.modal h2{font-size:1.05rem;color:#e94560;margin-bottom:.6rem}
+.modal p{font-size:.88rem;color:#a0a0b0;margin-bottom:.8rem}
+.modal input{width:100%;padding:.6rem;background:#0f3460;border:1px solid #1a1a4e;color:#fff;border-radius:6px;margin:.35rem 0}
+.modal button{margin-top:.5rem;width:100%}
+.modal .err{color:#e94560;font-size:.85rem;margin-top:.5rem;min-height:1.2rem}
 </style>
 </head>
 <body>
@@ -122,15 +132,31 @@ border-radius:4px;cursor:pointer;font-size:.8rem}
 <tbody id="modelTable"><tr><td colspan="7" style="text-align:center">Loading...</td></tr></tbody>
 </table>
 </div>
+<div id="pwdOverlay" class="overlay hidden">
+<div class="modal">
+<h2>Change Default Admin Password</h2>
+<p>Your account is using the default password. You must change it before using the dashboard.</p>
+<input type="password" id="curPwd" placeholder="Current password" autocomplete="current-password">
+<input type="password" id="newPwd" placeholder="New password" autocomplete="new-password">
+<button onclick="changePasswordRequired()">Change Password</button>
+<div id="pwdErr" class="err"></div>
+</div>
+</div>
 <script>
 const token=localStorage.getItem('cpm_token');
 if(!token)window.location='/admin/login.html';
+let mustChange=localStorage.getItem('cpm_change_pwd')==='1';
 async function api(url,opts={}){
+if(mustChange && !url.startsWith('/api/admin/password')){
+return {ok:false,status:428,json:async()=>({error:'Password change required',changePasswordRequired:true})};
+}
 const r=await fetch(url,{...opts,headers:{...opts.headers,'Authorization':'Bearer '+token}});
 if(r.status===401){logout();return null}return r}
 async function loadModels(){
+if(mustChange){showPwdOverlay();return;}
 const r=await api('/api/admin/models?size=100');
 if(!r)return;
+if(r.status===428){showPwdOverlay();return;}
 const d=await r.json();
 const tbody=document.getElementById('modelTable');
 tbody.innerHTML=d.models.map(m=>`<tr>
@@ -152,10 +178,31 @@ async function unforce(id){await api('/api/admin/models/'+id+'/force',{method:'D
 async function triggerBackup(){await api('/api/admin/db/backup',{method:'POST'});alert('Backup triggered')}
 function esc(s){return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):''}
 function logout(){localStorage.clear();window.location='/admin/login.html'}
+function showPwdOverlay(){document.getElementById('pwdOverlay').classList.remove('hidden')}
+function hidePwdOverlay(){document.getElementById('pwdOverlay').classList.add('hidden')}
+async function changePasswordRequired(){
+const currentPassword=document.getElementById('curPwd').value;
+const newPassword=document.getElementById('newPwd').value;
+const err=document.getElementById('pwdErr');
+err.textContent='';
+if(!currentPassword||!newPassword){err.textContent='Current and new password are required';return;}
+const r=await api('/api/admin/password',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword,newPassword})});
+if(!r){err.textContent='Request failed';return;}
+const d=await r.json();
+if(r.ok){
+mustChange=false;
+localStorage.removeItem('cpm_change_pwd');
+hidePwdOverlay();
+loadModels();
+}else{
+err.textContent=d.error||'Failed to change password';
+}
+}
 document.getElementById('searchInput').addEventListener('input',function(){
 const q=this.value.toLowerCase();
 document.querySelectorAll('#modelTable tr').forEach(r=>{
 r.style.display=r.textContent.toLowerCase().includes(q)?'':'none'})});
+if(mustChange)showPwdOverlay();
 loadModels();
 </script>
 </body>
