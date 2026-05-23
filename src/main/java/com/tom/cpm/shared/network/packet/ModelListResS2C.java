@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import com.tom.cpl.nbt.NBTTagCompound;
 import com.tom.cpm.shared.io.IOHelper;
+import com.tom.cpm.shared.network.IModelClientHandler;
 import com.tom.cpm.shared.network.IS2CPacket;
 import com.tom.cpm.shared.network.NetH;
 import com.tom.cpm.shared.network.NetHandler;
@@ -29,6 +30,7 @@ public class ModelListResS2C extends NBTS2C implements IS2CPacket {
 
 	@Override
 	public void handle(NetHandler<?, ?, ?> handler, NetH from) {
-		// Dispatched by client-side transfer client
+		IModelClientHandler ch = handler.getCpmModelClientHandler();
+		if (ch != null && tag != null) ch.handleModelList(tag);
 	}
 }

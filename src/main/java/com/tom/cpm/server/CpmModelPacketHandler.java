@@ -4,7 +4,6 @@ import java.util.UUID;
 
 import com.tom.cpl.nbt.NBTTagCompound;
 import com.tom.cpl.nbt.NBTTagList;
-import com.tom.cpl.nbt.NBTTagString;
 import com.tom.cpm.server.model.ModelEntity;
 import com.tom.cpm.server.model.ModelService;
 import com.tom.cpm.server.transfer.ChunkedReceiver;
@@ -64,14 +63,14 @@ public class CpmModelPacketHandler implements IModelServerHandler {
                     m.getCreatedAt().getTime() : 0L);
                 list.appendTag(entry);
             }
-            tag.setList("models", list);
+            tag.setTag("models", list);
             tag.setInteger("total", models.size());
             handler.sendPacketTo(net, new ModelListResS2C(tag));
         } catch (Exception e) {
             Log.error("Failed to build model list for " + uuid, e);
             NBTTagCompound tag = new NBTTagCompound();
             tag.setInteger("total", 0);
-            tag.setList("models", new NBTTagList());
+            tag.setTag("models", new NBTTagList());
             handler.sendPacketTo(net, new ModelListResS2C(tag));
         }
     }
@@ -198,8 +197,8 @@ public class CpmModelPacketHandler implements IModelServerHandler {
         long modelId = tag.getLong("mid");
 
         try {
-            byte[] modelData = modelService.getRepo().loadModelBlob(modelId);
-            if (modelData == null) {
+            com.tom.cpm.server.crypto.EncryptedModelBlob blob = modelService.getRepo().loadModelBlob(modelId);
+            if (blob == null) {
                 NBTTagCompound resp = new NBTTagCompound();
                 resp.setLong("mid", modelId);
                 resp.setInteger("idx", -1);
@@ -209,19 +208,22 @@ public class CpmModelPacketHandler implements IModelServerHandler {
                 return;
             }
 
-            int chunkSize = 30_720; // 30 KB chunks
-            int totalChunks = (modelData.length + chunkSize - 1) / chunkSize;
+            byte[] modelData = blob.getDecrypted();
+            try {
+                int chunkSize = 30_720; // 30 KB chunks
+                int totalChunks = (modelData.length + chunkSize - 1) / chunkSize;
 
-            // For now, send as a single response with all chunk data indicated
-            // TODO: implement proper chunked S2C streaming when client-side download handler is added
-            NBTTagCompound resp = new NBTTagCompound();
-            resp.setLong("mid", modelId);
-            resp.setInteger("idx", 0);
-            resp.setInteger("total", 1);
-            resp.setByteArray("data", modelData);
-            handler.sendPacketTo(net, new com.tom.cpm.shared.network.packet.ModelDownloadChunkS2C(resp));
+                NBTTagCompound resp = new NBTTagCompound();
+                resp.setLong("mid", modelId);
+                resp.setInteger("idx", 0);
+                resp.setInteger("total", 1);
+                resp.setByteArray("data", modelData);
+                handler.sendPacketTo(net, new com.tom.cpm.shared.network.packet.ModelDownloadChunkS2C(resp));
 
-            Log.info("Model download served: modelId=" + modelId + " size=" + modelData.length);
+                Log.info("Model download served: modelId=" + modelId + " size=" + modelData.length);
+            } finally {
+                com.tom.cpm.server.crypto.MemoryProtector.wipe(modelData);
+            }
         } catch (Exception e) {
             Log.error("Failed to serve model download: modelId=" + modelId, e);
         }
@@ -237,13 +239,18 @@ public class CpmModelPacketHandler implements IModelServerHandler {
         Log.info("Set active model: player=" + uuid + " modelId=" + modelId);
 
         try {
-            byte[] modelData = modelService.getRepo().loadModelBlob(modelId);
-            if (modelData != null) {
-                // Set the model as active skin via the existing SetSkin pipeline
-                handler.setSkin((P) player, modelData, false);
-                // Also save to PlayerData so it persists
-                handler.getSNetH((P) player).cpm$getEncodedModelData().setModel(modelData, false, true);
-                Log.info("Active model set: player=" + uuid + " modelId=" + modelId);
+            com.tom.cpm.server.crypto.EncryptedModelBlob blob = modelService.getRepo().loadModelBlob(modelId);
+            if (blob != null) {
+                byte[] modelData = blob.getDecrypted();
+                try {
+                    // Set the model as active skin via the existing SetSkin pipeline
+                    handler.setSkin((P) player, modelData, false);
+                    // Also save to PlayerData so it persists
+                    handler.getSNetH((P) player).cpm$getEncodedModelData().setModel(modelData, false, true);
+                    Log.info("Active model set: player=" + uuid + " modelId=" + modelId);
+                } finally {
+                    com.tom.cpm.server.crypto.MemoryProtector.wipe(modelData);
+                }
             } else {
                 Log.warn("Model not found for setActive: modelId=" + modelId);
             }

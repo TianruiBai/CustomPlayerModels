@@ -80,6 +80,10 @@ public abstract class ClientBase {
 		netHandler.setGetNet(c -> ((LocalPlayer)c).connection);
 		netHandler.setDisplayText(t -> minecraft.player.displayClientMessage(t.remap(), false));
 		netHandler.setGetPlayerAnimGetters(new PlayerAnimUpdater());
+		// Register the built-in model server client handler for S2C ACKs
+		netHandler.setCpmModelClientHandler(
+			com.tom.cpm.server.client.CpmModelTransferClient.getInstance(
+				new com.tom.cpm.server.crypto.CryptoService()));
 	}
 
 	public static void apiInit() {

@@ -138,12 +138,19 @@ public class NetHandler<RL, P, NET> {
 
 	// CPM Built-in Model Server integration
 	private IModelServerHandler cpmModelPacketHandler;
+	private IModelClientHandler cpmModelClientHandler;
 
 	public void setCpmModelPacketHandler(IModelServerHandler handler) {
 		this.cpmModelPacketHandler = handler;
 	}
 	public IModelServerHandler getCpmModelPacketHandler() {
 		return cpmModelPacketHandler;
+	}
+	public void setCpmModelClientHandler(IModelClientHandler handler) {
+		this.cpmModelClientHandler = handler;
+	}
+	public IModelClientHandler getCpmModelClientHandler() {
+		return cpmModelClientHandler;
 	}
 
 	protected Map<RL, Supplier<IPacket>> packetS2C = new HashMap<>(), packetC2S = new HashMap<>();
@@ -239,6 +246,12 @@ public class NetHandler<RL, P, NET> {
 		setCap(data, ServerCaps.PLUGIN_MESSAGES);
 		if(ModConfig.getWorldConfig().getBoolean(ConfigKeys.ENABLE_INVIS_GLOW, true))setCap(data, ServerCaps.INVIS_GLOW);
 		setCap(data, ServerCaps.NAMED_PARAMETERS);
+		// Announce built-in model server caps if the server is initialized
+		if (cpmModelPacketHandler != null) {
+			setCap(data, ServerCaps.CPM_BUILT_IN_SERVER);
+			setCap(data, ServerCaps.CPM_CHUNKED_TRANSFER);
+			setCap(data, ServerCaps.CPM_TIME_BOUND_KEYS);
+		}
 		return data;
 	}
 

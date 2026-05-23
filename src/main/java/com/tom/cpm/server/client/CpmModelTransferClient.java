@@ -7,6 +7,8 @@ import com.tom.cpm.server.transfer.ChunkedUploader;
 import com.tom.cpm.server.transfer.ChunkedUploader.Progress;
 import com.tom.cpm.server.crypto.CryptoService;
 import com.tom.cpm.shared.MinecraftClientAccess;
+import com.tom.cpm.shared.network.IModelClientHandler;
+import com.tom.cpm.shared.network.NetH;
 import com.tom.cpm.shared.network.NetHandler;
 import com.tom.cpm.shared.network.packet.ModelUploadInitC2S;
 import com.tom.cpm.shared.network.packet.ModelDataChunkC2S;
@@ -22,7 +24,7 @@ import com.tom.cpl.nbt.NBTTagCompound;
  * 
  * All model data goes through the Minecraft native port (25565).
  */
-public class CpmModelTransferClient {
+public class CpmModelTransferClient implements IModelClientHandler {
 
     private static CpmModelTransferClient INSTANCE;
 
@@ -192,5 +194,100 @@ public class CpmModelTransferClient {
      */
     public String getResumableUploadId() {
         return activeUpload != null ? activeUpload.getUploadId() : null;
+    }
+
+    // ---- IModelClientHandler implementation (S2C response handlers) ----
+
+    @Override
+    public void handleModelList(NBTTagCompound tag) {
+        Log.debug("Received model list: total=" + tag.getInteger("total"));
+        // ModelListCache or UI will consume this
+    }
+
+    @Override
+    public void handleUploadInitAck(NBTTagCompound tag) {
+        String uid = tag.getString("uid");
+        boolean accepted = tag.getBoolean("accepted");
+        Log.info("Upload init ack: uid=" + uid + " accepted=" + accepted);
+
+        if (activeUpload != null && uid.equals(activeUpload.getUploadId())) {
+            if (accepted) {
+                activeUpload.onInitAccepted(uid);
+                sendNextChunk(); // Start sending chunks
+            } else {
+                String reason = tag.getString("reason");
+                activeUpload.onInitRejected(reason != null ? reason : "Rejected");
+                activeUpload = null;
+            }
+        }
+    }
+
+    @Override
+    public void handleDataChunkAck(NBTTagCompound tag) {
+        String uid = tag.getString("uid");
+        int chunkIdx = tag.getInteger("idx");
+        boolean ok = tag.getBoolean("ok");
+        Log.debug("Chunk ack: uid=" + uid + " idx=" + chunkIdx + " ok=" + ok);
+
+        if (activeUpload != null && uid.equals(activeUpload.getUploadId())) {
+            activeUpload.onChunkAck(chunkIdx, ok);
+            if (ok) {
+                sendNextChunk(); // Send next chunk
+            } else {
+                // Retry: resend the failed chunk
+                sendNextChunk();
+            }
+        }
+    }
+
+    @Override
+    public void handleUploadResult(NBTTagCompound tag) {
+        String uid = tag.getString("uid");
+        boolean ok = tag.getBoolean("ok");
+        long modelId = tag.getLong("mid");
+        String status = tag.getString("status");
+
+        Log.info("Upload result: uid=" + uid + " ok=" + ok + " modelId=" + modelId + " status=" + status);
+
+        if (activeUpload != null && uid.equals(activeUpload.getUploadId())) {
+            if (ok) {
+                activeUpload.onComplete(modelId);
+            } else {
+                String msg = tag.getString("msg");
+                activeUpload.onFailed(msg != null ? msg : status);
+            }
+            activeUpload = null; // Upload is done
+        }
+    }
+
+    @Override
+    public void handleUploadResumeAck(NBTTagCompound tag) {
+        String uid = tag.getString("uid");
+        int lastChunk = tag.getInteger("lastChunk");
+        boolean canResume = tag.getBoolean("canResume");
+        Log.info("Upload resume ack: uid=" + uid + " lastChunk=" + lastChunk + " canResume=" + canResume);
+
+        if (activeUpload != null && canResume) {
+            activeUpload.resumeFrom(lastChunk);
+            sendNextChunk(); // Resume sending
+        }
+    }
+
+    @Override
+    public void handleDownloadChunk(NBTTagCompound tag, NetH from) {
+        long modelId = tag.getLong("mid");
+        int chunkIdx = tag.getInteger("idx");
+        int totalChunks = tag.getInteger("total");
+        byte[] data = tag.getByteArray("data");
+        Log.info("Download chunk: modelId=" + modelId + " chunk=" + chunkIdx + "/" + totalChunks + " size=" + data.length);
+        // TODO: reassemble and deliver to caller
+    }
+
+    @Override
+    public void handleDeleteResult(NBTTagCompound tag) {
+        long modelId = tag.getLong("mid");
+        boolean ok = tag.getBoolean("ok");
+        String status = tag.getString("status");
+        Log.info("Delete result: modelId=" + modelId + " ok=" + ok + " status=" + status);
     }
 }

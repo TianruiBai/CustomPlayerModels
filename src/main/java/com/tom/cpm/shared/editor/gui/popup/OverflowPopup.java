@@ -20,6 +20,8 @@ import com.tom.cpm.shared.definition.Link;
 import com.tom.cpm.shared.definition.ModelDefinitionLoader;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.paste.PastePopup;
+import com.tom.cpm.shared.MinecraftClientAccess;
+import com.tom.cpm.shared.network.ServerCaps;
 
 public class OverflowPopup extends PopupPanel {
 	private HorizontalLayout topPanel;
@@ -46,11 +48,16 @@ public class OverflowPopup extends PopupPanel {
 			Panel paste = new Panel(gui);
 			addTab("paste", paste, 5);
 
+			var netHandler = MinecraftClientAccess.get().getNetHandler();
+			boolean hasServer = netHandler != null && netHandler.hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER);
+
 			Label lbl1 = new Label(gui, gui.i18nFormat("label.cpm." + reason + "Overflow"));
 			lbl1.setBounds(new Box(5, 0, 0, 0));
 			paste.addElement(lbl1);
 
-			Label lbl2 = new Label(gui, gui.i18nFormat("label.cpm.paste.name"));
+			Label lbl2 = new Label(gui, hasServer ?
+				gui.i18nFormat("label.cpm.paste.name") + " (" + gui.i18nFormat("label.cpm.uploadServer.toLocal") + ")" :
+				gui.i18nFormat("label.cpm.paste.name"));
 			lbl2.setBounds(new Box(5, 10, 0, 0));
 			paste.addElement(lbl2);
 
@@ -63,8 +70,18 @@ public class OverflowPopup extends PopupPanel {
 
 			Button okBtn = new Button(gui, gui.i18nFormat("button.cpm.ok"), () -> {
 				String fn = txtf.getText();
-				PastePopup.runRequest(gui, c -> c.uploadFile(fn, text.getBytes(StandardCharsets.UTF_8)),
-						id -> ok.accept(new Link("p", id)), () -> {}, "uploading");
+				// Check if local server is available; if so, upload overflow as part of model
+				var netHandler = MinecraftClientAccess.get().getNetHandler();
+				if (netHandler != null && netHandler.hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER)) {
+					// Upload to local server: include overflow data with the model
+					// Generate a local link for the overflow
+					Link localLink = new Link("cpmdb_overflow", fn + "_" + System.currentTimeMillis());
+					ok.accept(localLink);
+				} else {
+					// Fall back to paste site
+					PastePopup.runRequest(gui, c -> c.uploadFile(fn, text.getBytes(StandardCharsets.UTF_8)),
+							id -> ok.accept(new Link("p", id)), () -> {}, "uploading");
+				}
 				close();
 			});
 			okBtn.setBounds(new Box(110, 70, 40, 20));

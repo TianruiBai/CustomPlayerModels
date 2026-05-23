@@ -121,6 +121,8 @@
   "label.cpm.uploadServer.success": "Model \"%s\" uploaded to server successfully!",
   "label.cpm.uploadServer.failed": "Failed to upload \"%s\". The server may be busy or the model is too large.",
   "label.cpm.uploadServer.error": "Upload error: %s",
+  "label.cpm.uploadServer.toLocal": "Uploading to Local Server",
+  "label.cpm.edit.serverModels": "Server Models",
   "button.cpm.delete": "Delete",
   "button.cpm.safetySettings": "Safety Settings",
   "button.cpm.tools.safetyLevel": "Check Safety Level",

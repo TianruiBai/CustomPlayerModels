@@ -583,9 +583,17 @@ public class EditorGui extends Frame {
 		pp.addButton(gui.i18nFormat("button.cpm.edit.pastes"), () -> new PastePopup(this).open());
 
 		// Upload to local CPM built-in server (only if server has the capability)
-		pp.addButton(gui.i18nFormat("button.cpm.edit.uploadServer"), () -> {
-			triggerServerUpload();
-		});
+		NetHandler<?, ?, ?> nh = MinecraftClientAccess.get().getNetHandler();
+		boolean hasServer = nh != null && nh.hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER);
+		if (hasServer) {
+			pp.addButton(gui.i18nFormat("label.cpm.edit.serverModels"), () -> {
+				triggerServerUpload();
+			});
+		} else {
+			pp.addButton(gui.i18nFormat("button.cpm.edit.uploadServer"), () -> {
+				triggerServerUpload();
+			});
+		}
 
 		pp.addButton(gui.i18nFormat("label.cpm.wiki.title"), () -> openPopup(new WikiBrowserPopup(gui)));
 
