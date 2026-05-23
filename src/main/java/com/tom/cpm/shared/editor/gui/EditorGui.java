@@ -474,6 +474,14 @@ public class EditorGui extends Frame {
 			}
 		}).setTooltip(new Tooltip(this, gui.i18nFormat("tooltip.cpm.export"), "Exporting"));
 
+		// Upload to local CPM built-in server — only visible when server supports it
+		NetHandler<?, ?, ?> nh = MinecraftClientAccess.get().getNetHandler();
+		if (nh != null && nh.hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER)) {
+			pp.addButton(gui.i18nFormat("button.cpm.edit.uploadServer"), () -> {
+				triggerServerUpload();
+			}).setTooltip(new Tooltip(this, gui.i18nFormat("label.cpm.uploadServer.toLocal"), "Uploading"));
+		}
+
 		pp.addButton(gui.i18nFormat("button.cpm.file.test"), () -> {
 			if(TestIngameManager.openTestIngame(this, false))toReopen = editor;
 		});
@@ -581,19 +589,6 @@ public class EditorGui extends Frame {
 		pp.addButton(gui.i18nFormat("tab.cpm.social.errorLog"), () -> openPopup(new ErrorLogPopup(this)));
 
 		pp.addButton(gui.i18nFormat("button.cpm.edit.pastes"), () -> new PastePopup(this).open());
-
-		// Upload to local CPM built-in server (only if server has the capability)
-		NetHandler<?, ?, ?> nh = MinecraftClientAccess.get().getNetHandler();
-		boolean hasServer = nh != null && nh.hasServerCap(ServerCaps.CPM_BUILT_IN_SERVER);
-		if (hasServer) {
-			pp.addButton(gui.i18nFormat("label.cpm.edit.serverModels"), () -> {
-				triggerServerUpload();
-			});
-		} else {
-			pp.addButton(gui.i18nFormat("button.cpm.edit.uploadServer"), () -> {
-				triggerServerUpload();
-			});
-		}
 
 		pp.addButton(gui.i18nFormat("label.cpm.wiki.title"), () -> openPopup(new WikiBrowserPopup(gui)));
 

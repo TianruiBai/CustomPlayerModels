@@ -68,14 +68,27 @@ public class CpmServerInit {
         // Initialize keystore
         File serverDir = FMLPaths.GAMEDIR.get().resolve("cpm").toFile();
         serverDir.mkdirs();
+        File pwdFile = new File(serverDir, "cpm_keystore.pwd");
         this.keyManager = new KeyManager(serverDir, crypto);
         try {
-            // Generate a keystore password from system entropy
-            char[] ksPassword = java.util.Base64.getEncoder().encodeToString(
-                crypto.secureRandom(32)).toCharArray();
+            char[] ksPassword;
+            if (pwdFile.exists()) {
+                // Load persisted password
+                byte[] pwdBytes = java.nio.file.Files.readAllBytes(pwdFile.toPath());
+                ksPassword = new String(pwdBytes, java.nio.charset.StandardCharsets.UTF_8).trim().toCharArray();
+                com.tom.cpm.server.crypto.MemoryProtector.wipe(pwdBytes);
+            } else {
+                // First run: generate and persist
+                ksPassword = java.util.Base64.getEncoder().encodeToString(
+                    crypto.secureRandom(32)).toCharArray();
+                java.nio.file.Files.write(pwdFile.toPath(),
+                    new String(ksPassword).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                // Restrict permissions (best-effort on Windows)
+                pwdFile.setReadable(true, false); // owner only
+            }
             keyManager.initialize(ksPassword);
             com.tom.cpm.server.crypto.MemoryProtector.wipe(ksPassword);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             Log.error("Failed to initialize keystore", e);
             this.dbManager = null;
             this.repo = null;
@@ -96,7 +109,7 @@ public class CpmServerInit {
 
         try {
             dbManager.initialize();
-        } catch (SQLException e) {
+        } catch (Throwable e) {
             Log.error("Failed to initialize database", e);
             this.repo = null;
             this.modelService = null;

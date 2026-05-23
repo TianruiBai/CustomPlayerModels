@@ -72,10 +72,13 @@ public class DatabaseManager implements AutoCloseable {
 
         String jdbcUrl = url.toString();
 
+        // Modern JDBC (4.0+) auto-discovers drivers via service loader.
+        // H2 provides META-INF/services/java.sql.Driver, so DriverManager works without Class.forName.
+        // We still try explicit loading for environments without service loader support.
         try {
             Class.forName("org.h2.Driver");
         } catch (ClassNotFoundException e) {
-            throw new SQLException("H2 driver not found", e);
+            Log.warn("H2 driver not found via Class.forName, trying DriverManager auto-discovery");
         }
 
         // Create connection pool

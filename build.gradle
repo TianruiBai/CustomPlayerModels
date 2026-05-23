@@ -133,8 +133,13 @@ dependencies {
 
     // CPM Built-in Model Server dependencies
     implementation 'com.h2database:h2:2.2.224'
+    jarJar 'com.h2database:h2:2.2.224'
+    // H2 must also be on the runtime classpath for dev environment (jarJar only affects production JAR)
+    runtimeOnly 'com.h2database:h2:2.2.224'
     implementation 'org.nanohttpd:nanohttpd:2.3.1'
+    runtimeOnly 'org.nanohttpd:nanohttpd:2.3.1'
     implementation 'at.favre.lib:bcrypt:0.10.2'
+    runtimeOnly 'at.favre.lib:bcrypt:0.10.2'
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

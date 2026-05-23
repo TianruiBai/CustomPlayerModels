@@ -65,13 +65,8 @@ public class KeyManager {
                 Log.info("Created new keystore: " + keystoreFile.getAbsolutePath());
             }
         } catch (Exception e) {
-            // Password may be wrong
-            try (FileInputStream fis = new FileInputStream(keystoreFile)) {
-                keyStore.load(fis, keystorePassword);
-            } catch (Exception e2) {
-                throw new IOException("Failed to load keystore — wrong password or corrupt file: "
-                    + keystoreFile.getAbsolutePath(), e2);
-            }
+            throw new IOException("Failed to load keystore — wrong password or corrupt file: "
+                + keystoreFile.getAbsolutePath(), e);
         }
 
         // Load or generate DB master key
