@@ -10,8 +10,6 @@ import com.tom.cpl.text.LiteralText;
 import com.tom.cpm.server.db.DatabaseManager;
 import com.tom.cpm.server.model.ModelEntity;
 import com.tom.cpm.server.model.ModelRepository;
-import com.tom.cpm.shared.config.PlayerData;
-import com.tom.cpm.shared.network.NetHandler;
 import com.tom.cpm.shared.util.Log;
 
 /**
@@ -30,13 +28,13 @@ public final class AdminCommandHandler {
     /** /cpm admin models list [player] */
     public static void listModels(CommandCtx<?> ctx, ModelRepository repo, DatabaseManager db) {
         try {
-            String filterPlayer = ctx.hasArgument("player") ? ctx.getArgument("player") : null;
+            String filterPlayer = ctx.getArgument("player");
             String filterUuid = null;
 
             if (filterPlayer != null) {
-                filterUuid = resolvePlayerUuid(ctx, filterPlayer);
+                filterUuid = resolvePlayerUuid(filterPlayer);
                 if (filterUuid == null) {
-                    ctx.sendFail(new FormatText("commands.cpm.admin.playerNotFound", filterPlayer));
+                    ctx.fail(new FormatText("commands.cpm.admin.playerNotFound", filterPlayer));
                     return;
                 }
             }
@@ -67,7 +65,7 @@ public final class AdminCommandHandler {
             }
         } catch (SQLException e) {
             Log.error("Admin listModels failed", e);
-            ctx.sendFail(new FormatText("commands.cpm.admin.dbError"));
+            ctx.fail(new FormatText("commands.cpm.admin.dbError"));
         }
     }
 
@@ -81,7 +79,7 @@ public final class AdminCommandHandler {
                 if (e.getId() == modelId) { m = e; break; }
             }
             if (m == null) {
-                ctx.sendFail(new FormatText("commands.cpm.admin.modelNotFound", modelId));
+                ctx.fail(new FormatText("commands.cpm.admin.modelNotFound", modelId));
                 return;
             }
             ctx.sendSuccess(new FormatText("commands.cpm.admin.modelInfo",
@@ -90,7 +88,7 @@ public final class AdminCommandHandler {
                 m.getCreatedAt(), m.getUpdatedAt()));
         } catch (SQLException e) {
             Log.error("Admin modelInfo failed", e);
-            ctx.sendFail(new FormatText("commands.cpm.admin.dbError"));
+            ctx.fail(new FormatText("commands.cpm.admin.dbError"));
         }
     }
 
@@ -98,7 +96,8 @@ public final class AdminCommandHandler {
     public static void deleteModel(CommandCtx<?> ctx, ModelRepository repo) {
         try {
             long modelId = ctx.getArgument("id");
-            String reason = ctx.hasArgument("reason") ? ctx.getArgument("reason") : "Admin deletion";
+            String reason = ctx.getArgument("reason");
+            if (reason == null) reason = "Admin deletion";
             String actor = "CONSOLE"; // TODO: get actual admin UUID from context
 
             boolean deleted = repo.deleteModel(modelId, null, true);
@@ -106,11 +105,11 @@ public final class AdminCommandHandler {
                 repo.logAction(actor, "DELETE", null, modelId, reason, null);
                 ctx.sendSuccess(new FormatText("commands.cpm.admin.modelDeleted", modelId));
             } else {
-                ctx.sendFail(new FormatText("commands.cpm.admin.modelNotFound", modelId));
+                ctx.fail(new FormatText("commands.cpm.admin.modelNotFound", modelId));
             }
         } catch (SQLException e) {
             Log.error("Admin deleteModel failed", e);
-            ctx.sendFail(new FormatText("commands.cpm.admin.dbError"));
+            ctx.fail(new FormatText("commands.cpm.admin.dbError"));
         }
     }
 
@@ -123,7 +122,7 @@ public final class AdminCommandHandler {
             ctx.sendSuccess(new FormatText("commands.cpm.admin.modelForced", modelId));
         } catch (SQLException e) {
             Log.error("Admin forceModel failed", e);
-            ctx.sendFail(new FormatText("commands.cpm.admin.dbError"));
+            ctx.fail(new FormatText("commands.cpm.admin.dbError"));
         }
     }
 
@@ -136,13 +135,13 @@ public final class AdminCommandHandler {
             ctx.sendSuccess(new FormatText("commands.cpm.admin.modelUnforced", modelId));
         } catch (SQLException e) {
             Log.error("Admin unforceModel failed", e);
-            ctx.sendFail(new FormatText("commands.cpm.admin.dbError"));
+            ctx.fail(new FormatText("commands.cpm.admin.dbError"));
         }
     }
 
     /** /cpm admin models reassign <id> <uuid> */
     public static void reassignModel(CommandCtx<?> ctx, ModelRepository repo) {
-        ctx.sendFail(new FormatText("commands.cpm.admin.notImplemented", "reassign"));
+        ctx.fail(new FormatText("commands.cpm.admin.notImplemented", "reassign"));
     }
 
     // ================================================================
@@ -158,7 +157,7 @@ public final class AdminCommandHandler {
             ctx.sendSuccess(new FormatText("commands.cpm.admin.playerBlocked", uuid));
         } catch (SQLException e) {
             Log.error("Admin blockPlayer failed", e);
-            ctx.sendFail(new FormatText("commands.cpm.admin.dbError"));
+            ctx.fail(new FormatText("commands.cpm.admin.dbError"));
         }
     }
 
@@ -171,7 +170,7 @@ public final class AdminCommandHandler {
             ctx.sendSuccess(new FormatText("commands.cpm.admin.playerUnblocked", uuid));
         } catch (SQLException e) {
             Log.error("Admin unblockPlayer failed", e);
-            ctx.sendFail(new FormatText("commands.cpm.admin.dbError"));
+            ctx.fail(new FormatText("commands.cpm.admin.dbError"));
         }
     }
 
@@ -185,7 +184,7 @@ public final class AdminCommandHandler {
                 uuid, modelCount, blocked ? "BLOCKED" : "active"));
         } catch (SQLException e) {
             Log.error("Admin playerInfo failed", e);
-            ctx.sendFail(new FormatText("commands.cpm.admin.dbError"));
+            ctx.fail(new FormatText("commands.cpm.admin.dbError"));
         }
     }
 
@@ -196,8 +195,9 @@ public final class AdminCommandHandler {
     /** /cpm admin audit [page] [player] */
     public static void viewAudit(CommandCtx<?> ctx, ModelRepository repo) {
         try {
-            int page = ctx.hasArgument("page") ? ctx.getArgument("page") : 0;
-            String filter = ctx.hasArgument("player") ? ctx.getArgument("player") : null;
+            Integer pageArg = ctx.getArgument("page");
+            int page = pageArg != null ? pageArg : 0;
+            String filter = ctx.getArgument("player");
             List<String> entries = repo.getAuditLog(page * 10, 10, filter);
             if (entries.isEmpty()) {
                 ctx.sendSuccess(new FormatText("commands.cpm.admin.auditEmpty"));
@@ -209,20 +209,19 @@ public final class AdminCommandHandler {
             }
         } catch (SQLException e) {
             Log.error("Admin viewAudit failed", e);
-            ctx.sendFail(new FormatText("commands.cpm.admin.dbError"));
+            ctx.fail(new FormatText("commands.cpm.admin.dbError"));
         }
     }
 
     /** /cpm admin db backup */
     public static void dbBackup(CommandCtx<?> ctx, DatabaseManager db) {
         try {
-            java.io.File backupDir = new java.io.File(db.toString()).getParentFile();
-            // backupDir is approximate; production code uses config path
-            db.backup(new java.io.File("cpm_backups"));
+            java.io.File backupDir = new java.io.File("cpm_backups");
+            db.backup(backupDir);
             ctx.sendSuccess(new FormatText("commands.cpm.admin.dbBackupOk"));
         } catch (SQLException e) {
             Log.error("Admin dbBackup failed", e);
-            ctx.sendFail(new FormatText("commands.cpm.admin.dbBackupFail", e.getMessage()));
+            ctx.fail(new FormatText("commands.cpm.admin.dbBackupFail", e.getMessage()));
         }
     }
 
@@ -235,7 +234,7 @@ public final class AdminCommandHandler {
                 totalModels, stats));
         } catch (SQLException e) {
             Log.error("Admin dbStats failed", e);
-            ctx.sendFail(new FormatText("commands.cpm.admin.dbError"));
+            ctx.fail(new FormatText("commands.cpm.admin.dbError"));
         }
     }
 
@@ -248,7 +247,7 @@ public final class AdminCommandHandler {
         return s.length() <= maxLen ? s : s.substring(0, maxLen - 3) + "...";
     }
 
-    private static String resolvePlayerUuid(CommandCtx<?> ctx, String playerNameOrUuid) {
+    private static String resolvePlayerUuid(String playerNameOrUuid) {
         // Try as UUID first
         try {
             UUID.fromString(playerNameOrUuid);
@@ -262,3 +261,4 @@ public final class AdminCommandHandler {
         ).toString();
     }
 }
+

@@ -105,42 +105,53 @@ public final class CryptoService {
     }
 
     // ================================================================
-    // HKDF-SHA512 Key Derivation
+    // HKDF-SHA512 Key Derivation (pure Java — no javax.crypto.KDF needed)
     // ================================================================
 
     /**
      * HKDF-Extract using HMAC-SHA512.
-     * In Java 21+, this uses javax.crypto.Hkdf.
+     * HMAC-Hash(salt, IKM) per RFC 5869 Section 2.2.
      */
     public SecretKey hkdfExtract(byte[] salt, byte[] inputKeyMaterial) {
         try {
-            // Java 21+ has built-in HKDF via javax.crypto.KDF
-            javax.crypto.KDF hkdf = javax.crypto.KDF.getInstance("HKDF-SHA512");
-            javax.crypto.spec.HKDFParameterSpec spec =
-                javax.crypto.spec.HKDFParameterSpec.ofExtract(salt, inputKeyMaterial);
-            byte[] extracted = hkdf.deriveData(spec);
-            return new SecretKeySpec(extracted, "AES");
-        } catch (NoSuchAlgorithmException e) {
-            throw new EncryptedModelBlob.CryptoException(
-                "HKDF-SHA512 not available — requires Java 21+", e);
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA512");
+            javax.crypto.spec.SecretKeySpec keySpec = new javax.crypto.spec.SecretKeySpec(salt, "HmacSHA512");
+            mac.init(keySpec);
+            byte[] prk = mac.doFinal(inputKeyMaterial);
+            return new SecretKeySpec(prk, "AES");
         } catch (Exception e) {
             throw new EncryptedModelBlob.CryptoException("HKDF extraction failed", e);
         }
     }
 
     /**
-     * HKDF-Expand to derive a key of specified length.
+     * HKDF-Expand using HMAC-SHA512.
+     * Per RFC 5869 Section 2.3.
      */
     public SecretKey hkdfExpand(SecretKey prk, byte[] info, int length) {
         try {
-            javax.crypto.KDF hkdf = javax.crypto.KDF.getInstance("HKDF-SHA512");
-            javax.crypto.spec.HKDFParameterSpec spec =
-                javax.crypto.spec.HKDFParameterSpec.ofExpand(prk, info, length);
-            byte[] expanded = hkdf.deriveData(spec);
-            return new SecretKeySpec(expanded, "AES");
-        } catch (NoSuchAlgorithmException e) {
-            throw new EncryptedModelBlob.CryptoException(
-                "HKDF-SHA512 not available — requires Java 21+", e);
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA512");
+            mac.init(new javax.crypto.spec.SecretKeySpec(prk.getEncoded(), "HmacSHA512"));
+
+            int hashLen = 64; // SHA-512 output = 64 bytes
+            int n = (length + hashLen - 1) / hashLen;
+            if (n > 255) throw new IllegalArgumentException("Output length too large");
+
+            byte[] okm = new byte[n * hashLen];
+            byte[] t = new byte[0];
+
+            for (int i = 1; i <= n; i++) {
+                mac.update(t);
+                mac.update(info);
+                mac.update((byte) i);
+                t = mac.doFinal();
+                System.arraycopy(t, 0, okm, (i - 1) * hashLen, t.length);
+            }
+
+            byte[] result = java.util.Arrays.copyOf(okm, length);
+            java.util.Arrays.fill(okm, (byte) 0); // Wipe intermediate
+            java.util.Arrays.fill(t, (byte) 0);
+            return new SecretKeySpec(result, "AES");
         } catch (Exception e) {
             throw new EncryptedModelBlob.CryptoException("HKDF expansion failed", e);
         }
