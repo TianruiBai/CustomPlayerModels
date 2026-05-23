@@ -41,6 +41,7 @@ public class NetworkUtil {
 	public static final String NAMED_PARAMETERS = "namedparams";
 	public static final String SELF_EVENT_LIST = "selfEventList";
 	public static final String SELF_EVENT = "self";
+	public static final String TIME_SYNC = "timeSync";
 
 	public static final FormatText FORCED_CHAT_MSG = new FormatText("chat.cpm.skinForced");
 

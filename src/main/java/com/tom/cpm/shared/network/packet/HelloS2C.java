@@ -34,6 +34,16 @@ public class HelloS2C extends NBTS2C {
 			scalingMap.put(o, v);
 		}
 		handler.handleServerCaps(tag.getCompoundTag(NetworkUtil.SERVER_CAPS));
+
+		// Time synchronization for time-bound encryption
+		if (tag.hasKey(NetworkUtil.TIME_SYNC)) {
+			NBTTagCompound timeSync = tag.getCompoundTag(NetworkUtil.TIME_SYNC);
+			long serverTime = timeSync.getLong("serverTime");
+			long timeWindowId = timeSync.getLong("timeWindowId");
+			MinecraftClientAccess.get().getNetHandler().setServerTimeOffset(
+				serverTime - (System.currentTimeMillis() / 1000), timeWindowId);
+		}
+
 		String server = MinecraftClientAccess.get().getConnectedServer();
 		ConfigEntry cc = ModConfig.getCommonConfig();
 		ConfigEntry ss = cc.getEntry(ConfigKeys.SERVER_SETTINGS);
