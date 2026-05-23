@@ -48,7 +48,11 @@ public class KeyManager {
      */
     public void initialize(char[] keystorePassword) throws IOException {
         this.keystorePassword = keystorePassword;
-        this.keyStore = KeyStore.getInstance(KEYSTORE_TYPE);
+        try {
+            this.keyStore = KeyStore.getInstance(KEYSTORE_TYPE);
+        } catch (java.security.KeyStoreException e) {
+            throw new IOException("Keystore type not available: " + KEYSTORE_TYPE, e);
+        }
 
         try {
             if (keystoreFile.exists()) {
@@ -71,38 +75,46 @@ public class KeyManager {
         }
 
         // Load or generate DB master key
-        if (keyStore.containsAlias(DB_MASTER_KEY_ALIAS)) {
-            KeyStore.SecretKeyEntry entry = (KeyStore.SecretKeyEntry)
-                keyStore.getEntry(DB_MASTER_KEY_ALIAS,
+        try {
+            if (keyStore.containsAlias(DB_MASTER_KEY_ALIAS)) {
+                KeyStore.SecretKeyEntry entry = (KeyStore.SecretKeyEntry)
+                    keyStore.getEntry(DB_MASTER_KEY_ALIAS,
+                        new KeyStore.PasswordProtection(keystorePassword));
+                this.dbMasterKey = entry.getSecretKey();
+                Log.info("Loaded DB master key from keystore");
+            } else {
+                this.dbMasterKey = crypto.generateAesKey();
+                keyStore.setEntry(DB_MASTER_KEY_ALIAS,
+                    new KeyStore.SecretKeyEntry(dbMasterKey),
                     new KeyStore.PasswordProtection(keystorePassword));
-            this.dbMasterKey = entry.getSecretKey();
-            Log.info("Loaded DB master key from keystore");
-        } else {
-            this.dbMasterKey = crypto.generateAesKey();
-            keyStore.setEntry(DB_MASTER_KEY_ALIAS,
-                new KeyStore.SecretKeyEntry(dbMasterKey),
-                new KeyStore.PasswordProtection(keystorePassword));
-            save();
-            Log.warn("Generated new DB master key — STORE THIS SAFELY. If lost, models are irrecoverable.");
+                save();
+                Log.warn("Generated new DB master key — STORE THIS SAFELY. If lost, models are irrecoverable.");
+            }
+        } catch (java.security.NoSuchAlgorithmException | java.security.UnrecoverableEntryException e) {
+            throw new IOException("Failed to access DB master key in keystore", e);
         }
 
         // Load or generate DB file password
-        if (keyStore.containsAlias(DB_FILE_PASSWORD_ALIAS)) {
-            KeyStore.SecretKeyEntry entry = (KeyStore.SecretKeyEntry)
-                keyStore.getEntry(DB_FILE_PASSWORD_ALIAS,
-                    new KeyStore.PasswordProtection(keystorePassword));
-            this.dbFilePassword = new String(entry.getSecretKey().getEncoded());
-        } else {
-            byte[] pwdBytes = crypto.secureRandom(32);
-            this.dbFilePassword = java.util.Base64.getEncoder().encodeToString(pwdBytes);
-            MemoryProtector.wipe(pwdBytes);
+        try {
+            if (keyStore.containsAlias(DB_FILE_PASSWORD_ALIAS)) {
+                KeyStore.SecretKeyEntry entry = (KeyStore.SecretKeyEntry)
+                    keyStore.getEntry(DB_FILE_PASSWORD_ALIAS,
+                        new KeyStore.PasswordProtection(keystorePassword));
+                this.dbFilePassword = new String(entry.getSecretKey().getEncoded());
+            } else {
+                byte[] pwdBytes = crypto.secureRandom(32);
+                this.dbFilePassword = java.util.Base64.getEncoder().encodeToString(pwdBytes);
+                MemoryProtector.wipe(pwdBytes);
 
-            SecretKey pwdKey = new SecretKeySpec(
-                dbFilePassword.getBytes(java.nio.charset.StandardCharsets.UTF_8), "RAW");
-            keyStore.setEntry(DB_FILE_PASSWORD_ALIAS,
-                new KeyStore.SecretKeyEntry(pwdKey),
-                new KeyStore.PasswordProtection(keystorePassword));
-            save();
+                SecretKey pwdKey = new SecretKeySpec(
+                    dbFilePassword.getBytes(java.nio.charset.StandardCharsets.UTF_8), "RAW");
+                keyStore.setEntry(DB_FILE_PASSWORD_ALIAS,
+                    new KeyStore.SecretKeyEntry(pwdKey),
+                    new KeyStore.PasswordProtection(keystorePassword));
+                save();
+            }
+        } catch (java.security.NoSuchAlgorithmException | java.security.UnrecoverableEntryException e) {
+            throw new IOException("Failed to access DB file password in keystore", e);
         }
 
         // Restrict file permissions on the keystore

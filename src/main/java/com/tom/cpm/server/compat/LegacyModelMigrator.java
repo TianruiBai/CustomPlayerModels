@@ -145,7 +145,7 @@ public class LegacyModelMigrator {
                     if (data instanceof Map) {
                         return (Map<String, Object>) data;
                     }
-                } catch (NoSuchFieldException ignored) {}
+                } catch (NoSuchFieldException | IllegalAccessException ignored) {}
             }
             Log.warn("Could not access ConfigEntry internal map: field not found");
         } catch (Exception e) {
