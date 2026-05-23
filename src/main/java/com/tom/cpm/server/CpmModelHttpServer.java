@@ -80,6 +80,18 @@ public class CpmModelHttpServer extends NanoHTTPD {
         String uri = session.getUri();
         Method method = session.getMethod();
 
+        // Size limit for request bodies (prevents memory exhaustion)
+        String contentLength = session.getHeaders().get("content-length");
+        if (contentLength != null) {
+            try {
+                long len = Long.parseLong(contentLength);
+                if (len > 1024 * 1024) { // 1 MB max body
+                    return newFixedLengthResponse(Response.Status.PAYLOAD_TOO_LARGE,
+                        "application/json", "{\"error\":\"Request body too large\"}");
+                }
+            } catch (NumberFormatException ignored) {}
+        }
+
         try {
             // CORS headers for local development
             Response r = null;

@@ -11,6 +11,9 @@ public enum ServerCaps {
 	PLUGIN_MESSAGES,
 	INVIS_GLOW,
 	NAMED_PARAMETERS,
+	CPM_BUILT_IN_SERVER,
+	CPM_CHUNKED_TRANSFER,
+	CPM_TIME_BOUND_KEYS,
 	;
 	public static final ServerCaps[] VALUES = values();
 }

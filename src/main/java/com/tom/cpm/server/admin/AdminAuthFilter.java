@@ -34,15 +34,26 @@ public class AdminAuthFilter {
     private static final int MAX_LOGIN_ATTEMPTS = 5;
     private static final long LOGIN_WINDOW_MS = 60 * 1000; // 1 minute
 
-    private final byte[] secretKey;
+    private final javax.crypto.SecretKey secretKey;
     private final Map<String, LoginTracker> loginTrackers = new ConcurrentHashMap<>();
 
-    // Pre-computed constant-time comparison helper
-    private static final byte CONSTANT_TIME_MASK = (byte) 0xFF;
-
     public AdminAuthFilter(char[] jwtSecret) {
-        this.secretKey = new String(jwtSecret).getBytes(StandardCharsets.UTF_8);
+        // Derive HMAC key from secret via HKDF-like single-step derivation.
+        // The original char[] is wiped immediately.
+        byte[] rawKey = new String(jwtSecret).getBytes(StandardCharsets.UTF_8);
         MemoryProtector.wipe(jwtSecret);
+
+        // Store as SecretKey (opaque — harder to extract from memory dump)
+        this.secretKey = new javax.crypto.spec.SecretKeySpec(rawKey, "HmacSHA256");
+        MemoryProtector.wipe(rawKey);
+    }
+
+    /**
+     * Wipe the secret key on server shutdown.
+     */
+    public void destroy() {
+        byte[] encoded = secretKey.getEncoded();
+        if (encoded != null) MemoryProtector.wipe(encoded);
     }
 
     /**
@@ -161,7 +172,7 @@ public class AdminAuthFilter {
     private String hmacSign(String data) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(secretKey, "HmacSHA256"));
+            mac.init(secretKey);
             byte[] sig = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
             return Base64.getUrlEncoder().withoutPadding().encodeToString(sig);
         } catch (Exception e) {

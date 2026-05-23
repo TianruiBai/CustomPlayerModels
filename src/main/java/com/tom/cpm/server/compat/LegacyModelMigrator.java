@@ -126,6 +126,7 @@ public class LegacyModelMigrator {
      */
     @SuppressWarnings("unchecked")
     private Map<String, Object> getRawEntries(ConfigEntry entry) {
+        // Try reflection to access the internal data map
         try {
             java.lang.reflect.Field dataField = ConfigEntry.class.getDeclaredField("data");
             dataField.setAccessible(true);
@@ -133,8 +134,22 @@ public class LegacyModelMigrator {
             if (data instanceof Map) {
                 return (Map<String, Object>) data;
             }
+        } catch (NoSuchFieldException e) {
+            // Fallback: ConfigEntry may have renamed the field in a newer version.
+            // Try common alternative field names.
+            for (String name : new String[]{"entries", "values", "map", "configData"}) {
+                try {
+                    java.lang.reflect.Field f = ConfigEntry.class.getDeclaredField(name);
+                    f.setAccessible(true);
+                    Object data = f.get(entry);
+                    if (data instanceof Map) {
+                        return (Map<String, Object>) data;
+                    }
+                } catch (NoSuchFieldException ignored) {}
+            }
+            Log.warn("Could not access ConfigEntry internal map: field not found");
         } catch (Exception e) {
-            Log.warn("Could not read legacy config entries (expected on first run): " + e.getMessage());
+            Log.warn("Could not read legacy config entries: " + e.getMessage());
         }
         return java.util.Collections.emptyMap();
     }

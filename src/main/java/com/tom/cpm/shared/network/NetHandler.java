@@ -426,6 +426,18 @@ public class NetHandler<RL, P, NET> {
 		return recommendedSettingChanges;
 	}
 
+	// Time synchronization for time-bound encryption
+	private long serverTimeOffsetSeconds;
+	private long serverTimeWindowId;
+
+	public void setServerTimeOffset(long offsetSeconds, long timeWindowId) {
+		this.serverTimeOffsetSeconds = offsetSeconds;
+		this.serverTimeWindowId = timeWindowId;
+	}
+
+	public long getServerTimeOffsetSeconds() { return serverTimeOffsetSeconds; }
+	public long getServerTimeWindowId() { return serverTimeWindowId; }
+
 	public void setGetPlayerUUID(Function<P, UUID> getPlayerUUID) {
 		this.getPlayerUUID = getPlayerUUID;
 	}
