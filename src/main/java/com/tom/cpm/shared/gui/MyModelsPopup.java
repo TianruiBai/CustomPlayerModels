@@ -1,14 +1,16 @@
 package com.tom.cpm.shared.gui;
 
 import java.io.File;
-import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
-import java.util.function.Consumer;
+import java.util.Locale;
 
 import com.tom.cpl.gui.Frame;
 import com.tom.cpl.gui.IGui;
 import com.tom.cpl.gui.elements.Button;
+import com.tom.cpl.gui.elements.ConfirmPopup;
 import com.tom.cpl.gui.elements.Label;
 import com.tom.cpl.gui.elements.MessagePopup;
 import com.tom.cpl.gui.elements.Panel;
@@ -22,18 +24,14 @@ import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.MinecraftClientAccess.ServerStatus;
 import com.tom.cpm.shared.config.ConfigKeys;
 import com.tom.cpm.shared.config.ModConfig;
-import com.tom.cpm.shared.definition.Link;
 import com.tom.cpm.shared.network.NetHandler;
 import com.tom.cpm.shared.network.packet.ModelDeleteReqC2S;
-import com.tom.cpm.shared.network.packet.ModelDownloadReqC2S;
 import com.tom.cpm.shared.network.packet.ModelListReqC2S;
 import com.tom.cpm.shared.network.packet.ModelSetActiveC2S;
 import com.tom.cpm.shared.network.packet.ModelSetDefaultC2S;
 import com.tom.cpm.server.client.CpmModelTransferClient;
 import com.tom.cpm.server.crypto.CryptoService;
-import com.tom.cpm.shared.paste.PasteClient;
 import com.tom.cpm.shared.paste.PastePopup;
-import com.tom.cpm.shared.util.Log;
 
 /**
  * "My Models" popup — browse models from three sources:
@@ -46,11 +44,13 @@ import com.tom.cpm.shared.util.Log;
 public class MyModelsPopup extends PopupPanel {
 
 	private static final int ENTRY_HEIGHT = 36;
+	private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT);
 
 	private final Frame frame;
 	private final TabbedPanelManager tabs;
 	private ScrollPanel localScp, serverScp, pasteScp;
 	private Panel localPanel, serverPanel, pastePanel;
+	private Button refreshLocalBtn, refreshServerBtn;
 	private List<ModelEntry> localEntries = new ArrayList<>();
 	private List<ModelEntry> serverEntries = new ArrayList<>();
 	private List<ModelEntry> pasteEntries = new ArrayList<>();
@@ -58,7 +58,15 @@ public class MyModelsPopup extends PopupPanel {
 	public MyModelsPopup(Frame frame) {
 		super(frame.getGui());
 		this.frame = frame;
-		setBounds(new Box(0, 0, 360, 280));
+		setBounds(new Box(0, 0, 430, 300));
+
+		refreshLocalBtn = new Button(gui, gui.i18nFormat("button.cpm.reload_models"), this::refreshLocalModels);
+		refreshLocalBtn.setBounds(new Box(5, 0, 110, 20));
+		addElement(refreshLocalBtn);
+
+		refreshServerBtn = new Button(gui, gui.i18nFormat("button.cpm.reload_models"), this::refreshServerModels);
+		refreshServerBtn.setBounds(new Box(120, 0, 110, 20));
+		addElement(refreshServerBtn);
 
 		tabs = new TabbedPanelManager(gui);
 		tabs.setBounds(new Box(0, 20, bounds.w, bounds.h - 20));
@@ -67,37 +75,69 @@ public class MyModelsPopup extends PopupPanel {
 		// ---- Local Models Tab ----
 		localPanel = new Panel(gui);
 		localPanel.setBackgroundColor(gui.getColors().button_border);
+		localPanel.setBounds(new Box(0, 0, 410, 1));
 		localScp = new ScrollPanel(gui);
-		localScp.setBounds(new Box(5, 5, 350, bounds.h - 30));
+		localScp.setBounds(new Box(5, 5, 410, bounds.h - 40));
 		localScp.setDisplay(localPanel);
 		addTab("local", localScp);
 
 		// ---- Server Models Tab ----
 		serverPanel = new Panel(gui);
 		serverPanel.setBackgroundColor(gui.getColors().button_border);
+		serverPanel.setBounds(new Box(0, 0, 410, 1));
 		serverScp = new ScrollPanel(gui);
-		serverScp.setBounds(new Box(5, 5, 350, bounds.h - 30));
+		serverScp.setBounds(new Box(5, 5, 410, bounds.h - 40));
 		serverScp.setDisplay(serverPanel);
 		addTab("server", serverScp);
 
 		// ---- Paste Site Tab ----
 		pastePanel = new Panel(gui);
 		pastePanel.setBackgroundColor(gui.getColors().button_border);
+		pastePanel.setBounds(new Box(0, 0, 410, 1));
 		pasteScp = new ScrollPanel(gui);
-		pasteScp.setBounds(new Box(5, 5, 350, bounds.h - 30));
+		pasteScp.setBounds(new Box(5, 5, 410, bounds.h - 40));
 		pasteScp.setDisplay(pastePanel);
 		addTab("paste", pasteScp);
 
-		loadLocalModels();
-		loadServerModels();
-		loadPasteModels();
+		refreshLocalModels();
+		refreshServerModels();
+		refreshPasteModels();
 	}
 
 	private void addTab(String key, ScrollPanel scp) {
 		Panel tabPanel = new Panel(gui);
-		tabPanel.setBounds(new Box(0, 0, 360, bounds.h - 20));
+		tabPanel.setBounds(new Box(0, 0, 430, bounds.h - 20));
 		tabPanel.addElement(scp);
 		tabs.createTab(gui.i18nFormat("label.cpm.myModels.tab." + key), tabPanel);
+	}
+
+	private void refreshLocalModels() {
+		localEntries.clear();
+		localPanel.getElements().clear();
+		loadLocalModels();
+	}
+
+	private void refreshServerModels() {
+		serverEntries.clear();
+		serverPanel.getElements().clear();
+		loadServerModels();
+	}
+
+	private void refreshPasteModels() {
+		pasteEntries.clear();
+		pastePanel.getElements().clear();
+		loadPasteModels();
+	}
+
+	private String formatSize(long bytes) {
+		double kb = bytes / 1024.0;
+		if (kb < 1024.0) return String.format(Locale.ROOT, "%.1f KB", kb);
+		double mb = kb / 1024.0;
+		return String.format(Locale.ROOT, "%.2f MB", mb);
+	}
+
+	private String formatTime(long ts) {
+		return ts > 0 ? DATE_FMT.format(new Date(ts)) : "-";
 	}
 
 	// ================================================================
@@ -111,6 +151,7 @@ public class MyModelsPopup extends PopupPanel {
 			Label lbl = new Label(gui, gui.i18nFormat("label.cpm.myModels.noLocal"));
 			lbl.setBounds(new Box(5, 10, 0, 0));
 			localPanel.addElement(lbl);
+			localPanel.setBounds(new Box(0, 0, 410, 28));
 			return;
 		}
 
@@ -120,20 +161,24 @@ public class MyModelsPopup extends PopupPanel {
 			localEntries.add(entry);
 
 			Label nameLbl = new Label(gui, f.getName());
-			nameLbl.setBounds(new Box(5, y, 200, 10));
+			nameLbl.setBounds(new Box(5, y, 250, 10));
 			localPanel.addElement(nameLbl);
 
+			Label metaLbl = new Label(gui, formatSize(f.length()) + " | " + formatTime(f.lastModified()));
+			metaLbl.setBounds(new Box(5, y + 12, 250, 10));
+			localPanel.addElement(metaLbl);
+
 			Button setBtn = new Button(gui, gui.i18nFormat("button.cpm.setActive"), () -> setLocalActive(f));
-			setBtn.setBounds(new Box(210, y, 60, 16));
+			setBtn.setBounds(new Box(270, y, 65, 20));
 			localPanel.addElement(setBtn);
 
 			Button delBtn = new Button(gui, gui.i18nFormat("button.cpm.delete"), () -> deleteLocal(f, entry));
-			delBtn.setBounds(new Box(275, y, 50, 16));
+			delBtn.setBounds(new Box(340, y, 65, 20));
 			localPanel.addElement(delBtn);
 
 			y += ENTRY_HEIGHT;
 		}
-		localPanel.setBounds(new Box(0, 0, 350, y));
+		localPanel.setBounds(new Box(0, 0, 410, Math.max(28, y)));
 	}
 
 	private void setLocalActive(File f) {
@@ -144,11 +189,13 @@ public class MyModelsPopup extends PopupPanel {
 	}
 
 	private void deleteLocal(File f, ModelEntry entry) {
-		if (f.delete()) {
-			localEntries.remove(entry);
-			localPanel.getElements().clear();
-			loadLocalModels(); // refresh
-		}
+		frame.openPopup(new ConfirmPopup(frame, gui.i18nFormat("button.cpm.delete"),
+			"Delete local model: " + f.getName() + "?", () -> {
+				if (f.delete()) {
+					localEntries.remove(entry);
+					refreshLocalModels();
+				}
+			}, null));
 	}
 
 	// ================================================================
@@ -161,6 +208,7 @@ public class MyModelsPopup extends PopupPanel {
 			Label lbl = new Label(gui, gui.i18nFormat("label.cpm.myModels.noServer"));
 			lbl.setBounds(new Box(5, 10, 0, 0));
 			serverPanel.addElement(lbl);
+			serverPanel.setBounds(new Box(0, 0, 410, 28));
 			return;
 		}
 
@@ -195,6 +243,7 @@ public class MyModelsPopup extends PopupPanel {
 			Label lbl = new Label(gui, gui.i18nFormat("label.cpm.myModels.noServer"));
 			lbl.setBounds(new Box(5, 10, 0, 0));
 			serverPanel.addElement(lbl);
+			serverPanel.setBounds(new Box(0, 0, 410, 28));
 			return;
 		}
 
@@ -213,47 +262,56 @@ public class MyModelsPopup extends PopupPanel {
 			// Name label (with default indicator)
 			String labelText = name + (isDefault ? gui.i18nFormat("label.cpm.myModels.defaultFlag") : "");
 			Label nameLbl = new Label(gui, labelText);
-			nameLbl.setBounds(new Box(5, y, 180, 10));
+			nameLbl.setBounds(new Box(5, y, 200, 10));
 			serverPanel.addElement(nameLbl);
 
-			int btnX = 190;
+			Label metaLbl = new Label(gui, formatSize(size) + " | " + formatTime(created));
+			metaLbl.setBounds(new Box(5, y + 12, 220, 10));
+			serverPanel.addElement(metaLbl);
+
+			int btnX = 230;
 			Button activeBtn = new Button(gui, gui.i18nFormat("button.cpm.setActive"), () -> setServerActive(id));
-			activeBtn.setBounds(new Box(btnX, y, 45, 16));
+			activeBtn.setBounds(new Box(btnX, y, 55, 20));
 			serverPanel.addElement(activeBtn);
-			btnX += 50;
+			btnX += 60;
 
 			Button defBtn = new Button(gui, gui.i18nFormat("button.cpm.setDefault"), () -> setServerDefault(id));
-			defBtn.setBounds(new Box(btnX, y, 45, 16));
+			defBtn.setBounds(new Box(btnX, y, 55, 20));
 			serverPanel.addElement(defBtn);
-			btnX += 50;
+			btnX += 60;
 
 			Button delBtn = new Button(gui, gui.i18nFormat("button.cpm.delete"), () -> deleteServer(id, model));
-			delBtn.setBounds(new Box(btnX, y, 50, 16));
+			delBtn.setBounds(new Box(btnX, y, 55, 20));
 			serverPanel.addElement(delBtn);
 
 			y += ENTRY_HEIGHT;
 		}
-		serverPanel.setBounds(new Box(0, 0, 350, y));
+		serverPanel.setBounds(new Box(0, 0, 410, Math.max(28, y)));
 	}
 
 	private void setServerActive(long modelId) {
 		NBTTagCompound tag = new NBTTagCompound();
 		tag.setLong("modelId", modelId);
 		MinecraftClientAccess.get().getNetHandler().sendPacketToServer(new ModelSetActiveC2S(tag));
+		frame.openPopup(new MessagePopup(frame, gui.i18nFormat("button.cpm.setActive"), "Requested server model activation."));
 	}
 
 	private void setServerDefault(long modelId) {
 		NBTTagCompound tag = new NBTTagCompound();
 		tag.setLong("modelId", modelId);
 		MinecraftClientAccess.get().getNetHandler().sendPacketToServer(new ModelSetDefaultC2S(tag));
+		frame.openPopup(new MessagePopup(frame, gui.i18nFormat("button.cpm.setDefault"), "Requested server default model update."));
 	}
 
 	private void deleteServer(long modelId, ModelEntry entry) {
-		NBTTagCompound tag = new NBTTagCompound();
-		tag.setLong("modelId", modelId);
-		MinecraftClientAccess.get().getNetHandler().sendPacketToServer(new ModelDeleteReqC2S(tag));
-		serverEntries.remove(entry);
-		// Refresh will happen when ModelDeleteResultS2C arrives
+		frame.openPopup(new ConfirmPopup(frame, gui.i18nFormat("button.cpm.delete"),
+			"Delete server model #" + modelId + "?", () -> {
+				NBTTagCompound tag = new NBTTagCompound();
+				tag.setLong("modelId", modelId);
+				MinecraftClientAccess.get().getNetHandler().sendPacketToServer(new ModelDeleteReqC2S(tag));
+				serverEntries.remove(entry);
+				refreshServerModels();
+			}, null));
 	}
 
 	// ================================================================
@@ -274,7 +332,7 @@ public class MyModelsPopup extends PopupPanel {
 		openPasteBtn.setBounds(new Box(5, 30, 200, 20));
 		pastePanel.addElement(openPasteBtn);
 
-		pastePanel.setBounds(new Box(0, 0, 350, 60));
+		pastePanel.setBounds(new Box(0, 0, 410, 60));
 	}
 
 	// ================================================================
