@@ -82,6 +82,14 @@ public class NetworkUtil {
 		if(dt.data != null) {
 			data.setBoolean(FORCED_TAG, dt.forced);
 			data.setByteArray(DATA_TAG, dt.data);
+			try {
+				java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+				byte[] hash = md.digest(dt.data);
+				short csum = 0;
+				for (int i = 1; i < dt.data.length - 2; i++) csum += (dt.data[i] & 0xFF);
+				short embedded = (short)(((dt.data[dt.data.length - 2] & 0xFF) << 8) | (dt.data[dt.data.length - 1] & 0xFF));
+				com.tom.cpm.shared.util.Log.info("writeSkinData SERVER hash=" + java.util.HexFormat.of().formatHex(hash) + " csum=" + csum + " embedded=" + embedded + " size=" + dt.data.length);
+			} catch (Exception ignored) {}
 		}
 		return new SetSkinS2C(handler.getPlayerId(target), data);
 	}

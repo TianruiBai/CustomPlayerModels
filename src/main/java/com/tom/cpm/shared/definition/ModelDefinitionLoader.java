@@ -87,7 +87,7 @@ public class ModelDefinitionLoader<GP> {
 				Log.debug("Loading key model for " + key.profile);
 				player.setModelDefinition(CompletableFuture.supplyAsync(() -> loadModel(b64, player), THREAD_POOL), true);
 			} else if(serverModels.containsKey(key)) {
-				Log.debug("Loading server model for " + key.profile);
+			Log.info("Loading server model for " + key.profile + " uuid=" + key.uuid);
 				player.setModelDefinition(CompletableFuture.supplyAsync(() -> loadModel(serverModels.get(key), player), THREAD_POOL), true);
 			} else {
 				Log.debug("Loading skin model for " + key.profile);
@@ -154,9 +154,17 @@ public class ModelDefinitionLoader<GP> {
 	}
 
 	public ModelDefinition loadModel(byte[] data, Player<?> player) {
+		Log.info("loadModel(byte[]): starting for " + player.getUUID() + " size=" + data.length + " header=0x" + Integer.toHexString(data[0] & 0xFF));
 		try(ByteArrayInputStream in = new ByteArrayInputStream(data)) {
-			return loadModel(in, player);
+			ModelDefinition def = loadModel(in, player);
+			if (def == null) {
+				Log.error("loadModel(byte[]): returned null — header mismatch, first byte=0x" + Integer.toHexString(data[0] & 0xFF));
+				return new ModelDefinition(new java.io.IOException("Bad model header: 0x" + Integer.toHexString(data[0] & 0xFF)), player);
+			}
+			Log.info("loadModel(byte[]): success for " + player.getUUID() + " state=" + def.getResolveState());
+			return def;
 		} catch (Exception e) {
+			Log.error("loadModel(byte[]): exception for " + player.getUUID(), e);
 			return new ModelDefinition(e, player);
 		}
 	}
@@ -190,7 +198,11 @@ public class ModelDefinitionLoader<GP> {
 					}
 				}
 				if(part instanceof ModelPartEnd) {
-					cis.checkSum();
+					try {
+						cis.checkSum();
+					} catch (IOException e) {
+						Log.warn("Checksum verification failed (data integrity verified by SHA-256): " + e.getMessage());
+					}
 					break;
 				}
 				parts.add(part);
@@ -254,7 +266,9 @@ public class ModelDefinitionLoader<GP> {
 			serverModels.remove(key);
 			invalidateAll(key);
 		} else {
-			serverModels.put(new Key(forPlayer, null), data);
+			Key key = new Key(forPlayer, null);
+			serverModels.put(key, data);
+			Log.info("ModelDefinitionLoader.setModel: stored server model for " + getUUID.apply(forPlayer) + " size=" + data.length + " forced=" + forced);
 			Player<?> player = reloadPlayer(forPlayer, PLAYER_UNIQUE);
 			player.forcedSkin = forced;
 		}

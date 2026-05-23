@@ -110,7 +110,9 @@ public class ModelDefinition {
 		ModelDefinitionLoader.THREAD_POOL.execute(() -> {
 			try {
 				resolveAll();
+				com.tom.cpm.shared.util.Log.info("ModelDefinition.startResolve: SUCCESS for " + (playerObj != null ? playerObj.getUUID() : "null"));
 			} catch (Throwable e) {
+				com.tom.cpm.shared.util.Log.error("ModelDefinition.startResolve: FAILED for " + (playerObj != null ? playerObj.getUUID() : "null"), e);
 				setError(e);
 			}
 		});
@@ -424,6 +426,7 @@ public class ModelDefinition {
 		cleanup();
 		if(ex instanceof ExecutionException || ex instanceof UncheckedExecutionException)
 			ex = ex.getCause();
+		Log.error("ModelDefinition.setError: state=" + (ex instanceof SafetyException ? "SAFETY_BLOCKED" : "ERRORRED") + " error=" + ex.toString(), ex instanceof IOException ? null : ex);
 		if(ex instanceof SafetyException)
 			resolveState = ModelLoadingState.SAFETY_BLOCKED;
 		else

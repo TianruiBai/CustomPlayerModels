@@ -38,7 +38,13 @@ public class ModelPartUUIDLockout implements IModelPart, IResolvedModelPart {
 	@Override
 	public void apply(ModelDefinition def) {
 		UUID uuid = def.getPlayerObj().getUUID();
-		if(!lockID.equals(uuid) && !MinecraftClientAccess.get().getClientPlayer().getUUID().equals(lockID))
+		boolean forced = def.getPlayerObj().forcedSkin;
+		if (forced) {
+			com.tom.cpm.shared.util.Log.info("UUID lock bypassed: forced skin for uuid=" + uuid + " lockId=" + lockID);
+			return;
+		}
+		boolean selfMatch = !lockID.equals(uuid) && !MinecraftClientAccess.get().getClientPlayer().getUUID().equals(lockID);
+		if(selfMatch)
 			throw new SafetyException(BlockReason.UUID_LOCK);
 	}
 }

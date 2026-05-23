@@ -44,6 +44,7 @@ public class PlayerData {
 		this.data = data != null ? data.clone() : null;
 		this.forced = forced;
 		this.save = save;
+		Log.debug("PlayerData.setModel: forced=" + forced + " save=" + save + " size=" + (data != null ? data.length : 0));
 	}
 
 	public void setModel(String data, boolean forced, boolean save) {

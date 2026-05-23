@@ -9,7 +9,7 @@ import com.tom.cpm.shared.network.NetH;
 import com.tom.cpm.shared.network.NetHandler;
 
 public abstract class NBTEntityS2C implements IS2CPacket {
-	private int entityId;
+	protected int entityId;
 	protected NBTTagCompound tag;
 
 	public NBTEntityS2C() {

@@ -269,10 +269,10 @@ public class CpmModelPacketHandler implements IModelServerHandler {
                 byte[] modelData = blob.getDecrypted();
                 try {
                     // Set the model as active skin via the existing SetSkin pipeline
-                    handler.setSkin((P) player, modelData, false);
+                    handler.setSkin((P) player, modelData, true);
                     // Also save to PlayerData so it persists
-                    handler.getSNetH((P) player).cpm$getEncodedModelData().setModel(modelData, false, true);
-                    Log.info("Active model set: player=" + uuid + " modelId=" + modelId);
+                    handler.getSNetH((P) player).cpm$getEncodedModelData().setModel(modelData, true, true);
+                    Log.info("Active model set: player=" + uuid + " modelId=" + modelId + " size=" + modelData.length);
                 } finally {
                     com.tom.cpm.server.crypto.MemoryProtector.wipe(modelData);
                 }
