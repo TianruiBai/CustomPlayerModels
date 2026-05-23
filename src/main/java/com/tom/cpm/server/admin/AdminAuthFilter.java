@@ -1,31 +1,25 @@
 package com.tom.cpm.server.admin;
 
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
 import java.util.Base64;
-import java.util.Date;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 
 import com.tom.cpm.server.crypto.MemoryProtector;
 import com.tom.cpm.shared.util.Log;
 
-import at.favre.lib.crypto.bcrypt.BCrypt;
-
 /**
  * Admin authentication: bcrypt password hashing + HMAC-based token validation.
- * 
- * Uses bcrypt (cost factor 12) for password storage verification.
+ *
+ * Uses bcrypt (cost factor 12) for password storage verification,
+ * loaded reflectively to avoid NeoForge ModuleClassLoader issues.
  * Tokens are HMAC-SHA256 signed with server secret, containing:
  *   username:expiryTimestamp:randomNonce
- * 
+ *
  * Rate limiting: max 5 login attempts per minute per IP.
- * 
- * This is a simplified JWT-alternative since we control both sides.
- * If full JWT is desired, swap to io.jsonwebtoken in a future update.
  */
 public class AdminAuthFilter {
 
@@ -36,6 +30,86 @@ public class AdminAuthFilter {
 
     private final javax.crypto.SecretKey secretKey;
     private final Map<String, LoginTracker> loginTrackers = new ConcurrentHashMap<>();
+
+    // Reflective bcrypt access — avoids compile-time dependency
+    private static Object bcryptWithDefaults;
+    private static Method bcryptHashToString;
+    private static Object bcryptVerifyer;
+    private static Method bcryptVerify;
+    private static boolean bcryptAvailable;
+
+    static {
+        initBcrypt();
+    }
+
+    private static void initBcrypt() {
+        try {
+            Class<?> bcryptClass = loadClass("at.favre.lib.crypto.bcrypt.BCrypt");
+            // BCrypt.withDefaults()
+            Method withDefaults = bcryptClass.getMethod("withDefaults");
+            bcryptWithDefaults = withDefaults.invoke(null);
+
+            // BCrypt.Hasher.hashToString(int cost, char[] password)
+            Class<?> hasherClass = loadClass("at.favre.lib.crypto.bcrypt.BCrypt$Hasher");
+            for (Method m : hasherClass.getMethods()) {
+                if (!"hashToString".equals(m.getName())) continue;
+                Class<?>[] pt = m.getParameterTypes();
+                if (pt.length == 2 && pt[0] == int.class) {
+                    bcryptHashToString = m;
+                    break;
+                }
+            }
+            if (bcryptHashToString == null) {
+                throw new NoSuchMethodException("No compatible BCrypt.Hasher.hashToString found");
+            }
+
+            // BCrypt.verifyer()
+            Method verifyerMethod = bcryptClass.getMethod("verifyer");
+            bcryptVerifyer = verifyerMethod.invoke(null);
+
+            // BCrypt.Verifyer.verify(char[] password, String hash)
+            Class<?> verifyerClass = loadClass("at.favre.lib.crypto.bcrypt.BCrypt$Verifyer");
+            int bestScore = Integer.MAX_VALUE;
+            for (Method m : verifyerClass.getMethods()) {
+                if (!"verify".equals(m.getName())) continue;
+                if (m.getParameterCount() == 2) {
+                    Class<?>[] pt = m.getParameterTypes();
+                    int score = scoreVerifyMethod(pt);
+                    if (score < bestScore) {
+                        bestScore = score;
+                        bcryptVerify = m;
+                    }
+                }
+            }
+            if (bcryptVerify == null) {
+                throw new NoSuchMethodException("No compatible BCrypt.Verifyer.verify found");
+            }
+
+            bcryptAvailable = true;
+            Log.info("Bcrypt loaded successfully via reflection");
+        } catch (Throwable t) {
+            bcryptAvailable = false;
+            Log.warn("Bcrypt library not available. Admin password verification will not work.", t);
+        }
+    }
+
+    private static Class<?> loadClass(String className) throws ClassNotFoundException {
+        ClassLoader[] candidates = new ClassLoader[] {
+            AdminAuthFilter.class.getClassLoader(),
+            Thread.currentThread().getContextClassLoader(),
+            ClassLoader.getSystemClassLoader()
+        };
+
+        for (ClassLoader loader : candidates) {
+            if (loader == null) continue;
+            try {
+                return Class.forName(className, true, loader);
+            } catch (ClassNotFoundException ignored) {
+                // try next
+            }
+        }
+        return Class.forName(className);
+    }
 
     public AdminAuthFilter(char[] jwtSecret) {
         // Derive HMAC key from secret via HKDF-like single-step derivation.
@@ -58,16 +132,19 @@ public class AdminAuthFilter {
 
     /**
      * Verify a password against a bcrypt hash.
-     * 
-     * @param password   the plaintext password attempt
-     * @param storedHash the bcrypt hash from config
-     * @return true if password matches
      */
     public boolean verifyPassword(String password, String storedHash) {
-        if (password == null || storedHash == null) return false;
+        return verifyPasswordHash(password, storedHash);
+    }
+
+    public static boolean verifyPasswordHash(String password, String storedHash) {
+        if (password == null || storedHash == null || !bcryptAvailable) return false;
         try {
-            BCrypt.Result result = BCrypt.verifyer().verify(password.toCharArray(), storedHash);
-            return result.verified;
+            Object result = invokeVerify(password, storedHash);
+            // BCrypt.Result.verified (field)
+            java.lang.reflect.Field verifiedField = result.getClass().getDeclaredField("verified");
+            verifiedField.setAccessible(true);
+            return verifiedField.getBoolean(result);
         } catch (Exception e) {
             Log.warn("Bcrypt verification error", e);
             return false;
@@ -78,7 +155,127 @@ public class AdminAuthFilter {
      * Hash a password with bcrypt for storage.
      */
     public static String hashPassword(String password) {
-        return BCrypt.withDefaults().hashToString(BCRYPT_COST, password.toCharArray());
+        if (!bcryptAvailable) {
+            Log.error("Cannot hash password: bcrypt library not available");
+            return null;
+        }
+        try {
+            Class<?>[] pt = bcryptHashToString.getParameterTypes();
+            Object passArg;
+            if (pt[1] == char[].class) {
+                passArg = password.toCharArray();
+            } else if (pt[1] == byte[].class) {
+                passArg = password.getBytes(StandardCharsets.UTF_8);
+            } else if (pt[1] == String.class || CharSequence.class.isAssignableFrom(pt[1])) {
+                passArg = password;
+            } else {
+                Log.error("Unsupported bcrypt hashToString password parameter: " + pt[1]);
+                return null;
+            }
+            return (String) bcryptHashToString.invoke(bcryptWithDefaults, BCRYPT_COST, passArg);
+        } catch (Exception e) {
+            Log.error("Bcrypt hashing failed", e);
+            return null;
+        }
+    }
+
+    private static Object invokeVerify(String password, String storedHash) throws Exception {
+        Class<?>[] pt = bcryptVerify.getParameterTypes();
+        Object arg0 = toPasswordArg(pt[0], password);
+        Object arg1 = toHashArg(pt[1], storedHash);
+
+        return bcryptVerify.invoke(bcryptVerifyer, arg0, arg1);
+    }
+
+    private static int scoreVerifyMethod(Class<?>[] pt) {
+        if (pt.length != 2) return Integer.MAX_VALUE;
+        return scorePasswordType(pt[0]) + scoreHashType(pt[1]);
+    }
+
+    private static int scorePasswordType(Class<?> type) {
+        if (type == char[].class) return 0;
+        if (type == byte[].class) return 1;
+        if (type == String.class || CharSequence.class.isAssignableFrom(type)) return 2;
+        return 100;
+    }
+
+    private static int scoreHashType(Class<?> type) {
+        if (type == String.class || CharSequence.class.isAssignableFrom(type)) return 0;
+        if (type == char[].class) return 1;
+        if (type == byte[].class) return 2;
+        if (type.getName().endsWith("$HashData")) return 10;
+        return 100;
+    }
+
+    private static Object toPasswordArg(Class<?> targetType, String password) {
+        if (targetType == char[].class) return password.toCharArray();
+        if (targetType == byte[].class) return password.getBytes(StandardCharsets.UTF_8);
+        if (targetType == String.class || CharSequence.class.isAssignableFrom(targetType)) return password;
+        throw new IllegalStateException("Unsupported bcrypt verify parameter[0]: " + targetType);
+    }
+
+    private static Object toHashArg(Class<?> targetType, String storedHash) throws Exception {
+        if (targetType == char[].class) return storedHash.toCharArray();
+        if (targetType == byte[].class) return storedHash.getBytes(StandardCharsets.UTF_8);
+        if (targetType == String.class || CharSequence.class.isAssignableFrom(targetType)) return storedHash;
+
+        // Some bcrypt versions use BCrypt.HashData as the second parameter.
+        if (targetType.getName().endsWith("$HashData")) {
+            Object parsed = tryParseHashData(targetType, storedHash);
+            if (parsed != null) return parsed;
+        }
+
+        throw new IllegalStateException("Unsupported bcrypt verify parameter[1]: " + targetType);
+    }
+
+    private static Object tryParseHashData(Class<?> hashDataType, String storedHash) {
+        String[] parserCandidates = new String[] {
+            "at.favre.lib.crypto.bcrypt.BCryptParser$Default",
+            "at.favre.lib.crypto.bcrypt.BCryptParser"
+        };
+
+        for (String parserClassName : parserCandidates) {
+            try {
+                Class<?> parserClass = loadClass(parserClassName);
+                Object parser = createParserInstance(parserClass);
+                if (parser == null) continue;
+
+                for (Method m : parserClass.getMethods()) {
+                    if (!"parse".equals(m.getName()) || m.getParameterCount() != 1) continue;
+                    if (!hashDataType.isAssignableFrom(m.getReturnType())) continue;
+
+                    Class<?> p = m.getParameterTypes()[0];
+                    Object arg;
+                    if (p == byte[].class) arg = storedHash.getBytes(StandardCharsets.UTF_8);
+                    else if (p == char[].class) arg = storedHash.toCharArray();
+                    else if (p == String.class || CharSequence.class.isAssignableFrom(p)) arg = storedHash;
+                    else continue;
+
+                    return m.invoke(parser, arg);
+                }
+            } catch (Exception ignored) {
+                // try next parser candidate
+            }
+        }
+        return null;
+    }
+
+    private static Object createParserInstance(Class<?> parserClass) {
+        try {
+            Method m = parserClass.getMethod("strict");
+            return m.invoke(null);
+        } catch (Exception ignored) {
+        }
+        try {
+            Method m = parserClass.getMethod("defaultParser");
+            return m.invoke(null);
+        } catch (Exception ignored) {
+        }
+        try {
+            return parserClass.getDeclaredConstructor().newInstance();
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     /**

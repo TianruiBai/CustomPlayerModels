@@ -59,6 +59,9 @@ public class AdminHttpHandler {
             if (path.startsWith("/players")) {
                 return handlePlayers(method, path);
             }
+            if (path.startsWith("/password")) {
+                return handlePassword(method, body, user);
+            }
             if (path.startsWith("/audit")) {
                 return handleAudit(query);
             }
@@ -106,8 +109,12 @@ public class AdminHttpHandler {
                 return json(401, "{\"error\":\"Invalid credentials\"}");
             }
 
+            boolean changePwd = com.tom.cpm.server.CpmServerConfig.isDefaultAdminPassword(storedHash);
             String token = auth.generateToken(username);
-            return json(200, "{\"token\":\"" + token + "\",\"username\":\"" + escapeJson(username) + "\"}");
+            return json(200, "{\"token\":\"" + token
+                + "\",\"username\":\"" + escapeJson(username) + "\""
+                + (changePwd ? ",\"changePasswordRequired\":true" : "")
+                + "}");
         } catch (Exception e) {
             Log.error("Login error", e);
             return json(500, "{\"error\":\"Login failed\"}");
@@ -182,6 +189,53 @@ public class AdminHttpHandler {
 
         return json(400, "{\"error\":\"Invalid models request\"}");
     }
+
+    // ================================================================
+    // Password change
+    // ================================================================
+
+    private ApiResponse handlePassword(String method, String body, String username) {
+        if (!"PUT".equalsIgnoreCase(method)) {
+            return json(405, "{\"error\":\"Method not allowed\"}");
+        }
+
+        try {
+            Map<String, String> data = parseSimpleJson(body);
+            String currentPassword = data.get("currentPassword");
+            String newPassword = data.get("newPassword");
+
+            if (currentPassword == null || newPassword == null) {
+                return json(400, "{\"error\":\"currentPassword and newPassword required\"}");
+            }
+
+            if (newPassword.length() < 4) {
+                return json(400, "{\"error\":\"New password must be at least 4 characters\"}");
+            }
+
+            String storedHash = getConfigValue("cpmServer.admin.passwordHash", "");
+            if (storedHash.isBlank()) {
+                return json(500, "{\"error\":\"No password hash configured\"}");
+            }
+
+            if (!auth.verifyPassword(currentPassword, storedHash)) {
+                return json(403, "{\"error\":\"Current password is incorrect\"}");
+            }
+
+            // Hash and persist new password
+            String newHash = com.tom.cpm.server.admin.AdminAuthFilter.hashPassword(newPassword);
+            setConfigValue("cpmServer.admin.passwordHash", newHash);
+
+            Log.info("Admin password changed by: " + username);
+            return json(200, "{\"ok\":true,\"message\":\"Password changed successfully\"}");
+        } catch (Exception e) {
+            Log.error("Password change error", e);
+            return json(500, "{\"error\":\"Failed to change password\"}");
+        }
+    }
+
+    // ================================================================
+    // Players
+    // ================================================================
 
     private ApiResponse handlePlayers(String method, String path) throws SQLException {
         if ("PUT".equalsIgnoreCase(method) && path.matches("/players/[^/]+/block")) {
@@ -316,6 +370,18 @@ public class AdminHttpHandler {
         } catch (Throwable t) {
             Log.warn("Failed to read config key: " + key, t);
             return defaultVal;
+        }
+    }
+
+    private void setConfigValue(String key, String value) {
+        try {
+            ConfigEntry cfg = ModConfig.getCommonConfig();
+            cfg.setString(key, value);
+            if (cfg instanceof com.tom.cpl.config.ModConfigFile) {
+                ((com.tom.cpl.config.ModConfigFile) cfg).save();
+            }
+        } catch (Throwable t) {
+            Log.warn("Failed to write config key: " + key, t);
         }
     }
 
