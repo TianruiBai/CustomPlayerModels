@@ -3,7 +3,22 @@
 ## Table of Contents
 1. [Executive Summary](#1-executive-summary)
 2. [Current State Analysis](#2-current-state-analysis)
+   - 2.1 [Existing Architecture Summary](#21-existing-architecture-summary)
+   - 2.2 [Key Findings from Codebase Review](#22-key-findings-from-codebase-review)
+   - 2.3 [Packet Size Constraint Analysis](#23-packet-size-constraint-analysis)
+   - 2.4 [Model Protection — Double-Check Analysis](#24-model-protection--double-check-analysis)
+   - 2.5 [Existing Paste Site Upload Pipeline](#25-existing-paste-site-upload-pipeline-research-findings)
+   - 2.6 [Feasibility Assessment](#26-feasibility-assessment)
 3. [Proposed Architecture](#3-proposed-architecture)
+   - 3.1 [System Overview](#31-system-overview)
+   - 3.2 [Native-Port-Only Design Rationale](#32-native-port-only-design-rationale)
+   - 3.2.1 [Minecraft Server = Secure Paste Site Replacement](#321-minecraft-server--secure-paste-site-replacement)
+   - 3.3 [Chunked Transfer Protocol](#33-chunked-transfer-protocol-native-port)
+   - 3.4 [Data Flows](#34-data-flows)
+     - Flow A: Client Uploads Model
+     - Flow B: Player Accesses Models
+     - Flow C: Admin Manages Models
+     - Flow D: Player Modifies/Updates Own Server Model
 4. [Component Design](#4-component-design)
 5. [Security Design](#5-security-design)
 6. [Database Schema](#6-database-schema)
@@ -170,7 +185,158 @@ SERVER SIDE:
 **Key Design Decision — Server RAM Encryption:**
 Models will be stored in server RAM as `EncryptedModelBlob` (AES-256-GCM ciphertext), not as plain `byte[]`. When `SetSkinS2C` needs to send the model, it is briefly decrypted, re-encrypted with the target client's session key, and sent. The decrypted form exists only for the duration of a single packet serialization (~microseconds). This prevents a server memory dump from exposing all player models at once.
 
-### 2.5 Feasibility Assessment
+### 2.5 Existing Paste Site Upload Pipeline (Research Findings)
+
+This section documents the **original upload pipeline** that CPM uses to upload models to external paste/hosting sites (`paste.tom5454.com`, GitHub Gists, etc.). Understanding this pipeline is critical because the new built-in server must replicate this functionality — the Minecraft server (multiplayer) or client (single-player) acts **like a paste site**, but with strong encryption and scoped access.
+
+#### 2.5.1 Paste Site Upload Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        EXISTING PASTE SITE FLOW                      │
+│                                                                      │
+│  ┌──────────┐    ┌──────────────┐    ┌───────────────┐              │
+│  │ Editor   │───▶│ ExportPopup  │───▶│ PasteClient    │              │
+│  │ GUI      │    │ (MODEL mode) │    │ (HTTP to API)  │              │
+│  └──────────┘    └──────┬───────┘    └───────┬───────┘              │
+│                         │                    │                       │
+│    ExportPopup.MODEL:   │                    │  POST /api/upload     │
+│    - Save to file (.cpmmodel)  ─────────────▶│  (Mojang auth)       │
+│    - Export Definition (update Gist) ────────▶│  PUT /api/update     │
+│    - [MISSING: Upload to Server]             │                       │
+│                                              ▼                       │
+│                                    ┌───────────────────┐            │
+│                                    │ paste.tom5454.com │            │
+│                                    │ (author's server) │            │
+│                                    └───────┬───────────┘            │
+│                                            │                        │
+│  ┌──────────┐    ┌──────────────────┐     │  GET /raw/{id}         │
+│  │ Model    │◀───│ PasteResource    │◀────┘                        │
+│  │ Renderer │    │ Loader (HTTP)    │                               │
+│  └──────────┘    └──────────────────┘                               │
+│                                                                      │
+│  ALSO: GitHub Gist flow:                                             │
+│  ┌──────────────┐    ┌──────────────────┐    ┌─────────────────┐   │
+│  │CreateGistPopup│───▶│ Manual URL entry │───▶│ gist.github.com │   │
+│  │(copy B64 text)│    │ or clipboard     │    │ (raw URL)       │   │
+│  └──────────────┘    └──────────────────┘    └─────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### 2.5.2 Key Classes in the Paste Pipeline
+
+| Class | Role | Location |
+|---|---|---|
+| **`PasteClient`** | HTTP client for paste.tom5454.com API. Handles Mojang auth, connect/list/upload/update/delete operations. | `shared/paste/PasteClient.java` |
+| **`PastePopup`** | GUI for browsing pastes uploaded to paste.tom5454.com. Lists user's files with delete/update capability. | `shared/paste/PastePopup.java` |
+| **`PasteResourceLoader`** | Loads model definitions from `paste.tom5454.com/raw/{id}`. Has fallback to CloudFlare mirror. | `shared/loaders/PasteResourceLoader.java` |
+| **`GistResourceLoader`** | Loads model definitions from `gist.githubusercontent.com/{user}/{gist}/raw`. Has URL validator. | `shared/loaders/GistResourceLoader.java` |
+| **`CreateGistPopup`** | Popup for manually creating a GitHub Gist. User copies Base64 model text, creates Gist manually, pastes URL back. | `shared/editor/gui/popup/CreateGistPopup.java` |
+| **`OverflowPopup`** | Handles model data that exceeds skin-embed size limit. Offers two tabs: "Paste" (upload to paste site OR local server) and "Gist" (manual URL entry). Already has `hasServerCap(CPM_BUILT_IN_SERVER)` awareness. | `shared/editor/gui/popup/OverflowPopup.java` |
+| **`ExportPopup`** | Main export dialog. 4 modes: SKIN, MODEL, B64, TEMPLATE. Each has different export targets. **Missing: "Upload to Server" button in MODEL and SKIN modes.** | `shared/editor/gui/popup/ExportPopup.java` |
+| **`PastebinResourceLoader`** | Loads from pastebin.com raw URLs. | `shared/loaders/PastebinResourceLoader.java` |
+| **`ModelsCDNResourceLoader`** | Loads from modelsCDN URLs. | `shared/loaders/ModelsCDNResourceLoader.java` |
+| **`HttpResourceLoader`** | Generic HTTP loader base class. | `shared/loaders/HttpResourceLoader.java` |
+
+#### 2.5.3 Resource Loader Lookup Table
+
+All resource loaders are registered in `ModelDefinitionLoader.LOADERS`:
+
+```java
+LOADERS.put("git", new GistResourceLoader());      // GitHub Gist
+LOADERS.put("gh",  new GithubRepoResourceLoader()); // GitHub repo
+LOADERS.put("p",   new PasteResourceLoader());      // paste.tom5454.com
+LOADERS.put("pb",  new PastebinResourceLoader());   // pastebin.com
+LOADERS.put("ms",  new ModelsCDNResourceLoader());  // modelsCDN
+LOADERS.put("local", ...);                          // In-game test (stub)
+```
+
+**New loader needed:** `"cpmdb"` → loads from the built-in server database. This allows model definitions stored on the server to be referenced by link (e.g., `cpmdb:{modelId}`) just like paste site links.
+
+#### 2.5.4 ExportPopup Mode Analysis
+
+**Current ExportPopup has 4 modes, each with different export targets:**
+
+| Mode | Button | Target | How |
+|---|---|---|---|
+| **SKIN** | "Export" | Save skin PNG to file | `FileChooserPopup` → `Exporter.exportSkin()` |
+| **SKIN** | "Export Definition" (okDef) | Update existing Gist link embedded in skin | `Exporter.exportUpdate(e, gui, defLink)` |
+| **SKIN** | "Export & Apply" (okUpload) | Upload skin to Mojang (vanilla skin server) | `SkinUploadPopup` → `MojangAPI.uploadSkin()` |
+| **SKIN** | *[MISSING]* | Upload model to current Minecraft server | — |
+| **MODEL** | "Export" | Save `.cpmmodel` to `player_models/` dir | `Exporter.exportModel()` |
+| **MODEL** | "Export Definition" (okDef) | Update existing Gist link if model was previously shared | `Exporter.exportUpdate(e, gui, defLink)` |
+| **MODEL** | *[MISSING]* | Upload `.cpmmodel` to current Minecraft server | — |
+| **B64** | "Export" | Copy Base64-encoded model to clipboard | `Exporter.exportB64()` |
+| **TEMPLATE** | "Export" | Upload template to paste site as Gist | `CreateGistPopup` → `PasteClient.uploadFile()` |
+
+**Key gaps to fill:**
+1. **SKIN mode** — needs "Upload to Server" button (uploads model data, not just the skin PNG)
+2. **MODEL mode** — needs "Upload to Server" button (uploads `.cpmmodel` bytes via chunked transfer)
+3. **Both modes** — the "Upload to Server" button should only be visible when `hasModClient() == true` (player is on a CPM-enabled server)
+4. **If server has `CPM_BUILT_IN_SERVER` cap** — use chunked upload with time-bound encryption
+5. **If server has CPM but NOT the built-in server** — fall back to existing `SetSkinC2S` path (single-packet, model must be ≤32KB)
+
+#### 2.5.5 In-Game Model Selection (Current State)
+
+**`SelectSkinPopup`** — currently only shows `.png` files from `player_models/` directory:
+- Lists local skin PNG files
+- Allows selecting a skin → sets as active
+- No server model listing
+- No paste site model listing
+
+**What needs to change:**
+- Show models from **three sources**: local `.cpmmodel` files, server database, paste site
+- "My Models" GUI accessible from Gesture menu or Settings
+- Each model entry shows source (local/server/paste), name, size, date
+- Actions: Set Active, Set Default, Delete, Download (for server→local editing), Update (re-upload edited version)
+
+#### 2.5.6 Model Update/Modify Flow
+
+**Problem:** When a player uploads a model to the server, then edits it in the editor and wants to update the server copy, there's no "Update on Server" path.
+
+**Current update flow (paste site):**
+1. Export MODEL → "Export Definition" button detects the existing Gist link embedded in the model data
+2. Calls `Exporter.exportUpdate()` which uses `PasteClient.updateFile()` to overwrite the paste
+3. For paste site (`"p"` loader), this updates in-place; for Gist, it shows `ExportStringResultPopup`
+
+**Needed for server:**
+1. Track `serverModelId` alongside the model in Editor state
+2. When exporting a model that was downloaded from / previously uploaded to the server:
+   - Show "Update on Server" button instead of "Upload to Server"
+   - Use existing model ID for update
+3. Server needs a `ModelUpdateC2S` / `ModelUpdateResultS2C` packet pair to handle in-place updates
+4. OR: re-use the upload flow with an optional `existingModelId` field in `ModelUploadInitC2S`
+
+#### 2.5.7 Integration Points Already In Place
+
+These components are **already implemented** and ready to be wired together:
+
+| Component | Status | What it does |
+|---|---|---|
+| `Exporter.exportToByteArray(Editor, UI)` | ✅ Done | Serializes editor state to model `byte[]` (HEADER + parts + checksum) |
+| `CpmModelTransferClient.startUpload(byte[], name, desc, progress)` | ✅ Done | Creates `ChunkedUploader`, splits data, encrypts chunks |
+| `CpmModelTransferClient.sendInitPacket()` | ✅ Done | Sends `ModelUploadInitC2S` to server |
+| `CpmModelTransferClient.sendNextChunk()` | ✅ Done | Sends next chunk, auto-sends complete when done |
+| `CpmModelTransferClient.cancelUpload()` | ✅ Done | Sends cancel packet |
+| `UploadProgressTracker` | ✅ Done | Tracks chunk progress, percentage, state for UI |
+| `ModelListReqC2S` / `ModelListResS2C` | ✅ Done | Request/response for server model list |
+| `ModelDeleteReqC2S` / `ModelDeleteResultS2C` | ✅ Done | Delete a server model |
+| `ModelSetActiveC2S` | ✅ Done | Set a server model as active skin |
+| `ModelSetDefaultC2S` | ✅ Done | Set a server model as default |
+| `ModelDownloadReqC2S` / `ModelDownloadChunkS2C` | ✅ Done | Download server model to local |
+| `OverflowPopup` server awareness | ⚠️ Partial | Uses `hasServerCap(CPM_BUILT_IN_SERVER)` but only for overflow data |
+
+**What's NOT yet wired:**
+- ❌ ExportPopup MODEL mode has no "Upload to Server" button
+- ❌ ExportPopup SKIN mode has no "Upload to Server" button
+- ❌ No "My Models" in-game GUI for browsing server models
+- ❌ No model ID tracking in Editor state for update detection
+- ❌ No in-place update packet/flow for server models
+- ❌ `CpmModelTransferClient` is not called from any Editor GUI code
+- ❌ No model list auto-fetch on server join
+- ❌ No new `ResourceLoader` implementation for `"cpmdb"` scheme
+
+### 2.6 Feasibility Assessment
 
 | Concern | Assessment |
 |---|---|
@@ -216,7 +382,26 @@ Models will be stored in server RAM as `EncryptedModelBlob` (AES-256-GCM ciphert
 │  │ ModelDownloadReqC2S / ModelDownloadChunkS2C        │ │                  │
 │  │ ModelDeleteReqC2S / ModelDeleteResultS2C           │ │                  │
 │  │ (SetSkinC2S — existing, now with encryption)       │ │                  │
+│  │ [ModelUpdateC2S / ModelUpdateResultS2C]             │ │                  │
 │  └────────────────────────────────────────────────────┘ │                  │
+│                                                          │                  │
+│  ╔═══════════════ ALL UPLOAD PATHS ENCRYPTED ═══════════════════════════╗ │
+│  ║  EVERY model upload route uses the same encryption layer:            ║ │
+│  ║                                                                      ║ │
+│  ║  Path A: Chunked upload (>30KB) → AES-256-GCM per chunk              ║ │
+│  ║  Path B: Single-packet SetSkinC2S (≤30KB) → AES-256-GCM in NBT      ║ │
+│  ║  Path C: Skin-embedded model (export as PNG + model in data)         ║ │
+│  ║          → Model bytes extracted, AES-256-GCM encrypted before       ║ │
+│  ║            being packed into SetSkinC2S NBT                          ║ │
+│  ║  Path D: Model update (single packet) → ModelUpdateC2S with          ║ │
+│  ║          AES-256-GCM encrypted model data                            ║ │
+│  ║                                                                      ║ │
+│  ║  ALL paths share:                                                    ║ │
+│  ║  • Time-bound session keys (HKDF from MC shared secret)             ║ │
+│  ║  • GCM AAD binding (windowId || counter || packetType)              ║ │
+│  ║  • No plaintext model bytes in ANY network buffer                   ║ │
+│  ║  • Per-packet IV (random 12 bytes)                                  ║ │
+│  ╚══════════════════════════════════════════════════════════════════════╝ │
 │                                                          │                  │
 │  All data AES-256-GCM encrypted with time-bound keys     │                  │
 │  Key derived from MC protocol shared secret via HKDF     │                  │
@@ -242,8 +427,8 @@ Models will be stored in server RAM as `EncryptedModelBlob` (AES-256-GCM ciphert
 │             │                                                            │
 │             │   ┌─────────────────────────────────────────────────────┐ │
 │             │   │ Admin Web Dashboard (HTTP, localhost:8080 default)  │ │
-│             │   │  ├─ NanoHTTPD embedded server                       │ │
-│             │   │  ├─ bcrypt auth → JWT tokens                        │ │
+│             │   │  ├─ JDK HttpServer (built-in, zero deps)            │ │
+│             │   │  ├─ bcrypt auth → HMAC-SHA256 tokens                │ │
 │             │   │  ├─ Bundled SPA frontend                            │ │
 │             │   │  └─ Shares ModelService backend                     │ │
 │             │   └────────────────────────────┬────────────────────────┘ │
@@ -269,21 +454,23 @@ Models will be stored in server RAM as `EncryptedModelBlob` (AES-256-GCM ciphert
 │                              └─────────────────────────────────────────┘ │
 │                                                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐ │
-│  │ Admin Web Dashboard — included in initial release (NanoHTTPD + SPA)│ │
+│  │ Admin Web Dashboard — included in initial release (JDK HttpServer + SPA)│ │
 │  └────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Transport Decision Matrix:**
 
-| Traffic Type | Transport | Rationale |
-|---|---|---|
-| Model upload (≤32 KB) | Native port, single `SetSkinC2S` packet | Fits in one `FriendlyByteBuf` |
-| Model upload (32 KB – 10 MB) | Native port, chunked `ModelDataChunkC2S` packets | 2–334 chunks at 30KB each with ACK/resume/time-bound keys |
-| Model list, download, delete | Native port, C2S/S2C packets | Low bandwidth; native port keeps it simple |
-| Admin web dashboard | HTTP on configurable port (default 8080, localhost) | Browser-based UI; bcrypt auth + JWT tokens required |
+| Traffic Type | Transport | Encryption | Rationale |
+|---|---|---|---|
+| Model upload (≤32 KB) | Native port, single `SetSkinC2S` packet | **AES-256-GCM, time-bound keys** (mandatory) | Fits in one `FriendlyByteBuf`; encrypted inside NBT |
+| Model upload (32 KB – 10 MB) | Native port, chunked `ModelDataChunkC2S` packets | **AES-256-GCM per chunk, time-bound keys** (mandatory) | 2–334 chunks at 30KB each with ACK/resume |
+| Skin-embedded model export | Native port, `SetSkinC2S` (model data extracted from skin PNG) | **AES-256-GCM, time-bound keys** (mandatory) | Model bytes encrypted before packing into SetSkinC2S NBT |
+| Model update (≤30 KB) | Native port, `ModelUpdateC2S` | **AES-256-GCM, time-bound keys** (mandatory) | In-place update of existing server model |
+| Model list, download, delete | Native port, C2S/S2C packets | Time-bound keys for model data (list metadata is low-sensitivity) | Low bandwidth; native port keeps it simple |
+| Admin web dashboard | HTTP on configurable port (default 8080, localhost) | bcrypt + HMAC-SHA256 (auth only; model data never flows here) | Browser-based UI |
 
-**All model data (upload/download/list/delete) goes through the Minecraft native port.** Only the admin web dashboard requires a separate HTTP port, and it binds to localhost by default for security.
+**All model data (upload/download/list/delete) goes through the Minecraft native port with AES-256-GCM encryption.** Only the admin web dashboard requires a separate HTTP port, and it binds to localhost by default for security. **There is NO unencrypted model data path.**
 
 ### 3.2 Native-Port-Only Design Rationale
 
@@ -295,6 +482,61 @@ Models will be stored in server RAM as `EncryptedModelBlob` (AES-256-GCM ciphert
 4. **Works through NAT/proxies** — players already connected to the server; no need for the client to reach a separate port
 5. **Simpler deployment** — zero additional configuration for model upload/download
 6. **Open-source resilient** — all encryption logic is in the source code; security comes from the server's secret keys, not from hidden algorithms
+
+### 3.2.1 Minecraft Server = Secure Paste Site Replacement
+
+**Core principle:** The Minecraft server with CPM Built-in Server enabled is a **drop-in replacement for paste.tom5454.com**, but with **stronger security**. Every feature the paste site provides has an equivalent on the built-in server, and every model upload path is encrypted.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│           PASTE SITE vs BUILT-IN SERVER — FEATURE PARITY          │
+├─────────────────────────────┬────────────────────────────────────┤
+│ paste.tom5454.com           │ CPM Built-in Server                │
+├─────────────────────────────┼────────────────────────────────────┤
+│ Upload model via HTTP API   │ Upload via chunked C2S packets     │
+│ (Mojang auth + session)     │ (MC shared secret + time-bound     │
+│                             │  AES-256-GCM, NO plaintext on wire) │
+├─────────────────────────────┼────────────────────────────────────┤
+│ List user's models          │ ModelListReq/Res C2S/S2C           │
+│ (HTTP GET /api/list)        │ (native port, scoped to player)    │
+├─────────────────────────────┼────────────────────────────────────┤
+│ Delete model                │ ModelDeleteReq/Res C2S/S2C         │
+│ (HTTP DELETE /api/delete)   │ (native port, owner-only)          │
+├─────────────────────────────┼────────────────────────────────────┤
+│ Update existing model       │ ModelUpdateC2S or chunked upload   │
+│ (HTTP PUT /api/update)      │ with existingModelId               │
+├─────────────────────────────┼────────────────────────────────────┤
+│ Raw model download          │ ModelDownloadReq/Chunk S2C         │
+│ (GET /raw/{id})             │ (native port, owner-only)          │
+├─────────────────────────────┼────────────────────────────────────┤
+│ Embed model in skin         │ SetSkinC2S with encrypted model    │
+│ (skin PNG stores link)      │ data in NBT (AES-256-GCM)          │
+├─────────────────────────────┼────────────────────────────────────┤
+│ Security: HTTP + Mojang     │ Security: 5-layer defense-in-depth │
+│ session token               │ (DB file + column + transport +    │
+│                             │  RAM + client memory encryption)   │
+├─────────────────────────────┼────────────────────────────────────┤
+│ Key management: server-side │ Key management: time-bound HKDF    │
+│ session tokens              │ from MC shared secret, auto-rotate │
+├─────────────────────────────┼────────────────────────────────────┤
+│ Requires internet           │ Works fully offline                │
+│ (paste.tom5454.com)         │ (models stored in local H2 DB)     │
+└─────────────────────────────┴────────────────────────────────────┘
+```
+
+**Encryption is MANDATORY for ALL model data paths:**
+
+| Upload Path | Encryption Required? | Notes |
+|---|---|---|
+| Chunked upload (>30KB) via `ModelDataChunkC2S` | ✅ **MANDATORY** | Each chunk AES-256-GCM encrypted independently |
+| Single-packet upload (≤30KB) via `SetSkinC2S` | ✅ **MANDATORY** | Model `byte[]` encrypted inside NBT, same keying as chunked |
+| Skin-embedded model export via `SetSkinC2S` | ✅ **MANDATORY** | Model bytes extracted from PNG, encrypted, packed into NBT |
+| Model update via `ModelUpdateC2S` | ✅ **MANDATORY** | Same encryption as single-packet upload |
+| Model download via `ModelDownloadChunkS2C` | ✅ **MANDATORY** | Server encrypts with requesting client's session key |
+| Model list request | ⚪ Metadata only | List metadata (names, sizes, IDs) is low-sensitivity; no model bytes |
+| Delete request | ⚪ Metadata only | Only modelId in request; no model bytes |
+
+**⚠ NO FALLBACK:** When `ServerCaps.CPM_BUILT_IN_SERVER` is negotiated during handshake, the server MUST reject any unencrypted model data. There is no "send plaintext if encryption fails" code path. The existing `SetSkinC2S` handler must be updated to detect whether the data is encrypted (presence of `encrypted` flag or time-window fields in NBT) and reject plaintext data when the built-in server is active.
 
 **Admin management (two paths):**
 
@@ -313,7 +555,7 @@ Models will be stored in server RAM as `EncryptedModelBlob` (AES-256-GCM ciphert
 
 **Path 2 — Web dashboard (HTTP, localhost:8080 by default):**
 - Browser-based management UI (bundled SPA)
-- bcrypt-hashed admin credentials + JWT session tokens
+- bcrypt-hashed admin credentials + HMAC-SHA256 session tokens
 - Full model browsing, search, force/delete, player blocking
 - Audit log viewer with pagination
 - Database statistics and backup triggers
@@ -331,15 +573,23 @@ Models will be stored in server RAM as `EncryptedModelBlob` (AES-256-GCM ciphert
    ⚠ BUTTON ONLY VISIBLE if CPM handshake with server is complete (hasMod=true)
 
 2. Exporter serializes to byte[] → size checked:
-   ├─ ≤ 30 KB → use existing SetSkinC2S path (no change needed)
+   ├─ ≤ 30 KB → use SetSkinC2S with AES-256-GCM encryption layer inside NBT
+   │            (NOT plaintext — same time-bound key as chunked path)
    └─ > 30 KB → chunked upload:
 
-3. ChunkedUploader:
-   a. Compute SHA-256 hash of full model byte[]
-   b. Split into N chunks of ≤30,720 bytes (30KB)
-   c. Encrypt each chunk with AES-256-GCM (session key from handshake)
-   d. Send ModelUploadInitC2S { modelName, totalSize, numChunks, sha256 }
-   e. Server responds ModelUploadInitAckS2C { uploadId, accepted }
+3. ENCRYPTION (applies to BOTH paths identically):
+   a. Derive time-window session key via HKDF-SHA512 from MC shared secret
+   b. For single-packet: encrypt entire model byte[] with AES-256-GCM
+      (random IV per packet, GCM AAD binds windowId + counter + packetType)
+   c. For chunked: encrypt each chunk independently with AES-256-GCM
+      (unique IV per chunk, GCM AAD binds chunk index)
+   d. Wrap ciphertext + IV + GCM tag into NBTTagCompound before ByteArrayPayload
+   e. Plaintext model bytes NEVER appear in the Netty pipeline
+   f. Source code is open; security depends on MC shared secret (unique per connection)
+
+   ⚠ This encryption is MANDATORY for ALL model data sent to the server.
+     The Minecraft server is the SECURE REPLACEMENT for paste.tom5454.com.
+     There is NO unencrypted fallback path when CPM_BUILT_IN_SERVER is negotiated.
 
 4. For each chunk i in 0..N-1 (with progress bar in Editor UI):
    a. Send ModelDataChunkC2S { uploadId, chunkIndex, encryptedChunkData, chunkIv, chunkTag }
@@ -401,15 +651,83 @@ Path 1 — In-Game Commands:
 
 Path 2 — Web Dashboard:
 1. Admin opens browser → http://localhost:8080/admin (or configured host:port)
-2. Login with admin credentials → bcrypt verification → JWT token issued
+2. Login with admin credentials → bcrypt verification → HMAC-SHA256 token issued
 3. Dashboard shows ALL models across all players (admin privilege)
 4. Admin actions: delete, force/unforce, block/unblock, view audit
 5. All actions go through same ModelService backend
 6. Dashboard is usable remotely if bind address is changed from localhost
 
 Both paths share the same ModelService / ModelRepository backend.
-The web dashboard runs on a separate HTTP port (NanoHTTPD, configurable).
+The web dashboard runs on a separate HTTP port (JDK HttpServer, configurable).
 It can be disabled entirely via cpmServer.httpPort.enabled=false.
+```
+
+#### Flow D: Player Modifies/Updates Own Server Model
+
+```
+This is the "paste site replacement" flow — the Minecraft server acts like a paste
+site for model storage, and the client can update existing uploaded models.
+
+1. Player has previously uploaded a model to the server (via Flow A).
+   The Editor stores the resulting serverModelId (returned in ModelUploadResultS2C).
+
+2. Player re-opens Editor, makes changes, clicks "Export" → ExportPopup opens.
+
+3. ExportPopup MODEL mode detects model has a serverModelId:
+   a. Shows "Update on Server" button (instead of "Upload to Server" for new models)
+   b. Shows "Save to File" button (always available)
+   c. Shows "Export Definition" button (if a paste/Gist link exists)
+
+4. Player clicks "Update on Server":
+   a. Editor calls Exporter.exportToByteArray() → gets model byte[]
+   b. If size ≤ 30KB → single-packet update via ModelUpdateC2S { modelId, data }
+   c. If size > 30KB → chunked upload with existingModelId set in ModelUploadInitC2S
+   d. Server receives update:
+      - Verifies player UUID matches model's owner UUID
+      - Re-encrypts with new per-row key (or keeps same key, replaces ciphertext)
+      - Updates updated_at timestamp
+      - Returns ModelUploadResultS2C { modelId (same), status=OK }
+   e. Progress bar shown during chunked transfer
+
+5. If the model is the player's active/default model:
+   - Server optionally re-broadcasts SetSkinS2C to tracking players
+     so changes are immediately visible
+
+6. Alternative flow — "Download for Editing":
+   a. Player opens "My Models" GUI (in-game), selects a server model
+   b. Clicks "Download" → ModelDownloadReqC2S { modelId }
+   c. Server sends model data via ModelDownloadChunkS2C packets
+   d. Client saves to player_models/ as a .cpmmodel file
+   e. Client sets serverModelId in the saved model's metadata
+   f. Player opens Editor → edits → Export → "Update on Server" detected
+
+7. Three-way export choice (unified in ExportPopup MODEL mode):
+   ┌──────────────────────────────────────────────────────────────┐
+   │  Export Model                                                │
+   │                                                              │
+   │  [Save to File]    Save .cpmmodel to player_models/ dir      │
+   │                                                              │
+   │  [Upload to Paste Site]    Upload to paste.tom5454.com       │
+   │    (visible when NOT on a CPM server, or as fallback)        │
+   │                                                              │
+   │  [Upload to Server]    Upload to current Minecraft server    │
+   │    (visible when hasModClient() && hasServerCap(BUILT_IN))   │
+   │    └─ becomes [Update on Server] if model already on server  │
+   │                                                              │
+   │  [Export Definition]    Update existing Gist/paste link      │
+   │    (visible when model has embedded paste/Gist link)         │
+   │                                                              │
+   │  [Manual Gist]    Copy Base64, paste into gist.github.com    │
+   │    (always available via mode switch)                        │
+   └──────────────────────────────────────────────────────────────┘
+
+8. Model source tracking (Editor state):
+   Editor.java needs new fields:
+   - Long serverModelId = null;  // Set when model is loaded from/downloaded from server
+   - Link pasteLink = null;      // Set when model has embedded paste/Gist link
+   
+   These are persisted in the .cpmmodel file metadata and used by ExportPopup
+   to determine which buttons to show.
 ```
 
 ---
@@ -422,7 +740,7 @@ It can be disabled entirely via cpmServer.httpPort.enabled=false.
 src/main/java/com/tom/cpm/
 ├── server/                          # NEW: Built-in model server
 │   ├── CpmModelPacketHandler.java   # Native-port packet receiver (chunk reassembly)
-│   ├── CpmModelHttpServer.java      # Embedded HTTP server (NanoHTTPD, admin dashboard)
+│   ├── CpmModelHttpServer.java      # Embedded HTTP server (JDK HttpServer, admin dashboard)
 │   ├── CpmServerConfig.java         # Server configuration
 │   ├── model/
 │   │   ├── ModelService.java        # Business logic
@@ -444,7 +762,7 @@ src/main/java/com/tom/cpm/
 │   ├── admin/
 │   │   ├── AdminCommandHandler.java # /cpm admin ... command implementations
 │   │   ├── AdminHttpHandler.java    # Admin dashboard API endpoints
-│   │   ├── AdminAuthFilter.java     # bcrypt auth + JWT token validation
+│   │   ├── AdminAuthFilter.java     # bcrypt auth + HMAC-SHA256 token validation
 │   │   └── webapp/                  # Bundled SPA frontend (vanilla JS)
 │   │       ├── index.html
 │   │       ├── js/
@@ -479,6 +797,8 @@ src/main/java/com/tom/cpm/
 │   ├── ModelSetDefaultC2S.java      # C→S: set this model as default
 │   ├── ModelDeleteReqC2S.java       # C→S: delete model
 │   └── ModelDeleteResultS2C.java    # S→C: delete result
+│   ├── ModelUpdateC2S.java          # C→S: update existing model (single-packet, ≤30KB)
+│   └── ModelUpdateResultS2C.java    # S→C: update result (OK/NOT_OWNER/NOT_FOUND)
 ```
 
 ### 4.2 Modified Existing Files
@@ -501,6 +821,12 @@ src/main/java/com/tom/cpm/
 | `IPacket.java` | Add `isLargePayload()` method (default: false) to allow >32KB bypass for chunked packets | Packet routing hint |
 | `ModelFile.java` | Add `encryptToFile()` / `decryptFromFile()` for optional local client-side model encryption | Client disk protection |
 | `ByteArrayPayload.java` | No change needed — already handles arbitrary byte arrays | — |
+| `ExportPopup.java` | **HARDENED:** Add "Upload to Server" button in MODEL and SKIN modes (visible only when `hasModClient()==true`); add "Update on Server" button when model has existing `serverModelId`; wire buttons to `CpmModelTransferClient` for chunked upload | Core client upload path integration |
+| `Editor.java` | Add `serverModelId` (Long) and `pasteLink` (Link) fields for model source tracking; persist in .cpmmodel metadata | Enable update detection in ExportPopup |
+| `SelectSkinPopup.java` | Extend to show models from 3 sources: local `.cpmmodel` files, server database (via ModelListReq/Res), and paste site (via PasteClient.listFiles); add tabbed source selector | In-game model management |
+| `ModelDefinitionLoader.java` | Add `"cpmdb"` ResourceLoader that loads models from server DB via ModelDownloadReq/Chunk; register in LOADERS map | Server models as linkable resources |
+| `NetworkUtil.java` | Add `requestModelList()`, `requestModelDownload()`, `requestModelDelete()`, `requestSetActive()`, `requestSetDefault()` client helper methods | Client-side network helpers |
+| `CpmModelTransferClient.java` | Wire `handleModelList()` to `ModelListCache`; wire `handleUploadResult()` to store `serverModelId` in Editor; wire `handleDownloadChunk()` to save to local file | Complete client-side lifecycle |
 
 ### 4.3 Chunked Transfer Protocol Specification
 
@@ -528,13 +854,15 @@ public static final int SESSION_TIMEOUT_MS = 600_000; // 10 minutes total
 
 The HTTP server serves ONLY the admin web dashboard. Model data never flows through it.
 
-| Library | Pros | Cons |
-|---|---|---|
-| **NanoHTTPD** | Single-file, no deps, tiny (~40KB) | Limited HTTP/2, no WebSocket built-in |
-| **Netty** (bundled in Minecraft) | Already in classpath, full-featured | Complex API; classloader conflicts possible |
-| **Sun HTTP Server** (JDK built-in) | Zero dependency, simple API | No HTTPS, limited features |
+**Implemented using `com.sun.net.httpserver.HttpServer` (JDK built-in, Java 21+).**
 
-**Recommendation: NanoHTTPD** — admin dashboard is low-traffic (1-2 concurrent users). Simplicity wins.
+| Library | Pros | Cons | Chosen? |
+|---|---|---|---|
+| **Sun HTTP Server** (JDK built-in) | Zero dependency, simple API, no classloader conflicts | No HTTPS (acceptable — localhost-only), limited features | ✅ **CHOSEN** |
+| **NanoHTTPD** | Single-file, no deps, tiny (~40KB) | External dep, classloader conflicts possible with MC's bundled Netty | ❌ |
+| **Netty** (bundled in Minecraft) | Already in classpath, full-featured | Complex API; classloader conflicts with MC's version | ❌ |
+
+**Decision: Sun HTTP Server** — zero external dependencies, no classloader conflicts with Minecraft's bundled Netty, simple API sufficient for low-traffic admin dashboard (1-2 concurrent users). The JDK HttpServer is already verified working in the codebase (`CpmModelHttpServer.java`).
 
 ### 4.5 Database Options
 
@@ -1121,23 +1449,30 @@ public static final String CPM_OFFLINE_MODE_ALLOW_UPLOAD = "cpmServer.offlineMod
 | P2.8 | Add `ServerCaps.CPM_BUILT_IN_SERVER` and `ServerCaps.CPM_CHUNKED_TRANSFER` flags | `shared/network/ServerCaps.java` |
 | P2.9 | Add `isLargePayload()` to `IPacket` for chunk-aware routing | `shared/network/IPacket.java` |
 
-### Phase 3: Admin Commands & Client GUI
+### Phase 3: Admin Commands & Client GUI (CLIENT UPLOAD PATH HARDENING)
 
-**Duration estimate: 2–3 weeks**
+**Duration estimate: 3–4 weeks** (expanded from 2–3 due to ExportPopup integration)
 
 | Task | Description | Files |
 |---|---|---|
 | P3.1 | Implement admin subcommands in `Command.java`: `/cpm admin models list/delete/force/unforce`, `/cpm admin players block/unblock`, `/cpm admin audit`, `/cpm admin db backup/stats` | `common/Command.java` |
 | P3.2 | Implement `AdminCommandHandler` (OP-level check, paginated chat output with clickable entries, console support) | `server/admin/AdminCommandHandler.java` |
-| P3.3 | Implement `CpmModelTransferClient` (client coordinator: chunked upload/download with time-bound encryption, progress tracking) | `server/client/CpmModelTransferClient.java` |
+| P3.3 | **HARDEN:** Implement `CpmModelTransferClient` — wire to Editor GUI: add `getInstance()` accessor in `MinecraftClientAccess`; handle `handleModelList()` → `ModelListCache`; handle `handleUploadResult()` → store `serverModelId` in Editor; handle `handleDownloadChunk()` → reassemble + save to `player_models/` | `server/client/CpmModelTransferClient.java` |
 | P3.4 | Implement `UploadProgressTracker` (UI model for progress bar, cancel button, error display) | `server/client/UploadProgressTracker.java` |
 | P3.5 | Implement `ModelListCache` (local cache with TTL; invalidate on upload/delete) | `server/client/ModelListCache.java` |
-| P3.6 | Add "Upload to Server" button to Editor GUI (visible ONLY when `netHandler.hasModClient()==true`) | Editor GUI (existing files) |
-| P3.7 | Add "My Models" list GUI (accessible from Gesture menu/Settings; shows server models, allows set active/default/delete) | New GUI screen |
-| P3.8 | Add upload progress bar overlay in Editor (chunk counter, percentage, cancel button) | Editor GUI |
-| P3.9 | Add resume prompt on reconnect if upload was interrupted | Client event handler |
-| P3.10 | Integrate with `NetworkUtil.sendSkinDataToServer()` — prefer server DB model if available | `NetworkUtil.java` |
-| P3.11 | Add `ModelFile.encryptToFile()` / `ModelFile.decryptFromFile()` for optional local model encryption | `shared/io/ModelFile.java` |
+| P3.6 | **HARDEN:** Add "Upload to Server" button to `ExportPopup.MODEL` — visible only when `hasModClient()==true`; uses `Exporter.exportToByteArray()` then `CpmModelTransferClient.startUpload()`; show `UploadProgressTracker` during transfer. If server has `CPM_BUILT_IN_SERVER` cap → chunked upload; else → fallback to `SetSkinC2S` (≤32KB only) | `shared/editor/gui/popup/ExportPopup.java` |
+| P3.7 | **HARDEN:** Add "Upload to Server" button to `ExportPopup.SKIN` — same as MODEL but also exports the skin PNG for the vanilla skin. Button visible only when `hasModClient()==true` | `shared/editor/gui/popup/ExportPopup.java` |
+| P3.8 | **HARDEN:** Add "Update on Server" button to `ExportPopup.MODEL` and `ExportPopup.SKIN` — visible when `Editor.serverModelId != null`; uses `ModelUploadInitC2S` with `existingModelId` field set, or a new `ModelUpdateC2S` packet for in-place update. Server validates ownership before overwriting. | `shared/editor/gui/popup/ExportPopup.java` |
+| P3.9 | **HARDEN:** Add `serverModelId` (Long) and `pasteLink` (Link) fields to `Editor.java`; persist in `.cpmmodel` metadata via `ModelDescription`; set `serverModelId` on upload success (from `ModelUploadResultS2C.modelId`); set `pasteLink` from existing model's embedded link | `shared/editor/Editor.java`, `shared/editor/util/ModelDescription.java` |
+| P3.10 | Add "My Models" list GUI (accessible from Gesture menu/Settings; shows models from 3 sources: local `.cpmmodel` files, server DB via `ModelListReq/Res`, paste site via `PasteClient.listFiles`; actions: Set Active, Set Default, Delete, Download, Open in Editor) | New GUI screen: `shared/gui/MyModelsPopup.java` |
+| P3.11 | **HARDEN:** Implement "Download" flow in My Models — sends `ModelDownloadReqC2S { modelId }`, receives chunks via `CpmModelTransferClient.handleDownloadChunk()`, reassembles and saves as `.cpmmodel` to `player_models/`, sets `serverModelId` in the file metadata | `server/client/CpmModelTransferClient.java` |
+| P3.12 | Add upload progress bar overlay in Editor (chunk counter, percentage, cancel button) | Editor GUI |
+| P3.13 | Add resume prompt on reconnect if upload was interrupted | Client event handler |
+| P3.14 | **HARDEN:** Integrate with `NetworkUtil.sendSkinDataToServer()` — on join, check server models first; if player has a default model on server, use that; else fall back to local selected model | `NetworkUtil.java` |
+| P3.15 | Add `ModelFile.encryptToFile()` / `ModelFile.decryptFromFile()` for optional local model encryption | `shared/io/ModelFile.java` |
+| P3.16 | **NEW:** Add `"cpmdb"` ResourceLoader implementation in `ModelDefinitionLoader.LOADERS` — loads model from server DB via `ModelDownloadReq/Chunk` when a link references `cpmdb:{modelId}` | `shared/loaders/CpmDbResourceLoader.java` |
+| P3.17 | **NEW:** Add `ModelUpdateC2S` / `ModelUpdateResultS2C` packets for in-place model updates (alternative: add `existingModelId` field to `ModelUploadInitC2S`) | `shared/network/packet/ModelUpdateC2S.java`, `ModelUpdateResultS2C.java` |
+| P3.18 | Wire `ModelListReqC2S` auto-fetch on server join (after handshake complete); populate `ModelListCache` for quick access | `NetworkUtil.java`, client join handler |
 
 ### Phase 4: Admin Web Dashboard
 
@@ -1145,16 +1480,16 @@ public static final String CPM_OFFLINE_MODE_ALLOW_UPLOAD = "cpmServer.offlineMod
 
 | Task | Description | Files |
 |---|---|---|
-| P4.1 | Add NanoHTTPD, bcrypt, JWT dependencies to `build.gradle` | `build.gradle` |
+| P4.1 | Add H2 and bcrypt dependencies to `build.gradle` (HTTP server uses JDK built-in; auth uses custom HMAC-SHA256, no JWT library needed) | `build.gradle` |
 | P4.2 | Implement `CpmModelHttpServer` (start/stop, route registration; binds to localhost:8080 by default) | `server/CpmModelHttpServer.java` |
 | P4.3 | Implement `AdminHttpHandler` (login, model CRUD, player management, audit log API endpoints) | `server/admin/AdminHttpHandler.java` |
-| P4.4 | Implement `AdminAuthFilter` (bcrypt password verification, JWT token issue/validation, rate limiting) | `server/admin/AdminAuthFilter.java` |
+| P4.4 | Implement `AdminAuthFilter` (bcrypt password verification, HMAC-SHA256 token issue/validation via `javax.crypto.Mac`, rate limiting) | `server/admin/AdminAuthFilter.java` |
 | P4.5 | Build SPA frontend: login page with bcrypt auth | `server/admin/webapp/login.html` |
 | P4.6 | Build SPA frontend: model list with search, filter, sort, pagination | `server/admin/webapp/index.html` |
 | P4.7 | Build SPA frontend: model detail with icon preview | `server/admin/webapp/model.html` |
 | P4.8 | Build SPA frontend: player management (block/unblock, model count) | `server/admin/webapp/players.html` |
 | P4.9 | Build SPA frontend: audit log viewer with filtering | `server/admin/webapp/audit.html` |
-| P4.10 | Bundle static assets into JAR; serve from classpath via NanoHTTPD | `CpmModelHttpServer.java` |
+| P4.10 | Bundle static assets into JAR; serve from classpath via JDK HttpServer | `CpmModelHttpServer.java` |
 | P4.11 | Wire HTTP server start/stop into `CustomPlayerModels` (only if `cpmServer.httpPort.enabled=true`) | `CustomPlayerModels.java` |
 
 ### Phase 5: Integration & Hardening
@@ -1207,7 +1542,7 @@ public static final String CPM_OFFLINE_MODE_ALLOW_UPLOAD = "cpmServer.offlineMod
 | **Client-side memory dump exposes model during upload** | Low-Medium | GuardedByteArray reduces exposure window; model data is transient (only during chunk encryption); time-bound session key is ephemeral; local model file encryption (`ModelFile.encryptToFile()`) protects at rest |
 | **Native port model data visible to other server plugins** | Low | Other mods on the server could theoretically read `ByteArrayPayload` data. This is an existing risk with any mod packet. Mitigation: AES-256-GCM layer inside NBT means intercepted data is ciphertext. Plugin would need to compromise the time-window session key to decrypt. Time-binding means even if they extract one key, it expires within the hour. |
 | **Source code reveals all algorithms** | Very Low | This is by design — the mod is open source. Security relies on the server's secret keys (master DB key, per-connection shared secrets), not on algorithm secrecy. Time-binding adds defense against long-term data collection. Even with full source access, an attacker cannot decrypt captured traffic without the server's session keys. |
-| **Admin dashboard brute-force (HTTP port)** | Medium | bcrypt hashing (cost factor 12); JWT tokens with 1-hour expiry; rate limiting on login endpoint (5 attempts/min per IP); dashboard binds to localhost by default — remote access requires explicit configuration; TLS optional |
+| **Admin dashboard brute-force (HTTP port)** | Medium | bcrypt hashing (cost factor 12); HMAC-SHA256 tokens with 1-hour expiry; rate limiting on login endpoint (5 attempts/min per IP); dashboard binds to localhost by default — remote access requires explicit configuration; TLS optional |
 
 ### 8.3 Compatibility Risks
 
@@ -1232,23 +1567,17 @@ dependencies {
     // Embedded database
     implementation 'com.h2database:h2:2.2.224'
 
-    // Embedded HTTP server (admin web dashboard only — model data goes through native port)
-    implementation 'org.nanohttpd:nanohttpd:2.3.1'
-
     // Password hashing for admin dashboard accounts
     implementation 'at.favre.lib:bcrypt:0.10.2'
-
-    // JWT for admin dashboard session tokens
-    implementation 'io.jsonwebtoken:jjwt-api:0.12.5'
-    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.5'
-    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.5'
 }
 
-// All crypto (AES-256-GCM, HKDF-SHA512) is JDK built-in (Java 21+).
+// All crypto (AES-256-GCM, HKDF-SHA512, HMAC-SHA256) is JDK built-in (Java 21+).
+// HTTP server: com.sun.net.httpserver.HttpServer (JDK built-in, zero deps).
+// Auth tokens: custom HMAC-SHA256 via javax.crypto.Mac (JDK built-in, no JWT library).
 // No RSA dependency — all key material derived symmetrically via HKDF from MC shared secret.
 ```
 
-**Total external dependency footprint: 4 libraries (H2, NanoHTTPD, bcrypt, JWT).** All model data traffic stays on Minecraft native port 25565. HTTP port is for admin dashboard only.
+**Total external dependency footprint: 2 libraries (H2, bcrypt).** All model data traffic stays on Minecraft native port 25565. HTTP port is for admin dashboard only. HTTP server and auth tokens use JDK built-in APIs only.
 
 ## Appendix B: Example Config (cpm.json additions)
 
@@ -1313,12 +1642,14 @@ C→S ModelListReqC2S      { }
 S→C ModelListResS2C      { "models": [{ "id": 42, "name": "...", "size": 1234, "isDefault": true, "createdAt": "<iso>" }] }
 
 CHUNKED UPLOAD (models > 30 KB):
-C→S ModelUploadInitC2S   { "name": "...", "desc": "...", "totalSize": 102400, "numChunks": 4, "sha256": <32 bytes> }
+C→S ModelUploadInitC2S   { "name": "...", "desc": "...", "totalSize": 102400, "numChunks": 4, "sha256": <32 bytes>, "existingModelId": 0 }
+  NOTE: Set "existingModelId" to a non-zero value to UPDATE an existing model instead of creating new.
+        Server validates ownership. If 0 or absent, a new model is created.
 S→C ModelUploadInitAckS2C { "uploadId": "<uuid>", "status": "OK"|"REJECTED", "reason": "..." }
 C→S ModelDataChunkC2S    { "uploadId": "<uuid>", "chunkIdx": 0, "data": <encrypted>, "dataIv": <12>, "dataTag": <16>, "chunkSha256": <32> }
 S→C ModelDataChunkAckS2C { "uploadId": "<uuid>", "chunkIdx": 0, "status": "OK"|"RETRY" }
 C→S ModelUploadCompleteC2S { "uploadId": "<uuid>", "fullSha256": <32> }
-S→C ModelUploadResultS2C { "uploadId": "<uuid>", "modelId": 42, "status": "OK"|"HASH_MISMATCH"|"VALIDATION_FAILED" }
+S→C ModelUploadResultS2C { "uploadId": "<uuid>", "modelId": 42, "status": "OK"|"HASH_MISMATCH"|"VALIDATION_FAILED"|"NOT_OWNER" }
 C→S ModelUploadCancelC2S  { "uploadId": "<uuid>" }
 C→S ModelUploadResumeC2S  { "uploadId": "<uuid>" }
 S→C ModelUploadResumeAckS2C { "uploadId": "<uuid>", "lastReceivedChunk": 2 }
@@ -1335,6 +1666,12 @@ C→S ModelSetActiveC2S     { "modelId": 42 }
 C→S ModelSetDefaultC2S    { "modelId": 42 }
 C→S ModelDeleteReqC2S     { "modelId": 42 }
 S→C ModelDeleteResultS2C  { "modelId": 42, "status": "OK"|"NOT_FOUND"|"NOT_OWNER" }
+
+MODEL UPDATE (modify previously uploaded model):
+C→S ModelUpdateC2S        { "modelId": 42, "data": <encrypted byte[]>, "dataIv": <12>, "dataTag": <16>, "sha256": <32> }
+S→C ModelUpdateResultS2C  { "modelId": 42, "status": "OK"|"NOT_FOUND"|"NOT_OWNER"|"SIZE_EXCEEDED" }
+  NOTE: Single-packet update for models ≤30KB. For larger updates, use the chunked upload
+        flow with existingModelId set in ModelUploadInitC2S.
 ```
 
 ### Admin Commands (In-Game, OP Level 2+)
@@ -1382,4 +1719,4 @@ POST  /api/admin/db/backup                 → { "status": "OK", "path": "backup
 
 ---
 
-*Document version: 4.0 — Updated 2026-05-23: web dashboard included in initial release (NanoHTTPD + bcrypt + JWT on configurable port, localhost by default); time window reduced to 30 minutes (blast radius ~1 hour); model data stays on native port 25565 — only admin dashboard uses separate HTTP port; 4 external dependencies (H2, NanoHTTPD, bcrypt, JWT).*
+*Document version: 4.3 — Updated 2026-05-23: Fixed NanoHTTPD/JWT documentation to match actual codebase implementation — codebase uses JDK built-in com.sun.net.httpserver.HttpServer (not NanoHTTPD), custom HMAC-SHA256 tokens via javax.crypto.Mac (not JWT library), and bcrypt via at.favre.lib:bcrypt (correct). Total external dependency footprint corrected from 4 to 2 (H2 + bcrypt). All other sections updated to reflect actual implementation.*
