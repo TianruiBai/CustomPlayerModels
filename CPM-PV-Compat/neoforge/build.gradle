@@ -1,7 +1,0 @@
-plugins {
-    id 'neoforge-conventions'
-}
-
-dependencies {
-	implementation "maven.modrinth:plasmo-voice:neoforge-1.21.1-2.1.9"
-}

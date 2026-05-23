@@ -1,2 +1,0 @@
-FMLCorePlugin: com.tom.cpmcore.CPMLoadingPlugin
-FMLCorePluginContainsFMLMod: true

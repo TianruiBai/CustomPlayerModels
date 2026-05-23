@@ -1,0 +1,36 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Java
+*.class
+*.log
+hs_err_pid*
+replay_pid*
+
+# IDE
+.idea/
+*.iml
+.project
+.classpath
+.settings/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime/dev
+run/
+runs/
+out/
+
+# Local jars and overrides
+libs/
+*.jar.local
+
+# Temporary files
+*.tmp
+*.swp
+*~

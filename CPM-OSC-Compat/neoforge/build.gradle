@@ -1,4 +1,0 @@
-// Auto-generated build file
-plugins {
-    id 'neoforge-conventions'
-}
