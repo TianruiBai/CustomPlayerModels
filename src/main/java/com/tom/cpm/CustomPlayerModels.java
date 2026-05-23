@@ -29,7 +29,6 @@ import com.tom.cpm.client.CustomPlayerModelsClient;
 import com.tom.cpm.common.AnnotationFinder;
 import com.tom.cpm.common.PlatformCommon.PacketRegistryP;
 import com.tom.cpm.common.ServerHandler;
-import com.tom.cpm.server.CpmServerInit;
 import com.tom.cpm.shared.MinecraftObjectHolder;
 import com.tom.cpm.shared.PlatformFeature;
 import com.tom.cpm.shared.config.ModConfig;
@@ -75,12 +74,10 @@ public class CustomPlayerModels extends CommonBase {
 	@SubscribeEvent
 	public void onStart(ServerStartingEvent e) {
 		MinecraftObjectHolder.setServerObject(new MinecraftServerObject(e.getServer()));
-		CpmServerInit.init();
 	}
 
 	@SubscribeEvent
 	public void onStop(ServerStoppingEvent e) {
-		CpmServerInit.shutdown();
 		ModConfig.getWorldConfig().save();
 		MinecraftObjectHolder.setServerObject(null);
 	}

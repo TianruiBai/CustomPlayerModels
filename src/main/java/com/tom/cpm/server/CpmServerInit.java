@@ -134,10 +134,17 @@ public class CpmServerInit {
 
         // Initialize HTTP admin dashboard (optional)
         if (config.httpEnabled()) {
-            String jwtSecret = config.adminUsername() + System.currentTimeMillis();
-            this.httpServer = new CpmModelHttpServer(config.httpBindAddress(),
-                config.httpPort(), modelService, jwtSecret.toCharArray());
-            httpServer.startServer();
+            CpmModelHttpServer localHttpServer = null;
+            try {
+                String jwtSecret = config.adminUsername() + System.currentTimeMillis();
+                localHttpServer = new CpmModelHttpServer(config.httpBindAddress(),
+                    config.httpPort(), modelService, jwtSecret.toCharArray());
+                localHttpServer.startServer();
+            } catch (Throwable t) {
+                Log.error("CPM admin HTTP dashboard failed to start. Continuing without HTTP dashboard.", t);
+                localHttpServer = null;
+            }
+            this.httpServer = localHttpServer;
         } else {
             this.httpServer = null;
         }

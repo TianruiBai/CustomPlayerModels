@@ -2,21 +2,25 @@ package com.tom.cpm.server.db;
 
 import java.io.File;
 import java.sql.Connection;
+import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
-
-import org.h2.jdbcx.JdbcConnectionPool;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Properties;
 
 import com.tom.cpm.shared.util.Log;
 
 /**
  * Manages the H2 embedded database lifecycle.
+ * Uses pure JDBC (no H2 compile-time imports) to avoid
+ * NeoForge ModuleClassLoader issues in the dev environment.
  * 
  * Features:
  * - WAL mode for crash resilience
  * - Optional file-level AES encryption (CIPHER=AES)
- * - Connection pooling via H2's built-in JdbcConnectionPool
+ * - Simple connection pooling via DriverManager
  * - Auto-backup on shutdown
  * - Migration runner on startup
  */
@@ -27,15 +31,14 @@ public class DatabaseManager implements AutoCloseable {
     private final boolean fileEncryption;
     private final MigrationManager migrationManager;
 
-    private JdbcConnectionPool connectionPool;
+    private String jdbcUrl;
+    private String dbUser;
+    private String dbPass;
+    private Driver h2Driver;
+    private final Deque<Connection> pool = new ArrayDeque<>();
+    private static final int MAX_POOL_SIZE = 10;
     private boolean initialized;
 
-    /**
-     * @param dbDirectory     directory for database files
-     * @param dbPassword      password for H2 file encryption (empty = no encryption)
-     * @param fileEncryption  whether to enable H2 CIPHER=AES mode
-     * @param migrationManager schema migration manager
-     */
     public DatabaseManager(File dbDirectory, String dbPassword, boolean fileEncryption,
                            MigrationManager migrationManager) {
         this.dbDirectory = dbDirectory;
@@ -45,7 +48,8 @@ public class DatabaseManager implements AutoCloseable {
     }
 
     /**
-     * Initialize the database: create directory, open connection pool, run migrations.
+     * Initialize the database: create directory, open connections, run migrations.
+     * Uses reflection to load H2 driver so no H2 imports are needed at compile time.
      */
     public void initialize() throws SQLException {
         if (initialized) return;
@@ -56,50 +60,30 @@ public class DatabaseManager implements AutoCloseable {
 
         // Build JDBC URL
         String dbPath = new File(dbDirectory, "cpm_models").getAbsolutePath();
-        StringBuilder url = new StringBuilder("jdbc:h2:file:").append(dbPath);
-
-        // H2 settings for performance and safety
-        url.append(";MODE=MySQL");          // More familiar SQL dialect
-        url.append(";DATABASE_TO_UPPER=false"); // Preserve case
+        StringBuilder url = new StringBuilder("jdbc:h2:file:").append(dbPath)
+            .append(";MODE=MySQL")
+            .append(";DATABASE_TO_UPPER=false");
 
         if (fileEncryption && !dbPassword.isEmpty()) {
             url.append(";CIPHER=AES");
-            url.append(";DB_CLOSE_ON_EXIT=FALSE"); // Let us control shutdown
-        }
-        // WAL mode for crash resilience
-        // Note: H2 settings after ; are connection-level, not URL-level in some versions.
-        // We set them in the connection init SQL below.
-
-        String jdbcUrl = url.toString();
-
-        // Modern JDBC (4.0+) auto-discovers drivers via service loader.
-        // H2 provides META-INF/services/java.sql.Driver, so DriverManager works without Class.forName.
-        // We still try explicit loading for environments without service loader support.
-        try {
-            Class.forName("org.h2.Driver");
-        } catch (ClassNotFoundException e) {
-            Log.warn("H2 driver not found via Class.forName, trying DriverManager auto-discovery");
         }
 
-        // Create connection pool
-        String user = "cpm";
-        String pass = fileEncryption ? dbPassword + " cpm_models" : "";
+        this.jdbcUrl = url.toString();
+        this.dbUser = "cpm";
+        this.dbPass = fileEncryption ? dbPassword + " cpm_models" : "";
 
-        connectionPool = JdbcConnectionPool.create(jdbcUrl, user, pass);
-        connectionPool.setMaxConnections(10);
-        connectionPool.setLoginTimeout(5);
+        loadAndRegisterDriver();
 
-        // Initialize connection with WAL mode
-        try (Connection conn = getConnection();
+        // Verify connectivity and init settings
+        try (Connection conn = openConnection();
              Statement stmt = conn.createStatement()) {
-            stmt.execute("SET WRITE_DELAY 0");  // Disable write delay for safety
-            stmt.execute("SET LOG 1");          // Enable transaction log (already default with WAL)
-            stmt.execute("SET CACHE_SIZE 16384"); // 16 MB cache
+            stmt.execute("SET WRITE_DELAY 0");
+            stmt.execute("SET CACHE_SIZE 16384");
             Log.info("Database initialized: " + jdbcUrl);
         }
 
         // Run migrations
-        try (Connection conn = getConnection()) {
+        try (Connection conn = openConnection()) {
             migrationManager.migrate(conn);
         }
 
@@ -108,14 +92,81 @@ public class DatabaseManager implements AutoCloseable {
     }
 
     /**
-     * Get a database connection from the pool.
-     * Caller MUST close the connection (returns it to the pool).
+     * Get a database connection (from pool or new).
+     * Caller MUST close the connection.
      */
     public Connection getConnection() throws SQLException {
         if (!initialized) {
             throw new IllegalStateException("Database not initialized");
         }
-        return connectionPool.getConnection();
+        Connection conn = pool.pollFirst();
+        if (conn == null || conn.isClosed()) {
+            return openConnection();
+        }
+        return conn;
+    }
+
+    private Connection openConnection() throws SQLException {
+        Properties props = new Properties();
+        props.setProperty("user", dbUser);
+        props.setProperty("password", dbPass);
+        if (h2Driver != null) {
+            Connection conn = h2Driver.connect(jdbcUrl, props);
+            if (conn != null) return conn;
+        }
+        return DriverManager.getConnection(jdbcUrl, props);
+    }
+
+    /**
+     * Return a connection to the pool instead of closing it.
+     */
+    public void returnConnection(Connection conn) {
+        if (conn != null) {
+            try {
+                if (!conn.isClosed() && pool.size() < MAX_POOL_SIZE) {
+                    pool.addLast(conn);
+                    return;
+                }
+            } catch (SQLException ignored) {}
+            try { conn.close(); } catch (SQLException ignored) {}
+        }
+    }
+
+    private void loadAndRegisterDriver() throws SQLException {
+        final String driverClassName = "org.h2.Driver";
+        ClassLoader[] candidates = new ClassLoader[] {
+            DatabaseManager.class.getClassLoader(),
+            Thread.currentThread().getContextClassLoader(),
+            ClassLoader.getSystemClassLoader()
+        };
+
+        Exception lastError = null;
+        for (ClassLoader loader : candidates) {
+            if (loader == null) continue;
+            try {
+                Driver h2Driver = (Driver) Class.forName(driverClassName, true, loader)
+                    .getDeclaredConstructor().newInstance();
+                this.h2Driver = h2Driver;
+                DriverManager.registerDriver(h2Driver);
+                Log.info("H2 driver registered successfully using classloader: " + loader);
+                return;
+            } catch (Exception ex) {
+                lastError = ex;
+            }
+        }
+
+        try {
+            Driver h2Driver = (Driver) Class.forName(driverClassName)
+                .getDeclaredConstructor().newInstance();
+            this.h2Driver = h2Driver;
+            DriverManager.registerDriver(h2Driver);
+            Log.info("H2 driver registered successfully using default Class.forName");
+            return;
+        } catch (Exception ex) {
+            lastError = ex;
+        }
+
+        throw new SQLException("H2 driver not available. Ensure h2 is on NeoForge runtime classpath or jarJar embedded in the mod jar.", lastError);
     }
 
     /**
@@ -137,7 +188,6 @@ public class DatabaseManager implements AutoCloseable {
 
     /**
      * Verify database integrity.
-     * @return true if no corruption detected
      */
     public boolean verifyIntegrity() {
         try (Connection conn = getConnection();
@@ -152,16 +202,18 @@ public class DatabaseManager implements AutoCloseable {
 
     @Override
     public void close() {
-        if (connectionPool != null) {
-            // Checkpoint before closing to ensure all data is written
-            try (Connection conn = getConnection();
+        if (initialized) {
+            try (Connection conn = openConnection();
                  Statement stmt = conn.createStatement()) {
                 stmt.execute("SHUTDOWN COMPACT");
                 Log.info("Database shut down cleanly");
             } catch (SQLException e) {
                 Log.error("Error during database shutdown", e);
             }
-            connectionPool.dispose();
+            // Close pooled connections
+            while (!pool.isEmpty()) {
+                try { pool.pollFirst().close(); } catch (SQLException ignored) {}
+            }
         }
         initialized = false;
     }

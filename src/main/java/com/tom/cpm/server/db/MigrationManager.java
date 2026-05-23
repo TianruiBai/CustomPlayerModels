@@ -124,8 +124,8 @@ public class MigrationManager {
             // Server configuration
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS server_config (
-                    key         VARCHAR(128) PRIMARY KEY,
-                    value       TEXT         NOT NULL,
+                    cfg_key     VARCHAR(128) PRIMARY KEY,
+                    cfg_value   TEXT         NOT NULL,
                     updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
@@ -159,8 +159,8 @@ public class MigrationManager {
         try (Statement stmt = conn.createStatement()) {
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS server_config (
-                    key         VARCHAR(128) PRIMARY KEY,
-                    value       TEXT         NOT NULL,
+                    cfg_key     VARCHAR(128) PRIMARY KEY,
+                    cfg_value   TEXT         NOT NULL,
                     updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
@@ -169,7 +169,7 @@ public class MigrationManager {
 
     private int readVersion(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT value FROM server_config WHERE key = ?")) {
+                "SELECT cfg_value FROM server_config WHERE cfg_key = ?")) {
             ps.setString(1, VERSION_KEY);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -184,7 +184,7 @@ public class MigrationManager {
 
     private void setVersion(Connection conn, int version) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
-                "MERGE INTO server_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)")) {
+                "MERGE INTO server_config (cfg_key, cfg_value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)")) {
             ps.setString(1, VERSION_KEY);
             ps.setString(2, String.valueOf(version));
             ps.executeUpdate();
