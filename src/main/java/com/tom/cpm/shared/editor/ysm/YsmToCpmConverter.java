@@ -442,6 +442,20 @@ public class YsmToCpmConverter {
 				.extractGestureMappings(ysmData.controllerJson);
 			ctrlGestures.forEach((k, v) -> ysmData.extraAnimations.putIfAbsent(k, v));
 		}
+
+		// CPM encodes custom animation IDs into skin layers using bit encoding.
+		// Slot 0 (blank) and slot all-bits-set (reset) are reserved.
+		// 6 layers = 62 valid slots, enough for any YSM model's gestures.
+		// Always initialize — some models ship gesture-only animations without explicit
+		// extra_animation mappings, and the parser may assign GESTURE type at runtime.
+		if (!editor.animations.isEmpty()) {
+			for (com.tom.cpm.shared.editor.util.PlayerSkinLayer layer :
+					com.tom.cpm.shared.editor.util.PlayerSkinLayer.VALUES) {
+				editor.animEnc.freeLayers.add(layer);
+			}
+			Log.info("[YSM Import] Initialized " + editor.animEnc.freeLayers.size() +
+				" encoding layers for " + editor.animations.size() + " animations");
+		}
 	}
 
 	// ========================================================================
