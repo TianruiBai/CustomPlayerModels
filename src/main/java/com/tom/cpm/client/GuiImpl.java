@@ -74,7 +74,12 @@ public class GuiImpl extends Screen implements IGui {
 	static {
 		nativeComponents.register(TextField.class, local(GuiImpl::createTextField));
 		nativeComponents.register(FileChooserPopup.class, TinyFDChooser::new);
-		nativeComponents.register(Panel3d.class, Panel3dImpl::new);
+		try {
+			nativeComponents.register(Panel3d.class, Panel3dImpl::new);
+		} catch (Throwable t) {
+			System.err.println("[CPM] Failed to register Panel3d native renderer, 3D viewport will be disabled.");
+			t.printStackTrace();
+		}
 	}
 
 	public GuiImpl(Function<IGui, Frame> creator, Screen parent) {

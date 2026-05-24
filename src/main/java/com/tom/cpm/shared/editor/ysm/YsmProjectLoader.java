@@ -141,7 +141,7 @@ public class YsmProjectLoader {
 				data.extraAnimJson = readJsonEntry(zip, "animations/extra.animation.json");
 				data.controllerJson = readJsonEntry(zip, "controller/main.animation_controllers.json");
 
-				// Read all PNG files from textures/ directory
+				// Read all PNG files from textures/ directory, plus sound files
 				var entries = zip.entries();
 				while (entries.hasMoreElements()) {
 					ZipEntry entry = entries.nextElement();
@@ -152,9 +152,20 @@ public class YsmProjectLoader {
 							String fileName = name.substring(name.lastIndexOf('/') + 1);
 							data.textures.put(fileName, pngData);
 						}
+					} else if (name.endsWith(".ogg") || name.endsWith(".wav") || name.endsWith(".mp3")) {
+						byte[] sndData = readEntryBytes(zip, name);
+						if (sndData != null) {
+							String fileName = name.substring(name.lastIndexOf('/') + 1);
+							data.sounds.put(fileName, sndData);
+						}
 					}
 				}
 			}
+		}
+
+		// 3. Scan for sound files in sounds/ directory (for projects with explicit "files" section)
+		if (!data.sounds.isEmpty()) {
+			Log.info("[YSM Import] Found " + data.sounds.size() + " sound files");
 		}
 
 		return data;

@@ -19,6 +19,7 @@ import com.tom.cpm.shared.editor.anim.AnimFrame;
 import com.tom.cpm.shared.editor.anim.AnimFrame.FrameData;
 import com.tom.cpm.shared.editor.anim.EditorAnim;
 import com.tom.cpm.shared.editor.elements.ModelElement;
+import com.tom.cpm.shared.editor.ysm.BedrockModelParser.BedrockBone;
 import com.tom.cpm.shared.util.Log;
 
 /**
@@ -82,10 +83,14 @@ public class BedrockAnimationParser {
 
 	/**
 	 * Parse all animations from a Bedrock animation JSON and create CPM EditorAnims.
+	 * @param worldPositions pre-computed YSM absolute world positions for each bone
+	 * @param boneIndex      bone name → BedrockBone lookup for computing parent-relative positions
 	 */
 	public static List<EditorAnim> parse(JsonObject animJson, Editor editor,
 	                                     Map<String, ModelElement> boneNameToElement,
-	                                     AnimationType defaultType) {
+	                                     AnimationType defaultType,
+	                                     Map<String, Vec3f> worldPositions,
+	                                     Map<String, BedrockBone> boneIndex) {
 		List<EditorAnim> results = new ArrayList<>();
 		if (animJson == null) return results;
 
@@ -97,7 +102,8 @@ public class BedrockAnimationParser {
 				JsonObject animData = animations.getAsJsonObject(animName);
 				if (animData == null) continue;
 
-				EditorAnim anim = convertAnimation(animName, animData, editor, boneNameToElement, defaultType);
+				EditorAnim anim = convertAnimation(animName, animData, editor, boneNameToElement,
+					defaultType, worldPositions, boneIndex);
 				if (anim != null) {
 					results.add(anim);
 				}
@@ -110,10 +116,15 @@ public class BedrockAnimationParser {
 
 	/**
 	 * Convert a single Bedrock animation to a CPM EditorAnim.
+	 * Position keyframes (YSM absolute world space) are converted to additive
+	 * deltas from the bone's default YSM world position, so they work correctly
+	 * regardless of CPM re-parenting.
 	 */
 	private static EditorAnim convertAnimation(String animName, JsonObject animData, Editor editor,
 	                                           Map<String, ModelElement> boneNameToElement,
-	                                           AnimationType defaultType) {
+	                                           AnimationType defaultType,
+	                                           Map<String, Vec3f> worldPositions,
+	                                           Map<String, BedrockBone> boneIndex) {
 		// ---- Determine animation type and pose ----
 		AnimationType type = defaultType;
 		IPose pose = null;
@@ -171,7 +182,7 @@ public class BedrockAnimationParser {
 		anim.pose = pose;
 		anim.loop = loop;
 		anim.duration = Math.max(50, (int)(animLength * 1000));
-		anim.add = false;
+		anim.add = true;  // Additive mode: animation deltas add to element's base position
 		anim.priority = 0;
 		anim.intType = InterpolatorType.POLY_LOOP;
 
@@ -239,7 +250,10 @@ public class BedrockAnimationParser {
 				processChannel(boneData.get("rotation"), target, anim, keyframeTimes, ChannelType.ROTATION);
 			}
 			if (boneData.has("position")) {
-				processChannel(boneData.get("position"), target, anim, keyframeTimes, ChannelType.POSITION);
+				// Convert YSM absolute position → CPM delta from default world position
+				Vec3f defaultWorldPos = worldPositions.get(boneName);
+				processChannel(boneData.get("position"), target, anim, keyframeTimes,
+					ChannelType.POSITION, defaultWorldPos);
 			}
 			if (boneData.has("scale")) {
 				processChannel(boneData.get("scale"), target, anim, keyframeTimes, ChannelType.SCALE);
@@ -257,6 +271,16 @@ public class BedrockAnimationParser {
 	private static void processChannel(JsonElement channelData, ModelElement target,
 	                                   EditorAnim anim, List<Float> keyframeTimes,
 	                                   ChannelType channelType) {
+		processChannel(channelData, target, anim, keyframeTimes, channelType, null);
+	}
+
+	/**
+	 * Process a single animation channel. For POSITION channels, ysmDefaultWorldPos
+	 * is used to convert YSM absolute positions to CPM additive deltas.
+	 */
+	private static void processChannel(JsonElement channelData, ModelElement target,
+	                                   EditorAnim anim, List<Float> keyframeTimes,
+	                                   ChannelType channelType, Vec3f ysmDefaultWorldPos) {
 		if (channelData == null) return;
 
 		if (!channelData.isJsonObject()) {
@@ -272,6 +296,7 @@ public class BedrockAnimationParser {
 				// Static numeric value — apply to all frames
 				if (arr.size() >= 3 && arr.get(0).isJsonPrimitive() && arr.get(0).getAsJsonPrimitive().isNumber()) {
 					Vec3f value = new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
+					value = convertPositionValue(value, channelType, ysmDefaultWorldPos);
 					for (AnimFrame frame : anim.getFrames()) {
 						setValue(frame.makeData(target), value, channelType);
 					}
@@ -295,6 +320,7 @@ public class BedrockAnimationParser {
 				float time = Float.parseFloat(timeKey);
 				Vec3f value = extractPostValue(keyframes.get(timeKey));
 				if (value == null) continue;
+				value = convertPositionValue(value, channelType, ysmDefaultWorldPos);
 
 				int frameIdx = findFrameIndex(keyframeTimes, time);
 				if (frameIdx < 0 || frameIdx >= anim.getFrames().size()) continue;
@@ -302,6 +328,16 @@ public class BedrockAnimationParser {
 				setValue(anim.getFrames().get(frameIdx).makeData(target), value, channelType);
 			} catch (NumberFormatException ignored) {}
 		}
+	}
+
+	/**
+	 * Convert a YSM absolute animation position value to a CPM additive delta.
+	 * For non-position channels or when no default position is available, returns unchanged.
+	 */
+	private static Vec3f convertPositionValue(Vec3f value, ChannelType channelType, Vec3f defaultWorldPos) {
+		if (channelType != ChannelType.POSITION || defaultWorldPos == null) return value;
+		// delta = animation_target - default_world_position
+		return value.sub(defaultWorldPos);
 	}
 
 	private static Vec3f extractPostValue(JsonElement keyframeData) {

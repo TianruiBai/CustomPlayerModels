@@ -26,7 +26,13 @@ public abstract class Panel3d extends Panel {
 		super(frm.getGui());
 		this.frame = frm;
 
-		nat = gui.getNative().getNative(Panel3d.class, this);
+		try {
+			nat = gui.getNative().getNative(Panel3d.class, this);
+		} catch (Throwable t) {
+			System.err.println("[CPM] Panel3d native unavailable, using no-op fallback renderer.");
+			t.printStackTrace();
+			nat = new NoopPanel3dNative(this);
+		}
 	}
 
 	public static abstract class Panel3dNative {
@@ -71,6 +77,45 @@ public abstract class Panel3d extends Panel {
 			float sx = (off.x + bounds.x) / (float) ws.x;
 			float sy = (off.y + bounds.y) / (float) ws.y;
 			panel.gui.drawTexture(bounds.x, bounds.y, bounds.w, bounds.h, sx, sy, sx + bounds.w / (float) ws.x, sy + bounds.h / (float) ws.y);
+		}
+	}
+
+	public static class NoopPanel3dNative extends Panel3dNative {
+		private final Mat4f idMat;
+
+		public NoopPanel3dNative(Panel3d panel) {
+			super(panel);
+			idMat = new Mat4f();
+			idMat.setIdentity();
+		}
+
+		@Override
+		public void render(float partialTicks) {
+		}
+
+		@Override
+		public RenderTypes<RenderMode> getRenderTypes() {
+			return new RenderTypes<>(RenderMode.class);
+		}
+
+		@Override
+		public RenderTypes<RenderMode> getRenderTypes(String tex) {
+			return new RenderTypes<>(RenderMode.class);
+		}
+
+		@Override
+		public Image takeScreenshot(Vec2i size) {
+			return new Image(size.x, size.y);
+		}
+
+		@Override
+		public Mat4f getView() {
+			return idMat.copy();
+		}
+
+		@Override
+		public Mat4f getProjection() {
+			return idMat.copy();
 		}
 	}
 

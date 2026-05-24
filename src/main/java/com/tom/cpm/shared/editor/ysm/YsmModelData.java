@@ -45,4 +45,7 @@ public class YsmModelData {
 
 	/** P5: Extra model files beyond main/arm, keyed by model key name (e.g. "arrow", "extra_01"). */
 	public Map<String, JsonObject> extraModelJsons = new LinkedHashMap<>();
+
+	/** Sound files from the YSM archive: filename (e.g. "sound.ogg") → raw bytes. */
+	public Map<String, byte[]> sounds = new HashMap<>();
 }

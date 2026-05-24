@@ -3,12 +3,12 @@ package com.tom.cpm.shared.editor.ysm;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import com.google.gson.JsonObject;
 
@@ -31,548 +31,427 @@ import com.tom.cpm.shared.model.render.PerFaceUV;
 import com.tom.cpm.shared.util.Log;
 
 /**
- * Main orchestrator that converts parsed YSM data ({@link YsmModelData}) into
- * CPM editor state ({@link Editor}).
+ * Main orchestrator that converts parsed YSM data into CPM editor state.
  *
- * <p>This is the bridge between Bedrock-format data and CPM's internal model
- * representation. It handles:
- * <ul>
- *   <li>Bone hierarchy → CPM {@link ModelElement} tree under root parts</li>
- *   <li>Bedrock cube geometry → CPM {@link ModelElement} children</li>
- *   <li>Per-face UV → CPM {@link PerFaceUV}</li>
- *   <li>Bedrock animations → CPM {@link EditorAnim}</li>
- *   <li>Texture loading → CPM {@link ETextures}</li>
- * </ul>
+ * <p><b>v2 - Subtree-preserving approach:</b> YSM bone subtrees are kept intact
+ * under a single CPM root part. Only the top-level bone position is adjusted
+ * for the CPM root part vanilla Minecraft position.
  */
 public class YsmToCpmConverter {
 
-	/**
-	 * Convert parsed YSM data into the given CPM editor.
-	 * The editor should already have been reset via {@link Editor#loadDefaultPlayerModel()}.
-	 *
-	 * @param ysmData the parsed YSM project data
-	 * @param editor  the CPM editor to populate
-	 */
-	/** Skip arm.json import in Phase 6 to avoid first-person hand regressions. */
 	private static final boolean IMPORT_ARM_MODEL = false;
 
 	public static void convert(YsmModelData ysmData, Editor editor) {
 		Log.info("[YSM Import] Starting conversion of: " + ysmData.modelName);
 
-		// 1. Parse bones from model JSONs
 		List<BedrockBone> mainBones = BedrockModelParser.parse(ysmData.mainModelJson);
-		List<BedrockBone> armBones;
-		if (IMPORT_ARM_MODEL) {
-			armBones = BedrockModelParser.parse(ysmData.armModelJson);
-			Log.info("[YSM Import] Main bones: " + mainBones.size() + ", Arm bones: " + armBones.size());
-		} else {
-			armBones = java.util.Collections.emptyList();
-			Log.info("[YSM Import] Main bones: " + mainBones.size() + ", Arm bones: 0 (arm.json skipped by Phase 6 policy)");
-		}
+		List<BedrockBone> armBones = IMPORT_ARM_MODEL
+			? BedrockModelParser.parse(ysmData.armModelJson) : Collections.emptyList();
+		Log.info("[YSM Import] Main bones: " + mainBones.size() +
+			", Arm bones: " + (IMPORT_ARM_MODEL ? armBones.size() : "0 (skipped)"));
 
-		// 2. Hide vanilla root part cubes (the default player model)
+		ModelConversionResult result = convertModel(mainBones, armBones, ysmData, editor);
+		convertAnimations(ysmData, editor, result.allBoneElements, result.ysmWorldPositions, result.boneIndex);
+		setupGestures(ysmData, editor);
+		loadTextures(ysmData, editor);
+		applyModelScale(ysmData, editor);
+		setMetadata(ysmData, editor);
+
+		Log.info("[YSM Import] Conversion complete - " + editor.elements.size() +
+			" root elements, " + editor.animations.size() + " animations");
+	}
+
+	private static class ModelConversionResult {
+		final Map<String, ModelElement> allBoneElements;
+		final Map<String, Vec3f> ysmWorldPositions;
+		final Map<String, BedrockBone> boneIndex;
+
+		ModelConversionResult(Map<String, ModelElement> e, Map<String, Vec3f> w, Map<String, BedrockBone> b) {
+			this.allBoneElements = e; this.ysmWorldPositions = w; this.boneIndex = b;
+		}
+	}
+
+	// ========================================================================
+	// Model Conversion (v2 - subtree-preserving)
+	// ========================================================================
+
+	private static ModelConversionResult convertModel(List<BedrockBone> mainBones,
+			List<BedrockBone> armBones, YsmModelData ysmData, Editor editor) {
 		for (ModelElement rootElem : editor.elements) {
 			rootElem.hidden = true;
 		}
 
-		// Build bone index for fast lookup and orphan detection
 		Map<String, BedrockBone> boneIndex = new LinkedHashMap<>();
 		for (BedrockBone b : mainBones) { boneIndex.put(b.name, b); }
-		Set<String> visitedBones = new HashSet<>();
+		Map<String, List<BedrockBone>> childrenMap = YsmBoneClassifier.buildChildrenMap(mainBones);
 
-		// 3. Build ModelElement hierarchy under each CPM root part
-		Map<String, ModelElement> allBoneElements = new HashMap<>();
+		Map<String, Vec3f> ysmWorldPositions = new LinkedHashMap<>();
+		for (BedrockBone bone : mainBones) {
+			ysmWorldPositions.put(bone.name, YsmCoordUtil.computeYsmWorldPosition(bone.name, boneIndex));
+		}
 
+		Map<PlayerModelParts, ModelElement> cpmRoots = new EnumMap<>(PlayerModelParts.class);
 		for (PlayerModelParts part : PlayerModelParts.VALUES) {
 			if (part == PlayerModelParts.CUSTOM_PART) continue;
+			ModelElement r = findRootElement(editor, part);
+			if (r != null) cpmRoots.put(part, r);
+		}
 
-			ModelElement rootElem = findRootElement(editor, part);
-			if (rootElem == null) continue;
+		List<YsmSubtreeInfo> subtrees = identifySubtrees(mainBones, boneIndex);
+		Log.info("[YSM Import] Identified " + subtrees.size() + " YSM subtrees");
 
-			// Find the top-level bone that maps to this part
-			String rootBoneName = BedrockModelParser.findRootBoneForPart(mainBones, part);
-			if (rootBoneName != null) {
-				BedrockBone rootBone = findBoneByName(mainBones, rootBoneName);
-				if (rootBone != null) {
-					Vec3f parentPivot = new Vec3f();
-					buildBoneHierarchy(rootBone, mainBones, rootElem, editor, allBoneElements, parentPivot, visitedBones);
+		Map<String, ModelElement> allBoneElements = new HashMap<>();
+		Map<PlayerModelParts, Integer> partCounts = new LinkedHashMap<>();
+
+		for (YsmSubtreeInfo subtree : subtrees) {
+			PlayerModelParts part = YsmBoneClassifier.classifySubtree(subtree.rootBone, mainBones, boneIndex);
+			ModelElement cpmRoot = cpmRoots.getOrDefault(part, getOrCreateOrphanRoot(editor));
+			Vec3f vanillaPos = YsmCoordUtil.getVanillaPartPosition(part);
+			Vec3f adjustedPos = subtree.rootBone.pivot.sub(vanillaPos);
+
+			buildSubtree(subtree.rootBone, mainBones, cpmRoot, adjustedPos,
+				boneIndex, childrenMap, allBoneElements, editor, partCounts, part);
+		}
+
+		for (Map.Entry<PlayerModelParts, Integer> e : partCounts.entrySet()) {
+			Log.info("[YSM Import] CPM part " + e.getKey().name() + ": " + e.getValue() + " bones");
+		}
+
+		importExtraModels(ysmData, editor, allBoneElements);
+		processArmBones(armBones, editor, allBoneElements);
+
+		Log.info("[YSM Import] Created " + allBoneElements.size() + " bone elements");
+		return new ModelConversionResult(allBoneElements, ysmWorldPositions, boneIndex);
+	}
+
+	private static List<YsmSubtreeInfo> identifySubtrees(List<BedrockBone> allBones,
+			Map<String, BedrockBone> boneIndex) {
+		List<YsmSubtreeInfo> subtrees = new ArrayList<>();
+		Map<String, PlayerModelParts> partCache = new HashMap<>();
+
+		for (BedrockBone bone : allBones) {
+			partCache.put(bone.name, YsmBoneClassifier.classifyBoneQuick(bone, allBones, boneIndex));
+		}
+
+		for (BedrockBone bone : allBones) {
+			if (bone.parent == null) {
+				subtrees.add(new YsmSubtreeInfo(bone, partCache.getOrDefault(bone.name, PlayerModelParts.BODY)));
+			} else {
+				PlayerModelParts myPart = partCache.get(bone.name);
+				PlayerModelParts parentPart = partCache.get(bone.parent);
+				if (myPart != null && parentPart != null && myPart != parentPart) {
+					subtrees.add(new YsmSubtreeInfo(bone, myPart));
 				}
 			}
 		}
+		return subtrees;
+	}
 
-		// P4.4-P4.5: Handle unmatched top-level bones via topology fallback
-		int orphanCount = 0;
-		for (BedrockBone bone : mainBones) {
-			if (visitedBones.contains(bone.name)) continue;
-			if (bone.parent != null) continue; // Only top-level orphans
+	private static void buildSubtree(BedrockBone bone, List<BedrockBone> allBones,
+			ModelElement cpmParent, Vec3f topPos,
+			Map<String, BedrockBone> boneIndex,
+			Map<String, List<BedrockBone>> childrenMap,
+			Map<String, ModelElement> allElements, Editor editor,
+			Map<PlayerModelParts, Integer> partCounts, PlayerModelParts part) {
+		ModelElement elem = new ModelElement(editor);
+		elem.name = bone.name;
+		elem.parent = cpmParent;
+		cpmParent.children.add(elem);
+		allElements.put(bone.name, elem);
 
-			PlayerModelParts fallbackPart = BedrockModelParser.mapBoneByTopology(mainBones, bone);
-			ModelElement targetRoot = null;
-			if (fallbackPart != null) {
-				targetRoot = findRootElement(editor, fallbackPart);
-			}
-			if (targetRoot == null) {
-				// Attach to a dedicated YSM_UNMAPPED container under CUSTOM_PART
-				targetRoot = getOrCreateOrphanRoot(editor);
-			}
-			if (targetRoot != null) {
-				Vec3f parentPivot = new Vec3f();
-				buildBoneHierarchy(bone, mainBones, targetRoot, editor, allBoneElements, parentPivot, visitedBones);
-				orphanCount++;
-			}
-		}
-		if (orphanCount > 0) {
-			Log.info("[YSM Import] Routed " + orphanCount + " orphan bone trees to fallback containers");
+		if (topPos != null) {
+			elem.pos = new Vec3f(topPos);
+		} else {
+			BedrockBone parentBone = boneIndex.get(bone.parent);
+			elem.pos = parentBone != null ? bone.pivot.sub(parentBone.pivot) : new Vec3f(bone.pivot);
 		}
 
-		// P5: Import extra model files as separate named groups outside body-root remap
+		if (YsmCoordUtil.isNonZero(bone.rotation)) {
+			elem.rotation = new Vec3f(bone.rotation);
+		}
+		if (bone.neverRender || bone.cubes.isEmpty()) {
+			elem.hidden = true;
+		}
+		if (bone.mirror) {
+			elem.mirror = true;
+		}
+
+		partCounts.merge(part, 1, Integer::sum);
+
+		for (BedrockCube cube : bone.cubes) {
+			createCubeForBone(cube, bone, elem, editor, allElements);
+		}
+
+		List<BedrockBone> children = childrenMap.get(bone.name);
+		if (children != null) {
+			for (BedrockBone child : children) {
+				buildSubtree(child, allBones, elem, null,
+					boneIndex, childrenMap, allElements, editor, partCounts, part);
+			}
+		}
+	}
+
+	private static void createCubeForBone(BedrockCube cube, BedrockBone bone,
+			ModelElement parentElem, Editor editor, Map<String, ModelElement> allElements) {
+		ModelElement cubeElem = new ModelElement(editor);
+		cubeElem.name = bone.name + "_cube";
+		cubeElem.parent = parentElem;
+		parentElem.children.add(cubeElem);
+		allElements.put(bone.name + "_cube_" + parentElem.children.size(), cubeElem);
+		cubeElem.size = new Vec3f(cube.size);
+
+		if (cube.pivot != null && cube.rotation != null) {
+			cubeElem.offset = cube.origin.sub(cube.pivot);
+			cubeElem.pos = cube.pivot.sub(bone.pivot);
+			cubeElem.rotation = new Vec3f(cube.rotation);
+		} else if (cube.pivot != null) {
+			cubeElem.offset = cube.origin.sub(cube.pivot);
+			cubeElem.pos = cube.pivot.sub(bone.pivot);
+		} else if (cube.rotation != null) {
+			cubeElem.offset = cube.origin.sub(bone.pivot);
+			Vec3f center = new Vec3f(cube.size).mul(0.5f);
+			cubeElem.pos = new Vec3f(center);
+			cubeElem.offset = cubeElem.offset.sub(center);
+			cubeElem.rotation = new Vec3f(cube.rotation);
+		} else {
+			cubeElem.offset = cube.origin.sub(bone.pivot);
+		}
+
+		cubeElem.texture = true;
+		cubeElem.textureSize = 1;
+
+		PerFaceUV pfUV = BedrockModelParser.convertPerFaceUV(cube);
+		if (pfUV != null) {
+			cubeElem.faceUV = pfUV;
+		} else {
+			Vec2i primaryUV = BedrockModelParser.getPrimaryUV(cube);
+			if (primaryUV != null) {
+				cubeElem.u = primaryUV.x;
+				cubeElem.v = primaryUV.y;
+			}
+		}
+
+		if (cube.inflate != 0) {
+			cubeElem.meshScale = new Vec3f(
+				YsmCoordUtil.safeMeshScale(cube.size.x, cube.inflate),
+				YsmCoordUtil.safeMeshScale(cube.size.y, cube.inflate),
+				YsmCoordUtil.safeMeshScale(cube.size.z, cube.inflate));
+		}
+
+		cubeElem.mirror = cube.mirror ^ bone.mirror;
+	}
+
+	// ========================================================================
+	// Extra Models
+	// ========================================================================
+
+	private static void importExtraModels(YsmModelData ysmData, Editor editor,
+			Map<String, ModelElement> allBoneElements) {
 		int extraModelCount = 0;
 		for (Map.Entry<String, JsonObject> extraEntry : ysmData.extraModelJsons.entrySet()) {
 			String modelKey = extraEntry.getKey();
-			JsonObject modelJson = extraEntry.getValue();
-			List<BedrockBone> extraBones = BedrockModelParser.parse(modelJson);
+			List<BedrockBone> extraBones = BedrockModelParser.parse(extraEntry.getValue());
 			if (extraBones.isEmpty()) continue;
 
-			// Create a dedicated container element for this extra model
 			ModelElement container = new ModelElement(editor);
 			container.name = "YSM::" + modelKey;
 			container.type = ElementType.NORMAL;
 			container.parent = null;
 			editor.elements.add(container);
 
-			// Import all top-level bones from the extra model into the container
-			int importedFromModel = 0;
+			Map<String, BedrockBone> extraIndex = new LinkedHashMap<>();
+			for (BedrockBone b : extraBones) { extraIndex.put(b.name, b); }
+			Map<String, List<BedrockBone>> extraChildren = YsmBoneClassifier.buildChildrenMap(extraBones);
+
 			for (BedrockBone bone : extraBones) {
-				if (bone.parent != null) continue; // Only top-level bones as entry points
-				Vec3f parentPivot = new Vec3f();
-				buildBoneHierarchy(bone, extraBones, container, editor, allBoneElements, parentPivot, visitedBones);
-				importedFromModel++;
+				if (bone.parent != null) continue;
+				buildSubtree(bone, extraBones, container, bone.pivot,
+					extraIndex, extraChildren, allBoneElements, editor,
+					new LinkedHashMap<>(), PlayerModelParts.CUSTOM_PART);
 			}
-			if (importedFromModel > 0) {
-				extraModelCount++;
-				Log.info("[YSM Import] Extra model '" + modelKey + "': " + extraBones.size() +
-					" bones, " + importedFromModel + " root trees → container 'YSM::" + modelKey + "'");
-			}
+			extraModelCount++;
 		}
 		if (extraModelCount > 0) {
 			Log.info("[YSM Import] Imported " + extraModelCount + " extra model groups");
 		}
-
-		Log.info("[YSM Import] Created " + allBoneElements.size() + " bone elements");
-
-		// 4. Process arm bones under their respective arm root parts
-		processArmBones(armBones, editor, allBoneElements, visitedBones);
-
-		// 5. Convert animations
-		convertAnimations(ysmData, editor, allBoneElements);
-
-		// 6. Setup gesture buttons from extra_animation + controller data
-		setupGestures(ysmData, editor);
-
-		// 7. Load textures
-		loadTextures(ysmData, editor);
-
-		// 8. Apply model scaling properties from ysm.json
-		applyModelScale(ysmData, editor);
-
-		// 9. Set model metadata (name, description, authors)
-		if (ysmData.modelName != null && !ysmData.modelName.isEmpty()) {
-			if (editor.description == null) {
-				editor.description = new com.tom.cpm.shared.editor.util.ModelDescription();
-			}
-			editor.description.name = ysmData.modelName;
-
-			// Build description with author info
-			StringBuilder descBuilder = new StringBuilder();
-			if (ysmData.description != null && !ysmData.description.isEmpty()) {
-				descBuilder.append(ysmData.description);
-			}
-			if (!ysmData.authors.isEmpty()) {
-				if (descBuilder.length() > 0) descBuilder.append("\n\n");
-				descBuilder.append("Authors: ");
-				descBuilder.append(String.join(", ", ysmData.authors));
-			}
-			if (descBuilder.length() > 0) {
-				editor.description.desc = descBuilder.toString();
-			}
-			Log.info("[YSM Import] Model name: " + ysmData.modelName +
-				(ysmData.authors.isEmpty() ? "" : ", authors: " + String.join(", ", ysmData.authors)));
-		}
-
-		Log.info("[YSM Import] Conversion complete — " + editor.elements.size() +
-			" root elements, " + editor.animations.size() + " animations, " +
-			(editor.textures.containsKey(TextureSheetType.SKIN) ? "with texture" : "no texture"));
 	}
 
-	/**
-	 * Recursively build the CPM ModelElement hierarchy from a Bedrock bone tree.
-	 * Bone positions are made relative to the parent bone's pivot.
-	 *
-	 * @param parentPivot the pivot position of the parent bone (for relative positioning)
-	 */
-	private static void buildBoneHierarchy(BedrockBone bone, List<BedrockBone> allBones,
-	                                       ModelElement parent, Editor editor,
-	                                       Map<String, ModelElement> allBoneElements,
-	                                       Vec3f parentPivot, Set<String> visitedBones) {
-		ModelElement elem = new ModelElement(editor);
-		elem.name = bone.name;
-		elem.parent = parent;
-		parent.children.add(elem);
-		allBoneElements.put(bone.name, elem);
-		visitedBones.add(bone.name);
+	// ========================================================================
+	// Arm Bones
+	// ========================================================================
 
-		// Position = bone pivot - parent pivot (relative to parent)
-		elem.pos = new Vec3f(bone.pivot).sub(parentPivot);
-
-		if (bone.rotation.x != 0 || bone.rotation.y != 0 || bone.rotation.z != 0) {
-			elem.rotation = new Vec3f(bone.rotation);
-		}
-
-		// never_render → hide the bone element
-		if (bone.neverRender) {
-			elem.hidden = true;
-		}
-
-		// Apply bone-level mirror to this element
-		if (bone.mirror) {
-			elem.mirror = true;
-		}
-
-		// Create cube elements for each Bedrock cube in this bone
-		for (BedrockCube cube : bone.cubes) {
-			ModelElement cubeElem = new ModelElement(editor);
-			cubeElem.name = bone.name + "_cube";
-			cubeElem.parent = elem;
-			elem.children.add(cubeElem);
-			allBoneElements.put(bone.name + "_cube_" + elem.children.size(), cubeElem);
-
-			cubeElem.size = new Vec3f(cube.size);
-
-			// P4.2: Handle cube-level pivot/rotation for transform composition
-			if (cube.pivot != null && cube.rotation != null) {
-				// Cube has its own pivot + rotation: split translation
-				cubeElem.offset = cube.origin.sub(cube.pivot);
-				cubeElem.pos = cube.pivot.sub(bone.pivot);
-				cubeElem.rotation = new Vec3f(cube.rotation);
-			} else if (cube.pivot != null) {
-				// Cube has pivot but no rotation
-				cubeElem.offset = cube.origin.sub(cube.pivot);
-				cubeElem.pos = cube.pivot.sub(bone.pivot);
-			} else if (cube.rotation != null) {
-				// Cube has rotation but no pivot: rotate around its own center
-				cubeElem.offset = cube.origin.sub(bone.pivot);
-				Vec3f center = new Vec3f(cube.size).mul(0.5f);
-				cubeElem.pos = new Vec3f(center);
-				cubeElem.offset = cubeElem.offset.sub(center);
-				cubeElem.rotation = new Vec3f(cube.rotation);
-			} else {
-				// No cube-level transform: offset from bone pivot
-				cubeElem.offset = cube.origin.sub(bone.pivot);
-			}
-
-			cubeElem.texture = true;
-			cubeElem.textureSize = 1;
-
-			PerFaceUV pfUV = BedrockModelParser.convertPerFaceUV(cube);
-			if (pfUV != null) {
-				cubeElem.faceUV = pfUV;
-			} else {
-				Vec2i primaryUV = BedrockModelParser.getPrimaryUV(cube);
-				if (primaryUV != null) {
-					cubeElem.u = primaryUV.x;
-					cubeElem.v = primaryUV.y;
-				}
-			}
-
-			// P4.3: Inflate → meshScale with safety clamping
-			if (cube.inflate != 0) {
-				float sx = safeMeshScale(cube.size.x, cube.inflate);
-				float sy = safeMeshScale(cube.size.y, cube.inflate);
-				float sz = safeMeshScale(cube.size.z, cube.inflate);
-				cubeElem.meshScale = new Vec3f(sx, sy, sz);
-			}
-
-			// P4.7: Mirror composition (XOR — bone mirror flips, cube mirror flips again)
-			cubeElem.mirror = cube.mirror ^ bone.mirror;
-		}
-
-		// Process child bones with this bone's pivot as the new parentPivot
-		for (BedrockBone child : allBones) {
-			if (bone.name.equals(child.parent)) {
-				buildBoneHierarchy(child, allBones, elem, editor, allBoneElements, bone.pivot, visitedBones);
-			}
-		}
-	}
-
-	/**
-	 * Map arm bones to the LEFT_ARM and RIGHT_ARM root parts.
-	 */
 	private static void processArmBones(List<BedrockBone> armBones,
-	                                    Editor editor, Map<String, ModelElement> allBoneElements,
-	                                    Set<String> visitedBones) {
+			Editor editor, Map<String, ModelElement> allBoneElements) {
 		if (armBones.isEmpty()) return;
 
 		ModelElement leftArmRoot = findRootElement(editor, PlayerModelParts.LEFT_ARM);
 		ModelElement rightArmRoot = findRootElement(editor, PlayerModelParts.RIGHT_ARM);
+		Map<String, BedrockBone> armIndex = new LinkedHashMap<>();
+		for (BedrockBone b : armBones) { armIndex.put(b.name, b); }
+		Map<String, List<BedrockBone>> armChildren = YsmBoneClassifier.buildChildrenMap(armBones);
 
 		for (BedrockBone bone : armBones) {
+			if (bone.parent != null) continue;
 			String lowerName = bone.name.toLowerCase();
-			ModelElement targetRoot = null;
+			ModelElement targetRoot;
+			PlayerModelParts part;
 
 			if (lowerName.contains("left")) {
-				targetRoot = leftArmRoot;
+				targetRoot = leftArmRoot; part = PlayerModelParts.LEFT_ARM;
 			} else if (lowerName.contains("right")) {
-				targetRoot = rightArmRoot;
+				targetRoot = rightArmRoot; part = PlayerModelParts.RIGHT_ARM;
+			} else {
+				continue;
 			}
 
-			if (targetRoot != null && bone.parent == null) {
-				Vec3f parentPivot = new Vec3f(); // arm bones are relative to root
-				buildBoneHierarchy(bone, armBones, targetRoot, editor, allBoneElements, parentPivot, visitedBones);
+			if (targetRoot != null) {
+				Vec3f adjustedPos = bone.pivot.sub(YsmCoordUtil.getVanillaPartPosition(part));
+				buildSubtree(bone, armBones, targetRoot, adjustedPos,
+					armIndex, armChildren, allBoneElements, editor, new LinkedHashMap<>(), part);
 			}
 		}
 	}
 
-	/**
-	 * Convert all animations from YSM data into CPM EditorAnims.
-	 * Each animation is parsed individually — one bad animation won't crash the entire import.
-	 */
+	// ========================================================================
+	// Animation Conversion
+	// ========================================================================
+
 	private static void convertAnimations(YsmModelData ysmData, Editor editor,
-	                                      Map<String, ModelElement> allBoneElements) {
-		int totalAnims = 0;
-		totalAnims += parseAnimJsonSafely(ysmData.mainAnimJson, editor, allBoneElements, AnimationType.POSE, "main");
-		totalAnims += parseAnimJsonSafely(ysmData.armAnimJson, editor, allBoneElements, AnimationType.POSE, "arm");
-		totalAnims += parseAnimJsonSafely(ysmData.extraAnimJson, editor, allBoneElements, AnimationType.GESTURE, "extra");
+			Map<String, ModelElement> allBoneElements,
+			Map<String, Vec3f> ysmWorldPositions, Map<String, BedrockBone> boneIndex) {
+		int total = 0;
+		total += parseAnim(ysmData.mainAnimJson, editor, allBoneElements, AnimationType.POSE, ysmWorldPositions, boneIndex);
+		total += parseAnim(ysmData.armAnimJson, editor, allBoneElements, AnimationType.POSE, ysmWorldPositions, boneIndex);
+		total += parseAnim(ysmData.extraAnimJson, editor, allBoneElements, AnimationType.GESTURE, ysmWorldPositions, boneIndex);
 
-		// Also parse any additional animation files (tac, carryon, etc.)
-		for (Map.Entry<String, String> extraAnimEntry : ysmData.extraAnimFiles.entrySet()) {
+		for (Map.Entry<String, String> e : ysmData.extraAnimFiles.entrySet()) {
 			try {
-				com.google.gson.JsonObject extraAnimJson =
-					com.google.gson.JsonParser.parseString(extraAnimEntry.getValue()).getAsJsonObject();
-				int n = parseAnimJsonSafely(extraAnimJson, editor, allBoneElements, AnimationType.GESTURE, extraAnimEntry.getKey());
-				totalAnims += n;
-				Log.info("[YSM Import] Extra anim file '" + extraAnimEntry.getKey() + "': " + n + " animations");
-			} catch (Exception e) {
-				Log.warn("[YSM Import] Failed to parse extra animation: " + extraAnimEntry.getKey(), e);
+				com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(e.getValue()).getAsJsonObject();
+				total += parseAnim(json, editor, allBoneElements, AnimationType.GESTURE, ysmWorldPositions, boneIndex);
+			} catch (Exception ex) {
+				Log.warn("[YSM Import] Failed extra anim: " + e.getKey(), ex);
 			}
 		}
-
-		Log.info("[YSM Import] Total animations converted: " + totalAnims);
+		Log.info("[YSM Import] Total animations: " + total);
 	}
 
-	/** Parse an animation JSON safely, catching per-animation errors */
-	private static int parseAnimJsonSafely(com.google.gson.JsonObject animJson, Editor editor,
-	                                       Map<String, ModelElement> allBoneElements,
-	                                       AnimationType type, String label) {
-		if (animJson == null) return 0;
+	private static int parseAnim(com.google.gson.JsonObject json, Editor editor,
+			Map<String, ModelElement> allBoneElements, AnimationType type,
+			Map<String, Vec3f> ysmWorldPositions, Map<String, BedrockBone> boneIndex) {
+		if (json == null) return 0;
 		try {
-			List<EditorAnim> anims = BedrockAnimationParser.parse(animJson, editor, allBoneElements, type);
+			List<EditorAnim> anims = BedrockAnimationParser.parse(json, editor, allBoneElements, type, ysmWorldPositions, boneIndex);
 			editor.animations.addAll(anims);
-			Log.info("[YSM Import] " + label + " animations: " + anims.size());
 			return anims.size();
 		} catch (Exception e) {
-			Log.error("[YSM Import] Failed to parse " + label + " animations", e);
+			Log.error("[YSM Import] Animation parse failed", e);
 			return 0;
 		}
 	}
 
-	/**
-	 * Setup gesture buttons from ysm.json extra_animation and controller data.
-	 * Maps YSM gesture names to their corresponding EditorAnim instances
-	 * and logs the mappings for the user.
-	 */
+	// ========================================================================
+	// Gestures, Helpers, Textures, Scale, Metadata
+	// ========================================================================
+
 	private static void setupGestures(YsmModelData ysmData, Editor editor) {
-		// Create AnimationEncodingData if not present
-		if (editor.animEnc == null) {
-			editor.animEnc = new AnimationEncodingData();
-		}
-
-		int mappedCount = 0;
-
-		// Merge extra_animation mappings from ysm.json
+		if (editor.animEnc == null) editor.animEnc = new AnimationEncodingData();
 		for (Map.Entry<String, String> entry : ysmData.extraAnimations.entrySet()) {
-			String gestureName = entry.getKey();
-			String animName = entry.getValue();
-
-			// Find the corresponding EditorAnim
-			EditorAnim targetAnim = editor.animations.stream()
-				.filter(a -> a.displayName != null && a.displayName.equals(animName))
+			EditorAnim target = editor.animations.stream()
+				.filter(a -> a.displayName != null && a.displayName.equals(entry.getValue()))
 				.findFirst().orElse(null);
-
-			if (targetAnim != null) {
-				// Ensure the animation is typed as GESTURE for proper gesture handling
-				if (targetAnim.type != AnimationType.GESTURE && targetAnim.type != AnimationType.CUSTOM_POSE) {
-					targetAnim.type = AnimationType.GESTURE;
-				}
-				mappedCount++;
-			} else {
-				Log.info("[YSM Import] Gesture '" + gestureName + "' references unknown animation '" + animName + "'");
+			if (target != null && target.type != AnimationType.GESTURE && target.type != AnimationType.CUSTOM_POSE) {
+				target.type = AnimationType.GESTURE;
 			}
 		}
-
-		Log.info("[YSM Import] Gesture mappings: " + mappedCount + " of " + ysmData.extraAnimations.size() + " gestures mapped");
-
-		// Process controller data for additional gesture mappings
 		if (ysmData.controllerJson != null) {
-			Map<String, String> ctrlGestures =
-				BedrockControllerParser.extractGestureMappings(ysmData.controllerJson);
-			for (Map.Entry<String, String> entry : ctrlGestures.entrySet()) {
-				if (!ysmData.extraAnimations.containsKey(entry.getKey())) {
-					ysmData.extraAnimations.put(entry.getKey(), entry.getValue());
-				}
-			}
-			Log.info("[YSM Import] Controller gestures: " + ctrlGestures.size() +
-				" (molang transitions: " +
-				BedrockControllerParser.hasMolangTransitions(ysmData.controllerJson) + ")");
-
-			// Log referenced animation names
-			List<String> refAnims = BedrockControllerParser.extractAnimationNames(ysmData.controllerJson);
-			if (!refAnims.isEmpty()) {
-				Log.info("[YSM Import] Controller references " + refAnims.size() + " animations");
-			}
+			Map<String, String> ctrlGestures = BedrockControllerParser.extractGestureMappings(ysmData.controllerJson);
+			ctrlGestures.forEach((k, v) -> ysmData.extraAnimations.putIfAbsent(k, v));
 		}
 	}
 
-	/**
-	 * Find the root ModelElement for a given player model part in the editor's element list.
-	 */
 	private static ModelElement findRootElement(Editor editor, PlayerModelParts part) {
 		for (ModelElement elem : editor.elements) {
-			if (elem.type == ElementType.ROOT_PART && elem.typeData == part) {
-				return elem;
-			}
+			if (elem.type == ElementType.ROOT_PART && elem.typeData == part) return elem;
 		}
 		return null;
 	}
 
-	private static BedrockBone findBoneByName(List<BedrockBone> bones, String name) {
-		return bones.stream().filter(b -> b.name.equals(name)).findFirst().orElse(null);
-	}
-
-	/** P4.3: Safe mesh scale computation with clamping for thin cubes. */
-	private static float safeMeshScale(float size, float inflate) {
-		if (Math.abs(size) < 0.01f) return 1.0f; // Near-zero size: skip meshScale
-		float scale = 1.0f + 2.0f * inflate / size;
-		if (scale < 0.1f || scale > 10.0f) {
-			Log.info("[YSM Import] Clamping extreme meshScale " + scale + " from size=" + size + " inflate=" + inflate);
-			return Math.max(0.1f, Math.min(10.0f, scale));
-		}
-		return scale;
-	}
-
-	/** P4.5: Get or create a dedicated orphan container root element. */
 	private static ModelElement getOrCreateOrphanRoot(Editor editor) {
-		// Look for existing YSM_UNMAPPED container
 		for (ModelElement elem : editor.elements) {
-			if ("YSM_UNMAPPED".equals(elem.name) && elem.type == ElementType.NORMAL) {
-				return elem;
-			}
+			if ("YSM_UNMAPPED".equals(elem.name) && elem.type == ElementType.NORMAL) return elem;
 		}
-		// Create new orphan root
-		ModelElement orphanRoot = new ModelElement(editor);
-		orphanRoot.name = "YSM_UNMAPPED";
-		orphanRoot.type = ElementType.NORMAL;
-		orphanRoot.parent = null;
-		editor.elements.add(orphanRoot);
-		Log.info("[YSM Import] Created YSM_UNMAPPED container for orphan bones");
-		return orphanRoot;
+		ModelElement r = new ModelElement(editor);
+		r.name = "YSM_UNMAPPED"; r.type = ElementType.NORMAL; r.parent = null;
+		editor.elements.add(r);
+		return r;
 	}
 
-	/**
-	 * Load textures from YSM data into the editor's texture slot system.
-	 * The default texture becomes slot 0; all others become additional slots.
-	 * Also stores raw bytes for backward compat via {@code editor.importedTextures}.
-	 */
 	private static void loadTextures(YsmModelData ysmData, Editor editor) {
-		if (ysmData.textures.isEmpty()) {
-			Log.info("[YSM Import] No textures found");
-			return;
-		}
-
-		Log.info("[YSM Import] Found " + ysmData.textures.size() + " textures: " +
-			String.join(", ", ysmData.textures.keySet()));
-
-		// Backward compat: keep importedTextures populated
+		if (ysmData.textures.isEmpty()) return;
 		editor.importedTextures = new HashMap<>(ysmData.textures);
-
-		// Clear existing slots (keep slot 0 structure, we'll replace its image)
 		editor.textureSlots.clear();
 
-		// Determine which texture to use as slot 0 (the default/active one)
-		String defaultTexName = ysmData.defaultTexture;
-		if (defaultTexName != null && !ysmData.textures.containsKey(defaultTexName)) {
-			Log.info("[YSM Import] Default texture '" + defaultTexName + "' not found, using first available");
-			defaultTexName = null;
-		}
-		if (defaultTexName == null) {
-			defaultTexName = ysmData.textures.keySet().stream()
+		String defaultTex = ysmData.defaultTexture;
+		if (defaultTex == null || !ysmData.textures.containsKey(defaultTex)) {
+			defaultTex = ysmData.textures.keySet().stream()
 				.filter(n -> !n.contains("NAF") && !n.contains("_e."))
-				.findFirst()
-				.orElse(ysmData.textures.keySet().iterator().next());
+				.findFirst().orElse(ysmData.textures.keySet().iterator().next());
 		}
 
-		// Create texture slots: default texture first (slot 0), then the rest
-		int loadedCount = 0;
-		// Add default texture as slot 0
-		byte[] defaultPng = ysmData.textures.get(defaultTexName);
-		if (defaultPng != null) {
-			try {
-				Image img = Image.loadFrom(new ByteArrayInputStream(defaultPng));
-				if (img != null && img.getWidth() <= ETextures.MAX_TEX_SIZE && img.getHeight() <= ETextures.MAX_TEX_SIZE) {
-					TextureSlot slot = new TextureSlot(defaultTexName, img, new Vec2i(img.getWidth(), img.getHeight()), false);
-					editor.textureSlots.add(slot);
-					loadedCount++;
-				}
-			} catch (IOException e) {
-				Log.error("[YSM Import] Failed to load default texture: " + defaultTexName, e);
-			}
-		}
+		int loaded = 0;
+		byte[] defPng = ysmData.textures.get(defaultTex);
+		if (defPng != null) loaded += loadOneTexture(defPng, defaultTex, editor);
 
-		// Add remaining textures as additional slots
-		for (Map.Entry<String, byte[]> entry : ysmData.textures.entrySet()) {
-			if (entry.getKey().equals(defaultTexName)) continue;
-			try {
-				Image img = Image.loadFrom(new ByteArrayInputStream(entry.getValue()));
-				if (img != null && img.getWidth() <= ETextures.MAX_TEX_SIZE && img.getHeight() <= ETextures.MAX_TEX_SIZE) {
-					TextureSlot slot = new TextureSlot(entry.getKey(), img, new Vec2i(img.getWidth(), img.getHeight()), false);
-					editor.textureSlots.add(slot);
-					loadedCount++;
-				}
-			} catch (IOException e) {
-				Log.warn("[YSM Import] Failed to load texture: " + entry.getKey(), e);
-			}
+		for (Map.Entry<String, byte[]> e : ysmData.textures.entrySet()) {
+			if (!e.getKey().equals(defaultTex)) loaded += loadOneTexture(e.getValue(), e.getKey(), editor);
 		}
 
 		editor.activeTextureSlot = 0;
-		Log.info("[YSM Import] Loaded " + loadedCount + " texture slots" +
-			(loadedCount > 1 ? " (use Skin Settings → Texture Slots to switch)" : ""));
+		Log.info("[YSM Import] Loaded " + loaded + " texture slots");
 
-		// Apply slot 0 as active SKIN texture
 		if (!editor.textureSlots.isEmpty()) {
-			TextureSlot activeSlot = editor.textureSlots.get(0);
+			TextureSlot slot = editor.textureSlots.get(0);
 			ETextures skinTex = editor.textures.get(TextureSheetType.SKIN);
-			if (skinTex != null && activeSlot.image != null) {
-				skinTex.setImage(new Image(activeSlot.image));
-				skinTex.provider.size = new Vec2i(activeSlot.gridSize);
+			if (skinTex != null && slot.image != null) {
+				skinTex.setImage(new Image(slot.image));
+				skinTex.provider.size = new Vec2i(slot.gridSize);
 				skinTex.setEdited(true);
 				skinTex.markDirty();
-				Log.info("[YSM Import] Active texture: " + activeSlot.name +
-					" (" + activeSlot.image.getWidth() + "x" + activeSlot.image.getHeight() + ")");
 			}
 		}
 	}
 
-	/**
-	 * Apply model scaling from YSM height_scale and width_scale properties.
-	 */
-	private static void applyModelScale(YsmModelData ysmData, Editor editor) {
-		float hs = ysmData.heightScale;
-		float ws = ysmData.widthScale;
-
-		if (Math.abs(hs - 1.0f) > 0.001f || Math.abs(ws - 1.0f) > 0.001f) {
-			// Enable scaling and set values
-			editor.scalingElem.enabled = true;
-			editor.scalingElem.scale = new Vec3f(ws, hs, ws);
-			Log.info("[YSM Import] Applied model scale: height=" + hs + ", width=" + ws);
+	private static int loadOneTexture(byte[] pngData, String name, Editor editor) {
+		try {
+			Image img = Image.loadFrom(new ByteArrayInputStream(pngData));
+			if (img != null && img.getWidth() <= ETextures.MAX_TEX_SIZE && img.getHeight() <= ETextures.MAX_TEX_SIZE) {
+				editor.textureSlots.add(new TextureSlot(name, img, new Vec2i(img.getWidth(), img.getHeight()), false));
+				return 1;
+			}
+		} catch (IOException e) {
+			Log.error("[YSM Import] Texture load failed: " + name, e);
 		}
+		return 0;
+	}
+
+	private static void applyModelScale(YsmModelData ysmData, Editor editor) {
+		if (Math.abs(ysmData.heightScale - 1f) > 0.001f || Math.abs(ysmData.widthScale - 1f) > 0.001f) {
+			editor.scalingElem.enabled = true;
+			editor.scalingElem.scale = new Vec3f(ysmData.widthScale, ysmData.heightScale, ysmData.widthScale);
+		}
+	}
+
+	private static void setMetadata(YsmModelData ysmData, Editor editor) {
+		if (ysmData.modelName == null || ysmData.modelName.isEmpty()) return;
+		if (editor.description == null) editor.description = new com.tom.cpm.shared.editor.util.ModelDescription();
+		editor.description.name = ysmData.modelName;
+
+		StringBuilder sb = new StringBuilder();
+		if (ysmData.description != null && !ysmData.description.isEmpty()) sb.append(ysmData.description);
+		if (!ysmData.authors.isEmpty()) {
+			if (sb.length() > 0) sb.append("\n\n");
+			sb.append("Authors: ").append(String.join(", ", ysmData.authors));
+		}
+		if (sb.length() > 0) editor.description.desc = sb.toString();
 	}
 }
