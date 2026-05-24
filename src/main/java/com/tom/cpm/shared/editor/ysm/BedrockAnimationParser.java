@@ -174,21 +174,41 @@ public class BedrockAnimationParser {
 		}
 
 		// ---- Animation-level properties ----
-		boolean loop = animData.has("loop") && animData.get("loop").getAsBoolean();
-		String loopMode = animData.has("loop") ? animData.get("loop").getAsString() : "false";
-		if ("hold_on_last_frame".equals(loopMode)) {
-			loop = false;
+		// Parse loop: can be boolean (true/false), string ("true"/"false"),
+		// or "hold_on_last_frame" (play once, freeze at end).
+		boolean loop = false;
+		boolean mustFinish = false;
+		if (animData.has("loop")) {
+			JsonElement loopElem = animData.get("loop");
+			if (loopElem.isJsonPrimitive()) {
+				if (loopElem.getAsJsonPrimitive().isBoolean()) {
+					loop = loopElem.getAsBoolean();
+				} else if (loopElem.getAsJsonPrimitive().isString()) {
+					String loopStr = loopElem.getAsString();
+					if ("hold_on_last_frame".equals(loopStr)) {
+						loop = false;
+						mustFinish = true;
+					} else {
+						loop = Boolean.parseBoolean(loopStr);
+					}
+				}
+			}
 		}
 		float animLength = animData.has("animation_length") ? animData.get("animation_length").getAsFloat() : 1.0f;
+
+		// Parse optional blend/override settings
+		boolean overridePrev = animData.has("override_previous_animation")
+			&& animData.get("override_previous_animation").getAsBoolean();
 
 		String filename = filenamePrefix + sanitizeFilename(animName) + ".json";
 		EditorAnim anim = new EditorAnim(editor, filename, type, false);
 		anim.displayName = animName;
 		anim.pose = pose;
 		anim.loop = loop;
+		anim.mustFinish = mustFinish;
 		anim.duration = Math.max(50, (int)(animLength * 1000));
-		anim.add = true;  // Additive mode: animation deltas add to element's base position
-		anim.priority = 0;
+		anim.add = true;
+		anim.priority = overridePrev ? 10 : 0;
 		anim.intType = InterpolatorType.POLY_LOOP;
 
 		// ---- Parse timeline events (molang commands) ----
@@ -218,27 +238,21 @@ public class BedrockAnimationParser {
 			return anim;
 		}
 
-		List<Float> keyframeTimes = collectKeyframeTimes(bonesObj);
-		if (keyframeTimes.isEmpty()) {
-			anim.getFrames().add(new AnimFrame(anim));
-			if (!anim.getFrames().isEmpty()) anim.setSelectedFrame(anim.getFrames().get(0));
-			return anim;
-		}
+		// Build uniform frame grid. CPM assumes equally-spaced frames
+		// and maps real time → frame index via: (millis % duration) / duration * frameCount.
+		// Non-uniform keyframe times would cause wrong interpolation.
+		final int FPS = 20;
+		int frameCount = Math.max(2, (int)(animLength * FPS));
+		if (frameCount > MAX_FRAMES) frameCount = MAX_FRAMES;
 
-		if (keyframeTimes.size() > MAX_FRAMES) {
-			Log.warn("[YSM Import] Animation '" + animName + "' has " + keyframeTimes.size() +
-				" keyframes, limiting to " + MAX_FRAMES);
-			keyframeTimes = keyframeTimes.subList(0, MAX_FRAMES);
-		}
-
-		for (Float time : keyframeTimes) {
+		for (int i = 0; i < frameCount; i++) {
 			anim.getFrames().add(new AnimFrame(anim));
 		}
 		if (!anim.getFrames().isEmpty()) {
 			anim.setSelectedFrame(anim.getFrames().get(0));
 		}
 
-		// Populate frame data for each bone at each keyframe
+		// Populate each bone's channel data at uniform sample times
 		for (String boneName : bonesObj.keySet()) {
 			ModelElement target = boneNameToElement.get(boneName);
 			if (target == null) {
@@ -252,16 +266,16 @@ public class BedrockAnimationParser {
 			JsonObject boneData = bonesObj.getAsJsonObject(boneName);
 
 			if (boneData.has("rotation")) {
-				processChannel(boneData.get("rotation"), target, anim, keyframeTimes, ChannelType.ROTATION);
+				sampleChannel(boneData.get("rotation"), target, anim, frameCount,
+					animLength, loop, ChannelType.ROTATION);
 			}
 			if (boneData.has("position")) {
-				// Convert YSM absolute position → CPM delta from default world position
-				Vec3f defaultWorldPos = worldPositions.get(boneName);
-				processChannel(boneData.get("position"), target, anim, keyframeTimes,
-					ChannelType.POSITION, defaultWorldPos);
+				sampleChannel(boneData.get("position"), target, anim, frameCount,
+					animLength, loop, ChannelType.POSITION);
 			}
 			if (boneData.has("scale")) {
-				processChannel(boneData.get("scale"), target, anim, keyframeTimes, ChannelType.SCALE);
+				sampleChannel(boneData.get("scale"), target, anim, frameCount,
+					animLength, loop, ChannelType.SCALE);
 			}
 		}
 
@@ -271,47 +285,39 @@ public class BedrockAnimationParser {
 	private enum ChannelType { ROTATION, POSITION, SCALE }
 
 	/**
-	 * Process a single animation channel (rotation/position/scale) for a bone.
+	 * Sample a bone channel at uniform time intervals and store FrameData.
+	 * <p>
+	 * CPM assumes equally-spaced animation frames. This method resamples
+	 * the YSM keyframe data onto a uniform grid so CPM's time→frame mapping
+	 * produces correct interpolation.
+	 * <p>
+	 * For keyframed channels, linear interpolation is used between keyframes.
+	 * For static (array) channels, the same value is applied to all frames.
+	 * For looping animations, the value wraps from last back to first keyframe.
 	 */
-	private static void processChannel(JsonElement channelData, ModelElement target,
-	                                   EditorAnim anim, List<Float> keyframeTimes,
-	                                   ChannelType channelType) {
-		processChannel(channelData, target, anim, keyframeTimes, channelType, null);
-	}
-
-	/**
-	 * Process a single animation channel. For POSITION channels, ysmDefaultWorldPos
-	 * is used to convert YSM absolute positions to CPM additive deltas.
-	 */
-	private static void processChannel(JsonElement channelData, ModelElement target,
-	                                   EditorAnim anim, List<Float> keyframeTimes,
-	                                   ChannelType channelType, Vec3f ysmDefaultWorldPos) {
+	private static void sampleChannel(JsonElement channelData, ModelElement target,
+	                                  EditorAnim anim, int frameCount, float animLength,
+	                                  boolean loop, ChannelType channelType) {
 		if (channelData == null) return;
 
+		// --- Handle static array channels (non-keyframed) ---
 		if (!channelData.isJsonObject()) {
 			if (channelData.isJsonArray()) {
 				JsonArray arr = channelData.getAsJsonArray();
 				if (arr.size() == 0) return;
+				if (!isNumericArray(arr)) return; // molang → skip
 
-				// Check for molang expression (string elements)
-				if (arr.get(0).isJsonPrimitive() && arr.get(0).getAsJsonPrimitive().isString()) {
-					return; // Molang expression — skip
-				}
-
-				// Static numeric value — apply to all frames
-				if (arr.size() >= 3 && arr.get(0).isJsonPrimitive() && arr.get(0).getAsJsonPrimitive().isNumber()) {
+				if (arr.size() >= 3) {
 					Vec3f value = new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
-					value = convertPositionValue(value, channelType, ysmDefaultWorldPos);
+					value = toCpmDelta(value, channelType, target);
 					for (AnimFrame frame : anim.getFrames()) {
 						setValue(frame.makeData(target), value, channelType);
 					}
-				} else if (arr.size() == 1 && arr.get(0).isJsonPrimitive() && arr.get(0).getAsJsonPrimitive().isNumber()) {
-					// Single value — e.g., "scale": 0 means hide bone
+				} else if (arr.size() == 1) {
 					float val = arr.get(0).getAsFloat();
-					for (AnimFrame frame : anim.getFrames()) {
-						FrameData fd = frame.makeData(target);
-						if (channelType == ChannelType.SCALE) {
-							fd.setScale(new Vec3f(val, val, val));
+					if (channelType == ChannelType.SCALE) {
+						for (AnimFrame frame : anim.getFrames()) {
+							frame.makeData(target).setScale(new Vec3f(val, val, val));
 						}
 					}
 				}
@@ -319,39 +325,127 @@ public class BedrockAnimationParser {
 			return;
 		}
 
+		// --- Keyframed channel: build sorted [time, value] list ---
 		JsonObject keyframes = channelData.getAsJsonObject();
+		List<float[]> samples = new ArrayList<>();
 		for (String timeKey : keyframes.keySet()) {
 			try {
 				float time = Float.parseFloat(timeKey);
-				Vec3f value = extractPostValue(keyframes.get(timeKey));
-				if (value == null) continue;
-				value = convertPositionValue(value, channelType, ysmDefaultWorldPos);
-
-				int frameIdx = findFrameIndex(keyframeTimes, time);
-				if (frameIdx < 0 || frameIdx >= anim.getFrames().size()) continue;
-
-				setValue(anim.getFrames().get(frameIdx).makeData(target), value, channelType);
+				Vec3f raw = extractPostValue(keyframes.get(timeKey));
+				if (raw == null) continue;
+				Vec3f delta = toCpmDelta(raw, channelType, target);
+				samples.add(new float[]{time, delta.x, delta.y, delta.z});
 			} catch (NumberFormatException ignored) {}
+		}
+		if (samples.isEmpty()) return;
+
+		// Sort by time
+		samples.sort((a, b) -> Float.compare(a[0], b[0]));
+
+		// --- Sample at each uniform frame time ---
+		for (int fi = 0; fi < frameCount; fi++) {
+			float sampleTime;
+			if (frameCount == 1) {
+				sampleTime = 0;
+			} else if (loop) {
+				// Looping: sample times wrap around
+				sampleTime = (fi / (float) frameCount) * animLength;
+			} else {
+				sampleTime = (fi / (float) (frameCount - 1)) * animLength;
+			}
+
+			Vec3f interpolated = interpolateSamples(samples, sampleTime, animLength, loop);
+			setValue(anim.getFrames().get(fi).makeData(target), interpolated, channelType);
 		}
 	}
 
 	/**
-	 * Convert a YSM absolute animation position/rotation value to a CPM additive delta.
-	 * For non-position channels or when no default position is available, returns unchanged.
-	 * Rotation is 1:1 (verified identical between YSM and CPM).
-	 * Position uses [x, -y, z] mapping (only Y axis flipped).
+	 * Linearly interpolate between two surrounding keyframes at the given sample time.
+	 * For looping animations, wraps around from last to first keyframe.
 	 */
-	private static Vec3f convertPositionValue(Vec3f value, ChannelType channelType, Vec3f defaultWorldPos) {
-		if (channelType == ChannelType.ROTATION) {
-			// Rotation: 1:1 identical, no sign change
-			return new Vec3f(value);
+	private static Vec3f interpolateSamples(List<float[]> samples, float sampleTime,
+	                                        float animLength, boolean loop) {
+		int n = samples.size();
+		if (n == 1) {
+			float[] s = samples.get(0);
+			return new Vec3f(s[1], s[2], s[3]);
 		}
-		if (channelType != ChannelType.POSITION || defaultWorldPos == null) return value;
-		// Position: map both target and default from YSM→CPM space ([x, -y, z])
-		Vec3f mappedTarget = new Vec3f(value.x, -value.y, value.z);
-		Vec3f mappedDefault = new Vec3f(defaultWorldPos.x, -defaultWorldPos.y, defaultWorldPos.z);
-		// delta = animation_target - default_world_position in CPM space
-		return mappedTarget.sub(mappedDefault);
+
+		// Find surrounding keyframes
+		for (int i = 0; i < n; i++) {
+			float[] cur = samples.get(i);
+			if (cur[0] > sampleTime) {
+				// sampleTime is between samples[i-1] and samples[i]
+				float[] prev = samples.get(i == 0 ? (loop ? n - 1 : 0) : i - 1);
+				float t1 = prev[0];
+				float t2 = cur[0];
+				if (i == 0 && !loop) {
+					// Before first keyframe, non-looping: use first value
+					return new Vec3f(cur[1], cur[2], cur[3]);
+				}
+				if (loop && i == 0) {
+					// Wrap: previous is last sample, shifted before 0
+					t1 = prev[0] - animLength;
+				}
+				float range = t2 - t1;
+				float alpha = range == 0 ? 0 : (sampleTime - t1) / range;
+				return lerp(prev, cur, alpha);
+			}
+		}
+
+		// After last keyframe
+		float[] last = samples.get(n - 1);
+		if (loop) {
+			// Wrap to first keyframe
+			float[] first = samples.get(0);
+			float t1 = last[0];
+			float t2 = first[0] + animLength;
+			float range = t2 - t1;
+			float alpha = range == 0 ? 0 : (sampleTime - t1) / range;
+			return lerp(last, first, alpha);
+		} else {
+			return new Vec3f(last[1], last[2], last[3]);
+		}
+	}
+
+	private static Vec3f lerp(float[] a, float[] b, float alpha) {
+		return new Vec3f(
+			a[1] + (b[1] - a[1]) * alpha,
+			a[2] + (b[2] - a[2]) * alpha,
+			a[3] + (b[3] - a[3]) * alpha
+		);
+	}
+
+	/**
+	 * Convert a Bedrock animation value to a CPM additive delta.
+	 * <p>
+	 * YSM rotation keyframes store ABSOLUTE rotations, but CPM additive
+	 * animations store DELTAS from the element's default. So we must
+	 * subtract the element's current default rotation.
+	 * <p>
+	 * YSM position keyframes are already offsets from the default pose,
+	 * so we only flip Y (Y-up → Y-down) to match model conventions.
+	 * <p>
+	 * Rotation deltas are kept as raw values (NOT wrapped to 0-360)
+	 * to preserve correct interpolation direction — wrapping causes
+	 * the interpolator to take the long way around when values cross
+	 * the 0/360 boundary.
+	 */
+	private static Vec3f toCpmDelta(Vec3f ysmValue, ChannelType channelType, ModelElement target) {
+		if (channelType == ChannelType.ROTATION) {
+			// Absolute Bedrock rotation → CPM additive delta (raw, not wrapped)
+			return new Vec3f(
+				ysmValue.x - target.rotation.x,
+				ysmValue.y - target.rotation.y,
+				ysmValue.z - target.rotation.z
+			);
+		}
+		if (channelType == ChannelType.POSITION) {
+			// Bedrock position offset → CPM (Y-flip only)
+			return new Vec3f(ysmValue.x, -ysmValue.y, ysmValue.z);
+		}
+		// Scale: 1:1
+		return ysmValue;
 	}
 
 	private static Vec3f extractPostValue(JsonElement keyframeData) {
@@ -391,33 +485,6 @@ public class BedrockAnimationParser {
 			if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) return false;
 		}
 		return true;
-	}
-
-	private static List<Float> collectKeyframeTimes(JsonObject bonesObj) {
-		List<Float> times = new ArrayList<>();
-		for (String boneName : bonesObj.keySet()) {
-			JsonObject boneData = bonesObj.getAsJsonObject(boneName);
-			for (String channel : new String[]{"rotation", "position", "scale"}) {
-				JsonElement cd = boneData.get(channel);
-				if (cd != null && cd.isJsonObject()) {
-					for (String timeKey : cd.getAsJsonObject().keySet()) {
-						try {
-							float t = Float.parseFloat(timeKey);
-							if (!times.contains(t)) times.add(t);
-						} catch (NumberFormatException ignored) {}
-					}
-				}
-			}
-		}
-		times.sort(Float::compare);
-		return times;
-	}
-
-	private static int findFrameIndex(List<Float> keyframeTimes, float time) {
-		for (int i = 0; i < keyframeTimes.size(); i++) {
-			if (Math.abs(keyframeTimes.get(i) - time) < 0.0001f) return i;
-		}
-		return -1;
 	}
 
 	private static void setValue(FrameData fd, Vec3f value, ChannelType type) {

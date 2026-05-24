@@ -14,7 +14,9 @@ import com.tom.cpl.util.Image;
 import com.tom.cpm.shared.editor.ETextures;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.editor.TextureSlot;
+import com.tom.cpm.shared.animation.AnimationType;
 import com.tom.cpm.shared.editor.anim.AnimationEncodingData;
+import com.tom.cpm.shared.editor.anim.EditorAnim;
 import com.tom.cpm.shared.editor.elements.ElementType;
 import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.editor.ysm.BedrockModelParser.BedrockBone;
@@ -37,7 +39,7 @@ import com.tom.cpm.shared.util.Log;
  *   <li>Recursively build each YSM root bone's subtree:
  *       <ul>
  *         <li>Bone pos = {@code [dx, -dy, dz]} where d = childPivot - parentPivot</li>
- *         <li>Bone rotation = 1:1 copy</li>
+ *         <li>Bone rotation = 1:1 copy (local rotation, coord transform via position)</li>
  *         <li>Cube offset = {@code [pivot.x-(origin.x+size.x), pivot.y-(origin.y+size.y), origin.z-pivot.z]}</li>
  *         <li>Cube with own pivot: offset uses cube pivot; pos = rel to bone</li>
  *         <li>UV direction mapping = 1:1 (Bedrock "up" → CPM Direction.UP)</li>
@@ -53,28 +55,30 @@ public class YsmToCpmConverter {
 		List<BedrockBone> mainBones = BedrockModelParser.parse(ysmData.mainModelJson);
 		Log.info("[YSM Import] Parsed " + mainBones.size() + " main bones");
 
-		Map<String, ModelElement> built = convertModel(mainBones, editor);
+		// Build bone lookup (needed by both model and animation conversion)
+		Map<String, BedrockBone> boneIndex = new LinkedHashMap<>();
+		for (BedrockBone b : mainBones) { boneIndex.put(b.name, b); }
+
+		Map<String, ModelElement> built = convertModel(mainBones, boneIndex, editor);
+		convertAnimations(ysmData, editor, built, boneIndex, mainBones);
+		setupGestures(ysmData, editor);
 		loadTextures(ysmData, editor);
 		applyModelScale(ysmData, editor);
 		setMetadata(ysmData, editor);
 
-		Log.info("[YSM Import] Done — " + built.size() + " elements under HEAD");
+		Log.info("[YSM Import] Done — " + built.size() + " elements, " +
+			editor.animations.size() + " animations");
 	}
 
 	// ========================================================================
 	// Model Conversion
 	// ========================================================================
 
-	private static Map<String, ModelElement> convertModel(List<BedrockBone> allBones, Editor editor) {
+	private static Map<String, ModelElement> convertModel(List<BedrockBone> allBones,
+			Map<String, BedrockBone> boneIndex, Editor editor) {
 		// Hide all vanilla CPM root parts
 		for (ModelElement rootElem : editor.elements) {
 			rootElem.hidden = true;
-		}
-
-		// Bone lookup
-		Map<String, BedrockBone> boneIndex = new LinkedHashMap<>();
-		for (BedrockBone b : allBones) {
-			boneIndex.put(b.name, b);
 		}
 
 		// Parent → children map
@@ -157,7 +161,7 @@ public class YsmToCpmConverter {
 			elem.pos = new Vec3f(d.x, -d.y, d.z);
 		}
 
-		// --- Rotation: 1:1 ---
+		// --- Rotation: 1:1 (local bone rotation, coordinate transform handled by position) ---
 		if (isNonZero(bone.rotation)) {
 			elem.rotation = new Vec3f(bone.rotation);
 		}
@@ -351,6 +355,80 @@ public class YsmToCpmConverter {
 			}
 		}
 		return null;
+	}
+
+	// ========================================================================
+	// Animation Conversion
+	// ========================================================================
+
+	private static void convertAnimations(YsmModelData ysmData, Editor editor,
+			Map<String, ModelElement> builtElements,
+			Map<String, BedrockBone> boneIndex,
+			List<BedrockBone> allBones) {
+
+		Map<String, Vec3f> worldPositions = new LinkedHashMap<>();
+		for (BedrockBone b : allBones) {
+			worldPositions.put(b.name, new Vec3f(0, 0, 0));
+		}
+
+		int total = 0;
+		total += parseAnim(ysmData.mainAnimJson, editor, builtElements,
+			AnimationType.POSE, worldPositions, boneIndex, "main");
+		total += parseAnim(ysmData.armAnimJson, editor, builtElements,
+			AnimationType.POSE, worldPositions, boneIndex, "arm");
+		total += parseAnim(ysmData.extraAnimJson, editor, builtElements,
+			AnimationType.GESTURE, worldPositions, boneIndex, "extra");
+
+		for (Map.Entry<String, String> e : ysmData.extraAnimFiles.entrySet()) {
+			try {
+				com.google.gson.JsonObject json = com.google.gson.JsonParser
+					.parseString(e.getValue()).getAsJsonObject();
+				total += parseAnim(json, editor, builtElements,
+					AnimationType.GESTURE, worldPositions, boneIndex, e.getKey());
+			} catch (Exception ex) {
+				Log.warn("[YSM Import] Failed extra anim: " + e.getKey(), ex);
+			}
+		}
+		Log.info("[YSM Import] Total animations: " + total);
+	}
+
+	private static int parseAnim(com.google.gson.JsonObject json, Editor editor,
+			Map<String, ModelElement> builtElements, AnimationType type,
+			Map<String, Vec3f> worldPositions, Map<String, BedrockBone> boneIndex,
+			String source) {
+		if (json == null) return 0;
+		try {
+			List<EditorAnim> anims = BedrockAnimationParser.parse(json, editor,
+				builtElements, type, worldPositions, boneIndex);
+			editor.animations.addAll(anims);
+			if (!anims.isEmpty()) {
+				Log.info("[YSM Import] " + source + ": " + anims.size() + " animations");
+			}
+			return anims.size();
+		} catch (Exception e) {
+			Log.error("[YSM Import] Animation parse failed (" + source + ")", e);
+			return 0;
+		}
+	}
+
+	private static void setupGestures(YsmModelData ysmData, Editor editor) {
+		if (editor.animEnc == null) {
+			editor.animEnc = new AnimationEncodingData();
+		}
+		for (Map.Entry<String, String> entry : ysmData.extraAnimations.entrySet()) {
+			EditorAnim target = editor.animations.stream()
+				.filter(a -> a.displayName != null && a.displayName.equals(entry.getValue()))
+				.findFirst().orElse(null);
+			if (target != null && target.type != AnimationType.GESTURE
+				&& target.type != AnimationType.CUSTOM_POSE) {
+				target.type = AnimationType.GESTURE;
+			}
+		}
+		if (ysmData.controllerJson != null) {
+			Map<String, String> ctrlGestures = BedrockControllerParser
+				.extractGestureMappings(ysmData.controllerJson);
+			ctrlGestures.forEach((k, v) -> ysmData.extraAnimations.putIfAbsent(k, v));
+		}
 	}
 
 	// ========================================================================
