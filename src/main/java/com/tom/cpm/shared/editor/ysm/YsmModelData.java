@@ -2,6 +2,7 @@ package com.tom.cpm.shared.editor.ysm;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -41,4 +42,7 @@ public class YsmModelData {
 
 	/** Animation name → display description from extra_animation_classify */
 	public Map<String, String> gestureDescriptions = new HashMap<>();
+
+	/** P5: Extra model files beyond main/arm, keyed by model key name (e.g. "arrow", "extra_01"). */
+	public Map<String, JsonObject> extraModelJsons = new LinkedHashMap<>();
 }

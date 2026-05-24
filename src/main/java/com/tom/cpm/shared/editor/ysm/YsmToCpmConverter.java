@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.google.gson.JsonObject;
+
 import com.tom.cpl.math.Vec2i;
 import com.tom.cpl.math.Vec3f;
 import com.tom.cpl.util.Image;
@@ -121,6 +123,39 @@ public class YsmToCpmConverter {
 		}
 		if (orphanCount > 0) {
 			Log.info("[YSM Import] Routed " + orphanCount + " orphan bone trees to fallback containers");
+		}
+
+		// P5: Import extra model files as separate named groups outside body-root remap
+		int extraModelCount = 0;
+		for (Map.Entry<String, JsonObject> extraEntry : ysmData.extraModelJsons.entrySet()) {
+			String modelKey = extraEntry.getKey();
+			JsonObject modelJson = extraEntry.getValue();
+			List<BedrockBone> extraBones = BedrockModelParser.parse(modelJson);
+			if (extraBones.isEmpty()) continue;
+
+			// Create a dedicated container element for this extra model
+			ModelElement container = new ModelElement(editor);
+			container.name = "YSM::" + modelKey;
+			container.type = ElementType.NORMAL;
+			container.parent = null;
+			editor.elements.add(container);
+
+			// Import all top-level bones from the extra model into the container
+			int importedFromModel = 0;
+			for (BedrockBone bone : extraBones) {
+				if (bone.parent != null) continue; // Only top-level bones as entry points
+				Vec3f parentPivot = new Vec3f();
+				buildBoneHierarchy(bone, extraBones, container, editor, allBoneElements, parentPivot, visitedBones);
+				importedFromModel++;
+			}
+			if (importedFromModel > 0) {
+				extraModelCount++;
+				Log.info("[YSM Import] Extra model '" + modelKey + "': " + extraBones.size() +
+					" bones, " + importedFromModel + " root trees → container 'YSM::" + modelKey + "'");
+			}
+		}
+		if (extraModelCount > 0) {
+			Log.info("[YSM Import] Imported " + extraModelCount + " extra model groups");
 		}
 
 		Log.info("[YSM Import] Created " + allBoneElements.size() + " bone elements");

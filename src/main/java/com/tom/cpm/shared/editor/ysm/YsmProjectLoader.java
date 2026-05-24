@@ -62,6 +62,18 @@ public class YsmProjectLoader {
 					if (modelFiles != null) {
 						data.mainModelJson = readJsonEntry(zip, getString(modelFiles, "main", "models/main.json"));
 						data.armModelJson = readJsonEntry(zip, getString(modelFiles, "arm", "models/arm.json"));
+
+						// P5: Read all additional model keys (beyond main/arm)
+						for (Map.Entry<String, JsonElement> modelEntry : modelFiles.entrySet()) {
+							String key = modelEntry.getKey();
+							if ("main".equals(key) || "arm".equals(key)) continue;
+							String path = modelEntry.getValue().getAsString();
+							JsonObject extraModel = readJsonEntry(zip, path);
+							if (extraModel != null) {
+								data.extraModelJsons.put(key, extraModel);
+								Log.info("[YSM Import] Extra model '" + key + "' → " + path);
+							}
+						}
 					}
 
 					// Animations
