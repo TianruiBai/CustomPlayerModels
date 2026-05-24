@@ -10,6 +10,7 @@ button.cpm.set=Set
 button.cpm.file=File
 button.cpm.file.new=New >
 button.cpm.file.load=Load
+button.cpm.file.importYsm=Import YSM...
 button.cpm.file.save=Save
 button.cpm.file.saveAs=Save As
 button.cpm.file.export=Export

@@ -96,7 +96,10 @@ public class YsmToCpmConverter {
 		// 7. Load textures
 		loadTextures(ysmData, editor);
 
-		// 8. Set model metadata
+		// 8. Apply model scaling properties from ysm.json
+		applyModelScale(ysmData, editor);
+
+		// 9. Set model metadata
 		if (ysmData.modelName != null && !ysmData.modelName.isEmpty()) {
 			if (editor.description == null) {
 				editor.description = new com.tom.cpm.shared.editor.util.ModelDescription();
@@ -306,16 +309,30 @@ public class YsmToCpmConverter {
 
 	/**
 	 * Load textures from YSM data into the editor.
-	 * The first/default texture is loaded as the SKIN texture sheet.
+	 * The default texture is loaded as the SKIN texture sheet.
+	 * All other textures are stored as byte arrays for future switching.
 	 */
 	private static void loadTextures(YsmModelData ysmData, Editor editor) {
-		if (ysmData.textures.isEmpty()) return;
+		if (ysmData.textures.isEmpty()) {
+			Log.info("[YSM Import] No textures found");
+			return;
+		}
+
+		Log.info("[YSM Import] Found " + ysmData.textures.size() + " textures: " +
+			String.join(", ", ysmData.textures.keySet()));
 
 		// Determine which texture to use as the main skin
 		String textureName = ysmData.defaultTexture;
-		if (textureName == null || !ysmData.textures.containsKey(textureName)) {
-			// Use the first available texture
-			textureName = ysmData.textures.keySet().iterator().next();
+		if (textureName != null && !ysmData.textures.containsKey(textureName)) {
+			Log.info("[YSM Import] Default texture '" + textureName + "' not found, using first available");
+			textureName = null;
+		}
+		if (textureName == null) {
+			// Use first non-NAF (non-emissive) texture if available, otherwise first texture
+			textureName = ysmData.textures.keySet().stream()
+				.filter(n -> !n.contains("NAF") && !n.contains("_e."))
+				.findFirst()
+				.orElse(ysmData.textures.keySet().iterator().next());
 		}
 
 		byte[] pngData = ysmData.textures.get(textureName);
@@ -338,11 +355,34 @@ public class YsmToCpmConverter {
 				skinTex.provider.size = new Vec2i(img.getWidth(), img.getHeight());
 				skinTex.setEdited(true);
 				skinTex.markDirty();
-				Log.info("[YSM Import] Loaded texture: " + textureName +
-					" (" + img.getWidth() + "x" + img.getHeight() + ")");
+				Log.info("[YSM Import] Loaded texture '" + textureName +
+					"' (" + img.getWidth() + "x" + img.getHeight() + ")");
+			}
+
+			// Log alternative textures that the user may want to switch to
+			if (ysmData.textures.size() > 1) {
+				List<String> altTextures = new ArrayList<>(ysmData.textures.keySet());
+				altTextures.remove(textureName);
+				Log.info("[YSM Import] Alternative textures available (use File → Reload Texture to switch): " +
+					String.join(", ", altTextures));
 			}
 		} catch (IOException e) {
 			Log.error("[YSM Import] Failed to load texture: " + textureName, e);
+		}
+	}
+
+	/**
+	 * Apply model scaling from YSM height_scale and width_scale properties.
+	 */
+	private static void applyModelScale(YsmModelData ysmData, Editor editor) {
+		float hs = ysmData.heightScale;
+		float ws = ysmData.widthScale;
+
+		if (Math.abs(hs - 1.0f) > 0.001f || Math.abs(ws - 1.0f) > 0.001f) {
+			// Enable scaling and set values
+			editor.scalingElem.enabled = true;
+			editor.scalingElem.scale = new Vec3f(ws, hs, ws);
+			Log.info("[YSM Import] Applied model scale: height=" + hs + ", width=" + ws);
 		}
 	}
 }

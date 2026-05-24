@@ -442,7 +442,11 @@ public class EditorGui extends Frame {
 			FileChooserPopup fc = new FileChooserPopup(this);
 			fc.setTitle(EmbeddedLocalizations.loadProject);
 			fc.setFileDescText(EmbeddedLocalizations.fileProject);
-			fc.setFilter(new FileFilter("cpmproject"));
+			fc.setFilter((f, n) -> {
+				if (f.isDirectory()) return true;
+				String nl = n.toLowerCase(Locale.ROOT);
+				return nl.endsWith(".cpmproject") || nl.endsWith(".ysmproject");
+			});
 			fc.setAccept(this::load);
 			fc.setButtonText(gui.i18nFormat("button.cpm.ok"));
 			openPopup(fc);
@@ -902,6 +906,12 @@ public class EditorGui extends Frame {
 	}
 
 	private void load(File file) {
+		if (isYsmProject(file)) {
+			editor.importYsmProject(file);
+			addRecent(file);
+			return;
+		}
+
 		editor.load(file).handleAsync((v, e) -> {
 			if(e != null) {
 				Log.warn("Error loading project file", e);
@@ -914,6 +924,11 @@ public class EditorGui extends Frame {
 			addRecent(file);
 			return null;
 		}, gui::executeLater);
+	}
+
+	private boolean isYsmProject(File file) {
+		String name = file.getName().toLowerCase(Locale.ROOT);
+		return name.endsWith(".ysmproject");
 	}
 
 	private void saveProject(File file) {

@@ -573,15 +573,17 @@ public class Editor {
 						setInfoMsg.accept(Pair.of(2000, ui.i18nFormat("tooltip.cpm.loadSuccess", ysmFile.getName())));
 					} catch (Exception e) {
 						Log.error("Failed to convert YSM project", e);
+						setInfoMsg.accept(Pair.of(0, ""));
 						ui.displayMessagePopup(ui.i18nFormat("label.cpm.error"),
-							ui.i18nFormat("error.cpm.ysm_import_failed", e.getMessage()));
+							"Failed to import YSM model: " + e.getMessage());
 					}
 				});
 			} catch (Exception e) {
 				Log.error("Failed to load YSM project", e);
 				ui.executeLater(() -> {
+					setInfoMsg.accept(Pair.of(0, ""));
 					ui.displayMessagePopup(ui.i18nFormat("label.cpm.error"),
-						ui.i18nFormat("error.cpm.ysm_load_failed", e.getMessage()));
+						"Failed to read YSM file: " + e.getMessage());
 				});
 			}
 		});
