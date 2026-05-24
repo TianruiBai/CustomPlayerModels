@@ -211,6 +211,12 @@ public class BedrockAnimationParser {
 		anim.mustFinish = mustFinish;
 		anim.duration = Math.max(50, (int)(animLength * 1000));
 		anim.add = true;
+		// YSM models can have dozens of gestures; CPM's layer-encoding only
+		// supports 62 unique slots via 6 skin layers. Disable layer encoding
+		// so all gestures can be registered without hitting the limit.
+		if (type == AnimationType.GESTURE) {
+			anim.layerControlled = false;
+		}
 		anim.priority = overridePrev ? 10 : 0;
 		anim.intType = InterpolatorType.POLY_LOOP;
 
