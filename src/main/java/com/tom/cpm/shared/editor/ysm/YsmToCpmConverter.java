@@ -396,8 +396,12 @@ public class YsmToCpmConverter {
 			try {
 				com.google.gson.JsonObject json = com.google.gson.JsonParser
 					.parseString(e.getValue()).getAsJsonObject();
+				// Extract source name from path like "animations/tac.animation.json" → "tac"
+				String path = e.getKey();
+				String fileName = path.substring(path.lastIndexOf('/') + 1);
+				String srcName = fileName.replace(".animation.json", "").replace(".json", "");
 				total += parseAnim(json, editor, builtElements,
-					AnimationType.GESTURE, worldPositions, boneIndex, e.getKey());
+					AnimationType.GESTURE, worldPositions, boneIndex, srcName);
 			} catch (Exception ex) {
 				Log.warn("[YSM Import] Failed extra anim: " + e.getKey(), ex);
 			}
@@ -412,7 +416,7 @@ public class YsmToCpmConverter {
 		if (json == null) return 0;
 		try {
 			List<EditorAnim> anims = BedrockAnimationParser.parse(json, editor,
-				builtElements, type, worldPositions, boneIndex);
+				builtElements, type, source, worldPositions, boneIndex);
 			editor.animations.addAll(anims);
 			if (!anims.isEmpty()) {
 				Log.info("[YSM Import] " + source + ": " + anims.size() + " animations");

@@ -1,7 +1,9 @@
 package com.tom.cpm.shared.gui;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import com.tom.cpl.config.ConfigEntry;
@@ -15,6 +17,7 @@ import com.tom.cpl.gui.elements.GuiElement;
 import com.tom.cpl.gui.elements.Label;
 import com.tom.cpl.gui.elements.Panel;
 import com.tom.cpl.gui.elements.ScrollPanel;
+import com.tom.cpl.gui.elements.TextField;
 import com.tom.cpl.gui.elements.Tooltip;
 import com.tom.cpl.gui.util.FlowLayout;
 import com.tom.cpl.math.Box;
@@ -160,41 +163,88 @@ public class GestureGui extends Frame implements IGestureButtonContainer {
 		p.addElement(bindingsButton);
 		int h;
 		if(def != null && this.state == ModelLoadingState.LOADED && status != ServerStatus.UNAVAILABLE) {
-			List<GuiElement> buttons = def.getAnimations().getNamedActions().stream().
+			List<GuiElement> allButtons = def.getAnimations().getNamedActions().stream().
 					filter(d -> !d.isProperty() && d.canShow()).map(t -> GestureGuiButtons.make(this, t)).
 					filter(e -> e != null).collect(Collectors.toList());
 
-			Panel panel = new Panel(gui);
-
-			if (buttons.isEmpty()) {
+			if (allButtons.isEmpty()) {
 				String str = gui.i18nFormat("label.cpm.nothing_here");
 				Label lbl = new Label(gui, str);
 				lbl.setBounds(new Box(width / 2 - gui.textWidth(str) / 2, height / 2 - 4, 0, 0));
 				p.addElement(lbl);
 				h = 10;
 			} else {
-				h = (buttons.size() / 4 + 1) * 40;
+				// Search/filter text field
+				TextField searchField = new TextField(gui);
+				searchField.setBounds(new Box(width / 2 - 180, 50, 360, 18));
+				p.addElement(searchField);
 
-				for (int j = 0; j < buttons.size(); j++) {
-					GuiElement b = buttons.get(j);
-					panel.addElement(b);
-					b.setBounds(new Box((j % 4) * 90, (j / 4) * 40, 80, 30));
-					this.buttons.add((IGestureButton) b);//Enforced in GestureGuiButtons.make
+				// Group buttons by source prefix [group] in name
+				Map<String, List<GuiElement>> grouped = new LinkedHashMap<>();
+				List<GuiElement> ungrouped = new ArrayList<>();
+				for (GuiElement b : allButtons) {
+					String src = extractSource(getButtonName(b));
+					if (src != null) {
+						grouped.computeIfAbsent(src, k -> new ArrayList<>()).add(b);
+					} else {
+						ungrouped.add(b);
+					}
 				}
+				if (!ungrouped.isEmpty()) grouped.put(null, ungrouped);
 
-				if(h < height - 150) {
-					panel.setBounds(new Box(width / 2 - 180, height / 2 - h / 2, 360, h));
-					p.addElement(panel);
-				} else {
-					panel.setBounds(new Box(0, 0, 360, h));
-					ScrollPanel scp = new ScrollPanel(gui);
-					h = height - 120;
-					scp.setBounds(new Box(width / 2 - 180, 60, 363, height - 150));
-					scp.setDisplay(panel);
-					p.addElement(scp);
-				}
+				// Build the content panel with groups
+				Panel content = new Panel(gui);
+				int y = 0;
+				int colWidth = 90;
+				int rowHeight = 40;
+				int cols = 4;
 
-				this.buttons.forEach(IGestureButton::updateKeybinds);
+				Runnable rebuild = () -> {
+					content.getElements().clear();
+					int cy = 0;
+					String filter = searchField.getText().toLowerCase().trim();
+
+					for (Map.Entry<String, List<GuiElement>> entry : grouped.entrySet()) {
+						List<GuiElement> filtered = entry.getValue().stream()
+								.filter(b -> filter.isEmpty() || getButtonName(b).toLowerCase().contains(filter))
+								.collect(Collectors.toList());
+						if (filtered.isEmpty()) continue;
+
+						// Group header
+						if (entry.getKey() != null) {
+							Label header = new Label(gui, entry.getKey());
+							header.setBounds(new Box(5, cy, 350, 10));
+							content.addElement(header);
+							cy += 12;
+						}
+
+						// Grid layout within group
+						for (int j = 0; j < filtered.size(); j++) {
+							GuiElement b = filtered.get(j);
+							content.addElement(b);
+							b.setBounds(new Box((j % cols) * colWidth, cy + (j / cols) * rowHeight, colWidth - 10, rowHeight - 10));
+							this.buttons.add((IGestureButton) b);
+						}
+						cy += ((filtered.size() + cols - 1) / cols) * rowHeight + 4;
+					}
+
+					content.setBounds(new Box(0, 0, 360, cy));
+					if (cy < height - 150) {
+						content.setBounds(new Box(width / 2 - 180, height / 2 - cy / 2, 360, cy));
+						p.getElements().removeIf(e -> e instanceof ScrollPanel);
+						p.addElement(content);
+					} else {
+						ScrollPanel scp = new ScrollPanel(gui);
+						scp.setBounds(new Box(width / 2 - 180, 72, 363, height - 162));
+						scp.setDisplay(content);
+						p.getElements().removeIf(e -> e instanceof ScrollPanel || (e instanceof Panel && e != content && e.getBounds().w == 360));
+						p.addElement(scp);
+					}
+				};
+
+				searchField.setEventListener(rebuild);
+				rebuild.run();
+				h = Math.min(height - 150, (allButtons.size() / cols + 1) * rowHeight + 40);
 			}
 		} else if(def != null && (this.state == ModelLoadingState.ERRORRED || this.state == ModelLoadingState.SAFETY_BLOCKED)) {
 			String txt = "";
@@ -387,5 +437,34 @@ public class GestureGui extends Frame implements IGestureButtonContainer {
 	@Override
 	public boolean canBindKeys() {
 		return true;
+	}
+
+	/**
+	 * Extract source group from a bracket-prefixed name like {@code [tac] aim_pistol}.
+	 * @return the group string (without brackets), or {@code null} if no prefix.
+	 */
+	public static String extractSource(String name) {
+		if (name == null || name.isEmpty() || name.charAt(0) != '[') return null;
+		int end = name.indexOf(']');
+		if (end <= 1 || end >= name.length() - 1) return null;
+		return name.substring(1, end);
+	}
+
+	/**
+	 * Strip source prefix from a bracket-prefixed name, returning the clean display name.
+	 */
+	public static String stripSourcePrefix(String name) {
+		if (name == null || name.isEmpty() || name.charAt(0) != '[') return name;
+		int end = name.indexOf(']');
+		if (end <= 1 || end >= name.length() - 1) return name;
+		return name.substring(end + 1).trim();
+	}
+
+	/** Get the gesture display name from a button element. */
+	private static String getButtonName(GuiElement b) {
+		if (b instanceof com.tom.cpl.gui.elements.Button) {
+			return ((com.tom.cpl.gui.elements.Button) b).getText();
+		}
+		return "";
 	}
 }

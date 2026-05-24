@@ -83,12 +83,14 @@ public class BedrockAnimationParser {
 
 	/**
 	 * Parse all animations from a Bedrock animation JSON and create CPM EditorAnims.
+	 * @param source         source label for gesture grouping (e.g. "tac", "extra")
 	 * @param worldPositions pre-computed YSM absolute world positions for each bone
 	 * @param boneIndex      bone name → BedrockBone lookup for computing parent-relative positions
 	 */
 	public static List<EditorAnim> parse(JsonObject animJson, Editor editor,
 	                                     Map<String, ModelElement> boneNameToElement,
 	                                     AnimationType defaultType,
+	                                     String source,
 	                                     Map<String, Vec3f> worldPositions,
 	                                     Map<String, BedrockBone> boneIndex) {
 		List<EditorAnim> results = new ArrayList<>();
@@ -103,7 +105,7 @@ public class BedrockAnimationParser {
 				if (animData == null) continue;
 
 				EditorAnim anim = convertAnimation(animName, animData, editor, boneNameToElement,
-					defaultType, worldPositions, boneIndex);
+					defaultType, source, worldPositions, boneIndex);
 				if (anim != null) {
 					results.add(anim);
 				}
@@ -123,6 +125,7 @@ public class BedrockAnimationParser {
 	private static EditorAnim convertAnimation(String animName, JsonObject animData, Editor editor,
 	                                           Map<String, ModelElement> boneNameToElement,
 	                                           AnimationType defaultType,
+	                                           String source,
 	                                           Map<String, Vec3f> worldPositions,
 	                                           Map<String, BedrockBone> boneIndex) {
 		// ---- Determine animation type and pose ----
@@ -202,7 +205,7 @@ public class BedrockAnimationParser {
 
 		String filename = filenamePrefix + sanitizeFilename(animName) + ".json";
 		EditorAnim anim = new EditorAnim(editor, filename, type, false);
-		anim.displayName = animName;
+		anim.displayName = (source != null ? "[" + source + "] " : "") + animName;
 		anim.pose = pose;
 		anim.loop = loop;
 		anim.mustFinish = mustFinish;

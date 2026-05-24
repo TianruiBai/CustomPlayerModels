@@ -237,6 +237,7 @@ public class YsmProjectLoader {
 				for (JsonElement classifyElem : classifyArray) {
 					if (classifyElem.isJsonObject()) {
 						JsonObject classifyObj = classifyElem.getAsJsonObject();
+						String classifyId = getString(classifyObj, "id", null);
 						JsonObject innerExtraAnim = classifyObj.getAsJsonObject("extra_animation");
 						if (innerExtraAnim != null) {
 							for (Map.Entry<String, JsonElement> entry : innerExtraAnim.entrySet()) {
@@ -245,6 +246,9 @@ public class YsmProjectLoader {
 								String animName = entry.getValue().getAsString();
 								if (animName != null && !animName.isEmpty() && !animName.startsWith("#")) {
 									data.extraAnimations.put(gestureName, animName);
+									if (classifyId != null && !classifyId.isEmpty()) {
+										data.gestureDescriptions.put(gestureName, classifyId);
+									}
 								}
 							}
 						}
