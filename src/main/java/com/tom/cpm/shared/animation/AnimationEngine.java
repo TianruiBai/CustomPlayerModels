@@ -141,6 +141,11 @@ public class AnimationEngine {
 		}
 		state.currentPose = persistent.currentPose;
 		reg.tickAnimated(time, false);
+		// Phase 6: Sync texture slot from TEXTURE animations
+		int texSlot = reg.getActiveTextureSlot();
+		if (texSlot != def.getActiveTextureSlot()) {
+			def.setActiveTextureSlot(texSlot);
+		}
 	}
 
 	public void handleAnimation(AnimationState state, Player<?> player, ModelDefinition def) {

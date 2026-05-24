@@ -4,8 +4,11 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.tom.cpl.math.Vec2i;
 import com.tom.cpl.math.Vec3f;
@@ -70,6 +73,11 @@ public class YsmToCpmConverter {
 			rootElem.hidden = true;
 		}
 
+		// Build bone index for fast lookup and orphan detection
+		Map<String, BedrockBone> boneIndex = new LinkedHashMap<>();
+		for (BedrockBone b : mainBones) { boneIndex.put(b.name, b); }
+		Set<String> visitedBones = new HashSet<>();
+
 		// 3. Build ModelElement hierarchy under each CPM root part
 		Map<String, ModelElement> allBoneElements = new HashMap<>();
 
@@ -84,17 +92,41 @@ public class YsmToCpmConverter {
 			if (rootBoneName != null) {
 				BedrockBone rootBone = findBoneByName(mainBones, rootBoneName);
 				if (rootBone != null) {
-					// Root-level bones: position relative to CPM root (0,0,0)
 					Vec3f parentPivot = new Vec3f();
-					buildBoneHierarchy(rootBone, mainBones, rootElem, editor, allBoneElements, parentPivot);
+					buildBoneHierarchy(rootBone, mainBones, rootElem, editor, allBoneElements, parentPivot, visitedBones);
 				}
 			}
+		}
+
+		// P4.4-P4.5: Handle unmatched top-level bones via topology fallback
+		int orphanCount = 0;
+		for (BedrockBone bone : mainBones) {
+			if (visitedBones.contains(bone.name)) continue;
+			if (bone.parent != null) continue; // Only top-level orphans
+
+			PlayerModelParts fallbackPart = BedrockModelParser.mapBoneByTopology(mainBones, bone);
+			ModelElement targetRoot = null;
+			if (fallbackPart != null) {
+				targetRoot = findRootElement(editor, fallbackPart);
+			}
+			if (targetRoot == null) {
+				// Attach to a dedicated YSM_UNMAPPED container under CUSTOM_PART
+				targetRoot = getOrCreateOrphanRoot(editor);
+			}
+			if (targetRoot != null) {
+				Vec3f parentPivot = new Vec3f();
+				buildBoneHierarchy(bone, mainBones, targetRoot, editor, allBoneElements, parentPivot, visitedBones);
+				orphanCount++;
+			}
+		}
+		if (orphanCount > 0) {
+			Log.info("[YSM Import] Routed " + orphanCount + " orphan bone trees to fallback containers");
 		}
 
 		Log.info("[YSM Import] Created " + allBoneElements.size() + " bone elements");
 
 		// 4. Process arm bones under their respective arm root parts
-		processArmBones(armBones, editor, allBoneElements);
+		processArmBones(armBones, editor, allBoneElements, visitedBones);
 
 		// 5. Convert animations
 		convertAnimations(ysmData, editor, allBoneElements);
@@ -146,18 +178,24 @@ public class YsmToCpmConverter {
 	private static void buildBoneHierarchy(BedrockBone bone, List<BedrockBone> allBones,
 	                                       ModelElement parent, Editor editor,
 	                                       Map<String, ModelElement> allBoneElements,
-	                                       Vec3f parentPivot) {
+	                                       Vec3f parentPivot, Set<String> visitedBones) {
 		ModelElement elem = new ModelElement(editor);
 		elem.name = bone.name;
 		elem.parent = parent;
 		parent.children.add(elem);
 		allBoneElements.put(bone.name, elem);
+		visitedBones.add(bone.name);
 
 		// Position = bone pivot - parent pivot (relative to parent)
 		elem.pos = new Vec3f(bone.pivot).sub(parentPivot);
 
 		if (bone.rotation.x != 0 || bone.rotation.y != 0 || bone.rotation.z != 0) {
 			elem.rotation = new Vec3f(bone.rotation);
+		}
+
+		// never_render → hide the bone element
+		if (bone.neverRender) {
+			elem.hidden = true;
 		}
 
 		// Apply bone-level mirror to this element
@@ -174,8 +212,28 @@ public class YsmToCpmConverter {
 			allBoneElements.put(bone.name + "_cube_" + elem.children.size(), cubeElem);
 
 			cubeElem.size = new Vec3f(cube.size);
-			// cube offset = cube origin - bone pivot (relative to bone position)
-			cubeElem.offset = cube.origin.sub(bone.pivot);
+
+			// P4.2: Handle cube-level pivot/rotation for transform composition
+			if (cube.pivot != null && cube.rotation != null) {
+				// Cube has its own pivot + rotation: split translation
+				cubeElem.offset = cube.origin.sub(cube.pivot);
+				cubeElem.pos = cube.pivot.sub(bone.pivot);
+				cubeElem.rotation = new Vec3f(cube.rotation);
+			} else if (cube.pivot != null) {
+				// Cube has pivot but no rotation
+				cubeElem.offset = cube.origin.sub(cube.pivot);
+				cubeElem.pos = cube.pivot.sub(bone.pivot);
+			} else if (cube.rotation != null) {
+				// Cube has rotation but no pivot: rotate around its own center
+				cubeElem.offset = cube.origin.sub(bone.pivot);
+				Vec3f center = new Vec3f(cube.size).mul(0.5f);
+				cubeElem.pos = new Vec3f(center);
+				cubeElem.offset = cubeElem.offset.sub(center);
+				cubeElem.rotation = new Vec3f(cube.rotation);
+			} else {
+				// No cube-level transform: offset from bone pivot
+				cubeElem.offset = cube.origin.sub(bone.pivot);
+			}
 
 			cubeElem.texture = true;
 			cubeElem.textureSize = 1;
@@ -191,25 +249,22 @@ public class YsmToCpmConverter {
 				}
 			}
 
-			// Inflate → meshScale: Bedrock inflate grows cube by 'inflate' units
-			// in all directions. CPM meshScale renders the cube at size*meshScale.
-			// For a cube of size S with inflate I, rendered size = S + 2*I.
-			// Therefore meshScale per axis = (S + 2*I) / S = 1 + 2*I/S.
+			// P4.3: Inflate → meshScale with safety clamping
 			if (cube.inflate != 0) {
-				float sx = cube.size.x != 0 ? 1.0f + 2.0f * cube.inflate / cube.size.x : 1.0f;
-				float sy = cube.size.y != 0 ? 1.0f + 2.0f * cube.inflate / cube.size.y : 1.0f;
-				float sz = cube.size.z != 0 ? 1.0f + 2.0f * cube.inflate / cube.size.z : 1.0f;
+				float sx = safeMeshScale(cube.size.x, cube.inflate);
+				float sy = safeMeshScale(cube.size.y, cube.inflate);
+				float sz = safeMeshScale(cube.size.z, cube.inflate);
 				cubeElem.meshScale = new Vec3f(sx, sy, sz);
 			}
 
-			// Cube-level mirror
-			cubeElem.mirror = cube.mirror || bone.mirror;
+			// P4.7: Mirror composition (XOR — bone mirror flips, cube mirror flips again)
+			cubeElem.mirror = cube.mirror ^ bone.mirror;
 		}
 
 		// Process child bones with this bone's pivot as the new parentPivot
 		for (BedrockBone child : allBones) {
 			if (bone.name.equals(child.parent)) {
-				buildBoneHierarchy(child, allBones, elem, editor, allBoneElements, bone.pivot);
+				buildBoneHierarchy(child, allBones, elem, editor, allBoneElements, bone.pivot, visitedBones);
 			}
 		}
 	}
@@ -218,7 +273,8 @@ public class YsmToCpmConverter {
 	 * Map arm bones to the LEFT_ARM and RIGHT_ARM root parts.
 	 */
 	private static void processArmBones(List<BedrockBone> armBones,
-	                                    Editor editor, Map<String, ModelElement> allBoneElements) {
+	                                    Editor editor, Map<String, ModelElement> allBoneElements,
+	                                    Set<String> visitedBones) {
 		if (armBones.isEmpty()) return;
 
 		ModelElement leftArmRoot = findRootElement(editor, PlayerModelParts.LEFT_ARM);
@@ -236,7 +292,7 @@ public class YsmToCpmConverter {
 
 			if (targetRoot != null && bone.parent == null) {
 				Vec3f parentPivot = new Vec3f(); // arm bones are relative to root
-				buildBoneHierarchy(bone, armBones, targetRoot, editor, allBoneElements, parentPivot);
+				buildBoneHierarchy(bone, armBones, targetRoot, editor, allBoneElements, parentPivot, visitedBones);
 			}
 		}
 	}
@@ -355,6 +411,35 @@ public class YsmToCpmConverter {
 
 	private static BedrockBone findBoneByName(List<BedrockBone> bones, String name) {
 		return bones.stream().filter(b -> b.name.equals(name)).findFirst().orElse(null);
+	}
+
+	/** P4.3: Safe mesh scale computation with clamping for thin cubes. */
+	private static float safeMeshScale(float size, float inflate) {
+		if (Math.abs(size) < 0.01f) return 1.0f; // Near-zero size: skip meshScale
+		float scale = 1.0f + 2.0f * inflate / size;
+		if (scale < 0.1f || scale > 10.0f) {
+			Log.info("[YSM Import] Clamping extreme meshScale " + scale + " from size=" + size + " inflate=" + inflate);
+			return Math.max(0.1f, Math.min(10.0f, scale));
+		}
+		return scale;
+	}
+
+	/** P4.5: Get or create a dedicated orphan container root element. */
+	private static ModelElement getOrCreateOrphanRoot(Editor editor) {
+		// Look for existing YSM_UNMAPPED container
+		for (ModelElement elem : editor.elements) {
+			if ("YSM_UNMAPPED".equals(elem.name) && elem.type == ElementType.NORMAL) {
+				return elem;
+			}
+		}
+		// Create new orphan root
+		ModelElement orphanRoot = new ModelElement(editor);
+		orphanRoot.name = "YSM_UNMAPPED";
+		orphanRoot.type = ElementType.NORMAL;
+		orphanRoot.parent = null;
+		editor.elements.add(orphanRoot);
+		Log.info("[YSM Import] Created YSM_UNMAPPED container for orphan bones");
+		return orphanRoot;
 	}
 
 	/**

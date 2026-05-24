@@ -59,6 +59,10 @@ public class BedrockModelParser {
 		/** Per-face UV mappings: face name (north/south/east/west/up/down) → UV data */
 		public Map<String, BedrockFaceUV> faces = new HashMap<>();
 		public boolean mirror;
+		/** Cube-level pivot (rotation anchor). null if not present in source JSON. */
+		public Vec3f pivot;
+		/** Cube-level rotation in degrees [pitch, yaw, roll]. null if not present. */
+		public Vec3f rotation;
 	}
 
 	/** UV data for a single face of a Bedrock cube */
@@ -138,6 +142,10 @@ public class BedrockModelParser {
 					cube.inflate = getFloat(cubeObj, "inflate", 0f);
 					cube.mirror = getBoolean(cubeObj, "mirror", false);
 
+					// Parse cube-level pivot and rotation (for cubes with their own transform)
+					if (cubeObj.has("pivot")) cube.pivot = readVec3f(cubeObj, "pivot");
+					if (cubeObj.has("rotation")) cube.rotation = readVec3f(cubeObj, "rotation");
+
 					// Parse UV — can be:
 					// 1. JsonObject: per-face UV {"north": {"uv": [u,v], "uv_size": [w,h]}, ...}
 					// 2. JsonArray: simple UV [u, v] applied to all faces
@@ -194,6 +202,37 @@ public class BedrockModelParser {
 	}
 
 	/**
+	 * Topology-based fallback mapping. Walks the ancestor chain of a bone;
+	 * if any ancestor maps to a known CPM part via {@link #mapBoneToPart},
+	 * inherit that mapping. For unmatched top-level bones, uses pivot position
+	 * heuristics (high Y → HEAD, low Y with bilateral X → LEG, etc.).
+	 *
+	 * @return the best-guess PlayerModelParts, or null if completely indeterminate
+	 */
+	public static PlayerModelParts mapBoneByTopology(List<BedrockBone> allBones, BedrockBone bone) {
+		// Walk ancestor chain
+		String ancestor = bone.parent;
+		while (ancestor != null) {
+			PlayerModelParts part = mapBoneToPart(ancestor);
+			if (part != null) return part;
+			final String a = ancestor;
+			ancestor = allBones.stream().filter(b -> b.name.equals(a)).findFirst().map(b -> b.parent).orElse(null);
+		}
+		// Position-based heuristics for unmatched top-level bones
+		float y = bone.pivot.y;
+		float x = Math.abs(bone.pivot.x);
+		if (y > 22) return PlayerModelParts.HEAD;
+		if (y > 10 && y <= 22 && x < 4) return PlayerModelParts.BODY;
+		if (x > 4 && y > 8 && y <= 22) {
+			return bone.pivot.x < 0 ? PlayerModelParts.LEFT_ARM : PlayerModelParts.RIGHT_ARM;
+		}
+		if (y <= 8) {
+			return bone.pivot.x < 0 ? PlayerModelParts.LEFT_LEG : PlayerModelParts.RIGHT_LEG;
+		}
+		return null;
+	}
+
+	/**
 	 * Find the root-level bone that best matches the given CPM root part.
 	 * This is the topmost bone in the hierarchy that maps to this part.
 	 */
@@ -247,6 +286,9 @@ public class BedrockModelParser {
 			if (dir == null) continue;
 			BedrockFaceUV fuv = entry.getValue();
 			Face face = new Face();
+
+			// Skip faces with zero-size UV region (degenerate faces)
+			if (fuv.uvWidth == 0 || fuv.uvHeight == 0) continue;
 
 			// Handle negative uv_size (Bedrock texture flipping)
 			int uvW = Math.abs(fuv.uvWidth);

@@ -81,6 +81,8 @@ import com.tom.cpm.shared.parts.ModelPartSkinType;
 import com.tom.cpm.shared.parts.ModelPartTags;
 import com.tom.cpm.shared.parts.ModelPartTemplate;
 import com.tom.cpm.shared.parts.ModelPartTexture;
+import com.tom.cpm.shared.parts.ModelPartTextureSlot;
+import com.tom.cpm.shared.skin.TextureProvider;
 import com.tom.cpm.shared.parts.ModelPartUUIDLockout;
 import com.tom.cpm.shared.parts.PartCollection;
 import com.tom.cpm.shared.paste.PastePopup;
@@ -285,6 +287,14 @@ public class Exporter {
 					tex.animatedTexs.forEach(at -> otherParts.add(new ModelPartAnimatedTexture(type, at)));
 			}
 		});
+		// Phase 6: Export additional texture slots (slot 0 is the default SKIN)
+		for (int i = 1; i < e.textureSlots.size(); i++) {
+			TextureSlot slot = e.textureSlots.get(i);
+			if (slot.image != null) {
+				TextureProvider tp = new TextureProvider(slot.image, slot.gridSize);
+				otherParts.add(new ModelPartTextureSlot(i, tp));
+			}
+		}
 		for (EditorTemplate et : e.templates) {
 			otherParts.add(new ModelPartTemplate(et));
 		}
