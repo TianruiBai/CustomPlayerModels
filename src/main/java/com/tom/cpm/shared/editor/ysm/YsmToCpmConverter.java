@@ -11,9 +11,9 @@ import com.tom.cpl.math.Vec2i;
 import com.tom.cpl.math.Vec3f;
 import com.tom.cpl.util.Image;
 import com.tom.cpm.shared.animation.AnimationType;
-import com.tom.cpm.shared.animation.CustomPose;
 import com.tom.cpm.shared.editor.ETextures;
 import com.tom.cpm.shared.editor.Editor;
+import com.tom.cpm.shared.editor.anim.AnimationEncodingData;
 import com.tom.cpm.shared.editor.anim.EditorAnim;
 import com.tom.cpm.shared.editor.elements.ElementType;
 import com.tom.cpm.shared.editor.elements.ModelElement;
@@ -75,7 +75,9 @@ public class YsmToCpmConverter {
 			if (rootBoneName != null) {
 				BedrockBone rootBone = findBoneByName(mainBones, rootBoneName);
 				if (rootBone != null) {
-					buildBoneHierarchy(rootBone, mainBones, rootElem, editor, allBoneElements);
+					// Root-level bones: position relative to CPM root (0,0,0)
+					Vec3f parentPivot = new Vec3f();
+					buildBoneHierarchy(rootBone, mainBones, rootElem, editor, allBoneElements, parentPivot);
 				}
 			}
 		}
@@ -83,32 +85,18 @@ public class YsmToCpmConverter {
 		Log.info("[YSM Import] Created " + allBoneElements.size() + " bone elements");
 
 		// 4. Process arm bones under their respective arm root parts
-		processArmBones(armBones, mainBones, editor, allBoneElements);
+		processArmBones(armBones, editor, allBoneElements);
 
 		// 5. Convert animations
-		if (ysmData.mainAnimJson != null) {
-			List<EditorAnim> mainAnims = BedrockAnimationParser.parse(
-				ysmData.mainAnimJson, editor, allBoneElements, AnimationType.POSE);
-			editor.animations.addAll(mainAnims);
-			Log.info("[YSM Import] Main animations: " + mainAnims.size());
-		}
-		if (ysmData.armAnimJson != null) {
-			List<EditorAnim> armAnims = BedrockAnimationParser.parse(
-				ysmData.armAnimJson, editor, allBoneElements, AnimationType.POSE);
-			editor.animations.addAll(armAnims);
-			Log.info("[YSM Import] Arm animations: " + armAnims.size());
-		}
-		if (ysmData.extraAnimJson != null) {
-			List<EditorAnim> extraAnims = BedrockAnimationParser.parse(
-				ysmData.extraAnimJson, editor, allBoneElements, AnimationType.GESTURE);
-			editor.animations.addAll(extraAnims);
-			Log.info("[YSM Import] Extra animations: " + extraAnims.size());
-		}
+		convertAnimations(ysmData, editor, allBoneElements);
 
-		// 6. Load textures
+		// 6. Setup gesture buttons from extra_animation + controller data
+		setupGestures(ysmData, editor);
+
+		// 7. Load textures
 		loadTextures(ysmData, editor);
 
-		// 7. Set model metadata
+		// 8. Set model metadata
 		if (ysmData.modelName != null && !ysmData.modelName.isEmpty()) {
 			if (editor.description == null) {
 				editor.description = new com.tom.cpm.shared.editor.util.ModelDescription();
@@ -124,28 +112,25 @@ public class YsmToCpmConverter {
 
 	/**
 	 * Recursively build the CPM ModelElement hierarchy from a Bedrock bone tree.
+	 * Bone positions are made relative to the parent bone's pivot.
+	 *
+	 * @param parentPivot the pivot position of the parent bone (for relative positioning)
 	 */
 	private static void buildBoneHierarchy(BedrockBone bone, List<BedrockBone> allBones,
 	                                       ModelElement parent, Editor editor,
-	                                       Map<String, ModelElement> allBoneElements) {
-		// Create a ModelElement for this bone
+	                                       Map<String, ModelElement> allBoneElements,
+	                                       Vec3f parentPivot) {
 		ModelElement elem = new ModelElement(editor);
 		elem.name = bone.name;
 		elem.parent = parent;
 		parent.children.add(elem);
 		allBoneElements.put(bone.name, elem);
 
-		// Position = pivot (relative to parent bone's pivot)
-		elem.pos = new Vec3f(bone.pivot);
+		// Position = bone pivot - parent pivot (relative to parent)
+		elem.pos = new Vec3f(bone.pivot).sub(parentPivot);
 
-		// Rotation from bone
 		if (bone.rotation.x != 0 || bone.rotation.y != 0 || bone.rotation.z != 0) {
 			elem.rotation = new Vec3f(bone.rotation);
-		}
-
-		// Hide the element if it has no cubes and is just a structural bone
-		if (bone.cubes.isEmpty() && !bone.neverRender) {
-			// Structural bone — just a container, keep visible for hierarchy
 		}
 
 		// Create cube elements for each Bedrock cube in this bone
@@ -156,11 +141,10 @@ public class YsmToCpmConverter {
 			elem.children.add(cubeElem);
 			allBoneElements.put(bone.name + "_cube_" + elem.children.size(), cubeElem);
 
-			// Cube geometry
 			cubeElem.size = new Vec3f(cube.size);
+			// cube offset = cube origin - bone pivot (relative to bone position)
 			cubeElem.offset = cube.origin.sub(bone.pivot);
 
-			// UV mapping
 			cubeElem.texture = true;
 			cubeElem.textureSize = 1;
 
@@ -175,36 +159,35 @@ public class YsmToCpmConverter {
 				}
 			}
 
-			// Inflate → meshScale (approximate: inflate of 0.1 means 10% bigger in all directions)
 			if (cube.inflate != 0) {
-				float s = 1.0f + cube.inflate / Math.max(cube.size.x, Math.max(cube.size.y, cube.size.z));
-				cubeElem.meshScale = new Vec3f(s, s, s);
+				float maxDim = Math.max(cube.size.x, Math.max(cube.size.y, cube.size.z));
+				if (maxDim > 0.001f) {
+					float s = 1.0f + cube.inflate / maxDim;
+					cubeElem.meshScale = new Vec3f(s, s, s);
+				}
 			}
 
 			cubeElem.mirror = cube.mirror;
 		}
 
-		// Process child bones
+		// Process child bones with this bone's pivot as the new parentPivot
 		for (BedrockBone child : allBones) {
 			if (bone.name.equals(child.parent)) {
-				buildBoneHierarchy(child, allBones, elem, editor, allBoneElements);
+				buildBoneHierarchy(child, allBones, elem, editor, allBoneElements, bone.pivot);
 			}
 		}
 	}
 
 	/**
 	 * Map arm bones to the LEFT_ARM and RIGHT_ARM root parts.
-	 * Arm bones in YSM have their own model file and need special handling.
 	 */
-	private static void processArmBones(List<BedrockBone> armBones, List<BedrockBone> mainBones,
+	private static void processArmBones(List<BedrockBone> armBones,
 	                                    Editor editor, Map<String, ModelElement> allBoneElements) {
 		if (armBones.isEmpty()) return;
 
-		// Find the LEFT_ARM and RIGHT_ARM root elements in the editor
 		ModelElement leftArmRoot = findRootElement(editor, PlayerModelParts.LEFT_ARM);
 		ModelElement rightArmRoot = findRootElement(editor, PlayerModelParts.RIGHT_ARM);
 
-		// Try to find corresponding arm bones by name
 		for (BedrockBone bone : armBones) {
 			String lowerName = bone.name.toLowerCase();
 			ModelElement targetRoot = null;
@@ -216,8 +199,91 @@ public class YsmToCpmConverter {
 			}
 
 			if (targetRoot != null && bone.parent == null) {
-				// This is a root-level arm bone
-				buildBoneHierarchy(bone, armBones, targetRoot, editor, allBoneElements);
+				Vec3f parentPivot = new Vec3f(); // arm bones are relative to root
+				buildBoneHierarchy(bone, armBones, targetRoot, editor, allBoneElements, parentPivot);
+			}
+		}
+	}
+
+	/**
+	 * Convert all animations from YSM data into CPM EditorAnims.
+	 */
+	private static void convertAnimations(YsmModelData ysmData, Editor editor,
+	                                      Map<String, ModelElement> allBoneElements) {
+		if (ysmData.mainAnimJson != null) {
+			List<EditorAnim> anims = BedrockAnimationParser.parse(
+				ysmData.mainAnimJson, editor, allBoneElements, AnimationType.POSE);
+			editor.animations.addAll(anims);
+			Log.info("[YSM Import] Main animations: " + anims.size());
+		}
+		if (ysmData.armAnimJson != null) {
+			List<EditorAnim> anims = BedrockAnimationParser.parse(
+				ysmData.armAnimJson, editor, allBoneElements, AnimationType.POSE);
+			editor.animations.addAll(anims);
+			Log.info("[YSM Import] Arm animations: " + anims.size());
+		}
+		if (ysmData.extraAnimJson != null) {
+			List<EditorAnim> anims = BedrockAnimationParser.parse(
+				ysmData.extraAnimJson, editor, allBoneElements, AnimationType.GESTURE);
+			editor.animations.addAll(anims);
+			Log.info("[YSM Import] Extra animations: " + anims.size());
+		}
+		// Also parse any additional animation files (tac, carryon, etc.)
+		for (Map.Entry<String, String> extraAnimEntry : ysmData.extraAnimFiles.entrySet()) {
+			try {
+				com.google.gson.JsonObject extraAnimJson =
+					com.google.gson.JsonParser.parseString(extraAnimEntry.getValue()).getAsJsonObject();
+				List<EditorAnim> anims = BedrockAnimationParser.parse(
+					extraAnimJson, editor, allBoneElements, AnimationType.GESTURE);
+				editor.animations.addAll(anims);
+				Log.info("[YSM Import] Extra anim file '" + extraAnimEntry.getKey() + "': " + anims.size() + " animations");
+			} catch (Exception e) {
+				Log.warn("[YSM Import] Failed to parse extra animation: " + extraAnimEntry.getKey(), e);
+			}
+		}
+	}
+
+	/**
+	 * Setup gesture buttons from ysm.json extra_animation and controller data.
+	 */
+	private static void setupGestures(YsmModelData ysmData, Editor editor) {
+		// Create AnimationEncodingData if not present
+		if (editor.animEnc == null) {
+			editor.animEnc = new AnimationEncodingData();
+		}
+
+		// Merge extra_animation mappings from ysm.json
+		for (Map.Entry<String, String> entry : ysmData.extraAnimations.entrySet()) {
+			String gestureName = entry.getKey();
+			String animName = entry.getValue();
+
+			// Find the corresponding EditorAnim
+			EditorAnim targetAnim = editor.animations.stream()
+				.filter(a -> a.displayName.equals(animName))
+				.findFirst().orElse(null);
+
+			if (targetAnim != null) {
+				Log.info("[YSM Import] Gesture '" + gestureName + "' → animation '" + animName + "'");
+			}
+		}
+
+		// Process controller data for additional gesture mappings
+		if (ysmData.controllerJson != null) {
+			Map<String, String> ctrlGestures =
+				BedrockControllerParser.extractGestureMappings(ysmData.controllerJson);
+			for (Map.Entry<String, String> entry : ctrlGestures.entrySet()) {
+				if (!ysmData.extraAnimations.containsKey(entry.getKey())) {
+					ysmData.extraAnimations.put(entry.getKey(), entry.getValue());
+				}
+			}
+			Log.info("[YSM Import] Controller gestures: " + ctrlGestures.size() +
+				" (molang transitions: " +
+				BedrockControllerParser.hasMolangTransitions(ysmData.controllerJson) + ")");
+
+			// Log referenced animation names
+			List<String> refAnims = BedrockControllerParser.extractAnimationNames(ysmData.controllerJson);
+			if (!refAnims.isEmpty()) {
+				Log.info("[YSM Import] Controller references " + refAnims.size() + " animations");
 			}
 		}
 	}

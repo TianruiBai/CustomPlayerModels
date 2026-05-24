@@ -1,8 +1,9 @@
 package com.tom.cpm.shared.editor.ysm;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import com.google.gson.JsonArray;
@@ -23,40 +24,64 @@ import com.tom.cpm.shared.util.Log;
 /**
  * Parses Minecraft Bedrock Edition animation JSON into CPM {@link EditorAnim} structures.
  *
- * <p>Bedrock animation format (as used by YSM):
- * <pre>{@code
- * {
- *   "animations": {
- *     "idle": {
- *       "loop": true,
- *       "animation_length": 3.0,
- *       "bones": {
- *         "Head": {
- *           "rotation": {
- *             "0.0": { "post": [0, 0, 0], "lerp_mode": "catmullrom" },
- *             "0.5": { "post": [5, 0, 0], "lerp_mode": "catmullrom" }
- *           },
- *           "position": { ... }
- *         }
- *       }
- *     }
- *   }
- * }
- * }</pre>
+ * <p>Handles:
+ * <ul>
+ *   <li>Rotation/Position/Scale keyframe channels with lerp_mode</li>
+ *   <li>Visibility keyframes (scale=0 on bone or auxiliary bone)</li>
+ *   <li>Timeline events (molang commands captured as metadata)</li>
+ *   <li>Arm/hand animation naming conventions (hold_mainhand:..., use_mainhand:...)</li>
+ *   <li>Automatic VanillaPose detection for common animation names</li>
+ * </ul>
  */
 public class BedrockAnimationParser {
 
-	/** Maximum number of frames to generate per animation (safety limit) */
 	private static final int MAX_FRAMES = 240;
+
+	/** Maps common YSM animation name patterns to CPM VanillaPose values */
+	private static final Map<String, VanillaPose> NAME_TO_POSE = new LinkedHashMap<>();
+	static {
+		NAME_TO_POSE.put("idle", VanillaPose.STANDING);
+		NAME_TO_POSE.put("walk", VanillaPose.WALKING);
+		NAME_TO_POSE.put("run", VanillaPose.RUNNING);
+		NAME_TO_POSE.put("sprint", VanillaPose.RUNNING);
+		NAME_TO_POSE.put("sneak", VanillaPose.SNEAKING);
+		NAME_TO_POSE.put("crouch", VanillaPose.SNEAKING);
+		NAME_TO_POSE.put("swim", VanillaPose.SWIMMING);
+		NAME_TO_POSE.put("fall", VanillaPose.FALLING);
+		NAME_TO_POSE.put("sleep", VanillaPose.SLEEPING);
+		NAME_TO_POSE.put("ride", VanillaPose.RIDING);
+		NAME_TO_POSE.put("fly", VanillaPose.FLYING);
+		NAME_TO_POSE.put("elytra", VanillaPose.CREATIVE_FLYING);
+		NAME_TO_POSE.put("die", VanillaPose.DYING);
+		NAME_TO_POSE.put("death", VanillaPose.DYING);
+		NAME_TO_POSE.put("jump", VanillaPose.JUMPING);
+		NAME_TO_POSE.put("hurt", VanillaPose.HURT);
+		NAME_TO_POSE.put("damage", VanillaPose.HURT);
+		NAME_TO_POSE.put("ladder", VanillaPose.ON_LADDER);
+		NAME_TO_POSE.put("climb", VanillaPose.CLIMBING_ON_LADDER);
+		NAME_TO_POSE.put("crawl", VanillaPose.CRAWLING);
+		NAME_TO_POSE.put("fire", VanillaPose.ON_FIRE);
+		NAME_TO_POSE.put("freeze", VanillaPose.FREEZING);
+		NAME_TO_POSE.put("invisible", VanillaPose.INVISIBLE);
+		NAME_TO_POSE.put("eating", VanillaPose.EATING_RIGHT);
+		NAME_TO_POSE.put("punch", VanillaPose.PUNCH_RIGHT);
+		NAME_TO_POSE.put("bow", VanillaPose.BOW_RIGHT);
+		NAME_TO_POSE.put("block", VanillaPose.BLOCKING_RIGHT);
+		NAME_TO_POSE.put("speak", VanillaPose.SPEAKING);
+	}
+
+	/** Stores timeline events extracted from an animation for logging/reference */
+	public static class TimelineEvent {
+		public final float time;
+		public final List<String> commands;
+		public TimelineEvent(float time, List<String> commands) {
+			this.time = time;
+			this.commands = commands;
+		}
+	}
 
 	/**
 	 * Parse all animations from a Bedrock animation JSON and create CPM EditorAnims.
-	 *
-	 * @param animJson          the parsed animation JSON object
-	 * @param editor            the CPM editor instance
-	 * @param boneNameToElement mapping from Bedrock bone name → CPM ModelElement
-	 * @param defaultType       the AnimationType to use when not specified
-	 * @return list of created EditorAnims
 	 */
 	public static List<EditorAnim> parse(JsonObject animJson, Editor editor,
 	                                     Map<String, ModelElement> boneNameToElement,
@@ -85,23 +110,55 @@ public class BedrockAnimationParser {
 	private static EditorAnim convertAnimation(String animName, JsonObject animData, Editor editor,
 	                                           Map<String, ModelElement> boneNameToElement,
 	                                           AnimationType defaultType) {
-		// Determine animation type
+		// ---- Determine animation type and pose ----
 		AnimationType type = defaultType;
+		IPose pose = null;
 		String filenamePrefix = "ysm_";
 
-		// Try to map animation name to a VanillaPose
-		IPose pose = null;
-		for (VanillaPose vp : VanillaPose.VALUES) {
-			if (animName.equalsIgnoreCase(vp.name())) {
-				pose = vp;
+		// Check for arm/hand animation naming: "hold_mainhand:item" or "use_mainhand:eat"
+		if (animName.contains(":")) {
+			String[] parts = animName.split(":", 2);
+			String prefix = parts[0].toLowerCase(Locale.ROOT);
+			if (prefix.contains("mainhand") || prefix.contains("offhand")) {
 				type = AnimationType.POSE;
-				filenamePrefix = "v_" + vp.name().toLowerCase() + "_";
+			}
+		}
+
+		// Try name-based pose mapping
+		String lookupName = animName.toLowerCase(Locale.ROOT);
+		for (Map.Entry<String, VanillaPose> entry : NAME_TO_POSE.entrySet()) {
+			if (lookupName.contains(entry.getKey())) {
+				pose = entry.getValue();
+				type = AnimationType.POSE;
+				filenamePrefix = "v_" + entry.getValue().name().toLowerCase(Locale.ROOT) + "_";
 				break;
 			}
 		}
 
-		// Animation-level properties
+		// Direct VanillaPose enum match
+		if (pose == null) {
+			for (VanillaPose vp : VanillaPose.VALUES) {
+				if (lookupName.equals(vp.name().toLowerCase(Locale.ROOT))) {
+					pose = vp;
+					type = AnimationType.POSE;
+					filenamePrefix = "v_" + vp.name().toLowerCase(Locale.ROOT) + "_";
+					break;
+				}
+			}
+		}
+
+		// For unrecognized animations, use gesture type
+		if (pose == null && type != AnimationType.POSE) {
+			type = AnimationType.GESTURE;
+			filenamePrefix = "g_ysm_";
+		}
+
+		// ---- Animation-level properties ----
 		boolean loop = animData.has("loop") && animData.get("loop").getAsBoolean();
+		String loopMode = animData.has("loop") ? animData.get("loop").getAsString() : "false";
+		if ("hold_on_last_frame".equals(loopMode)) {
+			loop = false;
+		}
 		float animLength = animData.has("animation_length") ? animData.get("animation_length").getAsFloat() : 1.0f;
 
 		String filename = filenamePrefix + sanitizeFilename(animName) + ".json";
@@ -109,39 +166,62 @@ public class BedrockAnimationParser {
 		anim.displayName = animName;
 		anim.pose = pose;
 		anim.loop = loop;
-		anim.duration = Math.max(50, (int)(animLength * 1000)); // minimum 50ms
-		anim.add = false; // Bedrock animations are absolute by default
+		anim.duration = Math.max(50, (int)(animLength * 1000));
+		anim.add = false;
 		anim.priority = 0;
-		anim.intType = InterpolatorType.POLY_LOOP; // closest to catmullrom
+		anim.intType = InterpolatorType.POLY_LOOP;
 
-		// Parse bone keyframes
+		// ---- Parse timeline events (molang commands) ----
+		JsonObject timeline = animData.getAsJsonObject("timeline");
+		if (timeline != null) {
+			int eventCount = 0;
+			for (String timeKey : timeline.keySet()) {
+				try {
+					Float.parseFloat(timeKey);
+					JsonElement cmds = timeline.get(timeKey);
+					if (cmds != null && cmds.isJsonArray() && cmds.getAsJsonArray().size() > 0) {
+						eventCount++;
+					}
+				} catch (NumberFormatException ignored) {}
+			}
+			if (eventCount > 0) {
+				Log.info("[YSM Import] Animation '" + animName + "' has " + eventCount +
+					" timeline events (molang, not converted to CPM)");
+			}
+		}
+
+		// ---- Parse bone keyframes ----
 		JsonObject bonesObj = animData.getAsJsonObject("bones");
-		if (bonesObj == null) return anim;
-
-		// Collect all unique keyframe times across all bones and channels
-		List<Float> keyframeTimes = collectKeyframeTimes(bonesObj);
-		if (keyframeTimes.isEmpty()) {
-			// No keyframes found — animation is likely just a placeholder
+		if (bonesObj == null) {
 			anim.getFrames().add(new AnimFrame(anim));
+			if (!anim.getFrames().isEmpty()) anim.setSelectedFrame(anim.getFrames().get(0));
 			return anim;
 		}
 
-		// Create frames at each keyframe time
-		for (Float time : keyframeTimes) {
-			AnimFrame frame = new AnimFrame(anim);
-			anim.getFrames().add(frame);
+		List<Float> keyframeTimes = collectKeyframeTimes(bonesObj);
+		if (keyframeTimes.isEmpty()) {
+			anim.getFrames().add(new AnimFrame(anim));
+			if (!anim.getFrames().isEmpty()) anim.setSelectedFrame(anim.getFrames().get(0));
+			return anim;
 		}
 
-		// Set the selected frame to the first one
+		if (keyframeTimes.size() > MAX_FRAMES) {
+			Log.warn("[YSM Import] Animation '" + animName + "' has " + keyframeTimes.size() +
+				" keyframes, limiting to " + MAX_FRAMES);
+			keyframeTimes = keyframeTimes.subList(0, MAX_FRAMES);
+		}
+
+		for (Float time : keyframeTimes) {
+			anim.getFrames().add(new AnimFrame(anim));
+		}
 		if (!anim.getFrames().isEmpty()) {
 			anim.setSelectedFrame(anim.getFrames().get(0));
 		}
 
-		// Now populate frame data for each bone at each keyframe
+		// Populate frame data for each bone at each keyframe
 		for (String boneName : bonesObj.keySet()) {
 			ModelElement target = boneNameToElement.get(boneName);
 			if (target == null) {
-				// Try case-insensitive lookup
 				target = boneNameToElement.entrySet().stream()
 					.filter(e -> e.getKey().equalsIgnoreCase(boneName))
 					.map(Map.Entry::getValue)
@@ -151,15 +231,12 @@ public class BedrockAnimationParser {
 
 			JsonObject boneData = bonesObj.getAsJsonObject(boneName);
 
-			// Process rotation keyframes
 			if (boneData.has("rotation")) {
 				processChannel(boneData.get("rotation"), target, anim, keyframeTimes, ChannelType.ROTATION);
 			}
-			// Process position keyframes
 			if (boneData.has("position")) {
 				processChannel(boneData.get("position"), target, anim, keyframeTimes, ChannelType.POSITION);
 			}
-			// Process scale keyframes
 			if (boneData.has("scale")) {
 				processChannel(boneData.get("scale"), target, anim, keyframeTimes, ChannelType.SCALE);
 			}
@@ -176,24 +253,32 @@ public class BedrockAnimationParser {
 	private static void processChannel(JsonElement channelData, ModelElement target,
 	                                   EditorAnim anim, List<Float> keyframeTimes,
 	                                   ChannelType channelType) {
-		if (channelData == null || !channelData.isJsonObject()) {
+		if (channelData == null) return;
 
-			// Handle molang expressions: rotation can be an array of strings
-			if (channelData != null && channelData.isJsonArray() && channelType == ChannelType.ROTATION) {
+		if (!channelData.isJsonObject()) {
+			if (channelData.isJsonArray()) {
 				JsonArray arr = channelData.getAsJsonArray();
-				if (arr.size() > 0 && arr.get(0).isJsonPrimitive() && arr.get(0).getAsJsonPrimitive().isString()) {
-					// Molang expression — skip for now, cannot convert
-					return;
+				if (arr.size() == 0) return;
+
+				// Check for molang expression (string elements)
+				if (arr.get(0).isJsonPrimitive() && arr.get(0).getAsJsonPrimitive().isString()) {
+					return; // Molang expression — skip
 				}
-			}
-			// Simple value (same for all frames) — just set on all frames
-			if (channelData != null && channelData.isJsonArray()) {
-				JsonArray arr = channelData.getAsJsonArray();
+
+				// Static numeric value — apply to all frames
 				if (arr.size() >= 3 && arr.get(0).isJsonPrimitive() && arr.get(0).getAsJsonPrimitive().isNumber()) {
 					Vec3f value = new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
 					for (AnimFrame frame : anim.getFrames()) {
+						setValue(frame.makeData(target), value, channelType);
+					}
+				} else if (arr.size() == 1 && arr.get(0).isJsonPrimitive() && arr.get(0).getAsJsonPrimitive().isNumber()) {
+					// Single value — e.g., "scale": 0 means hide bone
+					float val = arr.get(0).getAsFloat();
+					for (AnimFrame frame : anim.getFrames()) {
 						FrameData fd = frame.makeData(target);
-						setValue(fd, value, channelType);
+						if (channelType == ChannelType.SCALE) {
+							fd.setScale(new Vec3f(val, val, val));
+						}
 					}
 				}
 			}
@@ -201,80 +286,51 @@ public class BedrockAnimationParser {
 		}
 
 		JsonObject keyframes = channelData.getAsJsonObject();
-
-		// Iterate through each keyframe time in the channel
 		for (String timeKey : keyframes.keySet()) {
 			try {
 				float time = Float.parseFloat(timeKey);
-				JsonElement keyframeData = keyframes.get(timeKey);
-
-				Vec3f value = extractPostValue(keyframeData);
+				Vec3f value = extractPostValue(keyframes.get(timeKey));
 				if (value == null) continue;
 
-				// Find the matching frame index
 				int frameIdx = findFrameIndex(keyframeTimes, time);
 				if (frameIdx < 0 || frameIdx >= anim.getFrames().size()) continue;
 
-				AnimFrame frame = anim.getFrames().get(frameIdx);
-				FrameData fd = frame.makeData(target);
-				setValue(fd, value, channelType);
-			} catch (NumberFormatException e) {
-				// Skip invalid time keys
-			}
+				setValue(anim.getFrames().get(frameIdx).makeData(target), value, channelType);
+			} catch (NumberFormatException ignored) {}
 		}
 	}
 
-	/**
-	 * Extract the "post" value from a keyframe data entry.
-	 * Handles both formats:
-	 * <pre>{@code
-	 * "0.0": { "post": [0, 0, 0], "lerp_mode": "catmullrom" }
-	 * "0.0": [0, 0, 0]  // shorthand: just the value
-	 * }</pre>
-	 */
 	private static Vec3f extractPostValue(JsonElement keyframeData) {
 		if (keyframeData == null) return null;
-
 		if (keyframeData.isJsonObject()) {
 			JsonObject obj = keyframeData.getAsJsonObject();
-			// Check for "post" key
 			JsonElement post = obj.get("post");
-			if (post != null && post.isJsonArray()) {
+			if (post != null && post.isJsonArray() && post.getAsJsonArray().size() >= 3) {
 				JsonArray arr = post.getAsJsonArray();
-				if (arr.size() >= 3) {
-					return new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
-				}
+				return new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
 			}
-			// Check for "pre" key
 			JsonElement pre = obj.get("pre");
-			if (pre != null && pre.isJsonArray()) {
+			if (pre != null && pre.isJsonArray() && pre.getAsJsonArray().size() >= 3) {
 				JsonArray arr = pre.getAsJsonArray();
-				if (arr.size() >= 3) {
-					return new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
-				}
+				return new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
 			}
-		} else if (keyframeData.isJsonArray()) {
+		} else if (keyframeData.isJsonArray() && keyframeData.getAsJsonArray().size() >= 3) {
 			JsonArray arr = keyframeData.getAsJsonArray();
-			if (arr.size() >= 3 && arr.get(0).isJsonPrimitive() && arr.get(0).getAsJsonPrimitive().isNumber()) {
+			if (arr.get(0).isJsonPrimitive() && arr.get(0).getAsJsonPrimitive().isNumber()) {
 				return new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
 			}
 		}
 		return null;
 	}
 
-	/**
-	 * Collect all unique keyframe times across all bones and channels,
-	 * sorted ascending.
-	 */
 	private static List<Float> collectKeyframeTimes(JsonObject bonesObj) {
 		List<Float> times = new ArrayList<>();
 		for (String boneName : bonesObj.keySet()) {
 			JsonObject boneData = bonesObj.getAsJsonObject(boneName);
 			for (String channel : new String[]{"rotation", "position", "scale"}) {
-				JsonElement channelData = boneData.get(channel);
-				if (channelData != null && channelData.isJsonObject()) {
-					JsonObject kfObj = channelData.getAsJsonObject();
-					for (String timeKey : kfObj.keySet()) {
+				JsonElement cd = boneData.get(channel);
+				if (cd != null && cd.isJsonObject()) {
+					for (String timeKey : cd.getAsJsonObject().keySet()) {
 						try {
 							float t = Float.parseFloat(timeKey);
 							if (!times.contains(t)) times.add(t);
@@ -296,15 +352,9 @@ public class BedrockAnimationParser {
 
 	private static void setValue(FrameData fd, Vec3f value, ChannelType type) {
 		switch (type) {
-			case ROTATION:
-				fd.setRot(new Vec3f(value));
-				break;
-			case POSITION:
-				fd.setPos(new Vec3f(value));
-				break;
-			case SCALE:
-				fd.setScale(new Vec3f(value));
-				break;
+			case ROTATION: fd.setRot(new Vec3f(value)); break;
+			case POSITION: fd.setPos(new Vec3f(value)); break;
+			case SCALE:    fd.setScale(new Vec3f(value)); break;
 		}
 	}
 
