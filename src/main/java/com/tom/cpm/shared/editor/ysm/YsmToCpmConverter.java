@@ -99,18 +99,33 @@ public class YsmToCpmConverter {
 		// 8. Apply model scaling properties from ysm.json
 		applyModelScale(ysmData, editor);
 
-		// 9. Set model metadata
+		// 9. Set model metadata (name, description, authors)
 		if (ysmData.modelName != null && !ysmData.modelName.isEmpty()) {
 			if (editor.description == null) {
 				editor.description = new com.tom.cpm.shared.editor.util.ModelDescription();
 			}
 			editor.description.name = ysmData.modelName;
+
+			// Build description with author info
+			StringBuilder descBuilder = new StringBuilder();
 			if (ysmData.description != null && !ysmData.description.isEmpty()) {
-				editor.description.desc = ysmData.description;
+				descBuilder.append(ysmData.description);
 			}
+			if (!ysmData.authors.isEmpty()) {
+				if (descBuilder.length() > 0) descBuilder.append("\n\n");
+				descBuilder.append("Authors: ");
+				descBuilder.append(String.join(", ", ysmData.authors));
+			}
+			if (descBuilder.length() > 0) {
+				editor.description.desc = descBuilder.toString();
+			}
+			Log.info("[YSM Import] Model name: " + ysmData.modelName +
+				(ysmData.authors.isEmpty() ? "" : ", authors: " + String.join(", ", ysmData.authors)));
 		}
 
-		Log.info("[YSM Import] Conversion complete");
+		Log.info("[YSM Import] Conversion complete — " + editor.elements.size() +
+			" root elements, " + editor.animations.size() + " animations, " +
+			(editor.textures.containsKey(TextureSheetType.SKIN) ? "with texture" : "no texture"));
 	}
 
 	/**
@@ -219,50 +234,59 @@ public class YsmToCpmConverter {
 
 	/**
 	 * Convert all animations from YSM data into CPM EditorAnims.
+	 * Each animation is parsed individually — one bad animation won't crash the entire import.
 	 */
 	private static void convertAnimations(YsmModelData ysmData, Editor editor,
 	                                      Map<String, ModelElement> allBoneElements) {
-		if (ysmData.mainAnimJson != null) {
-			List<EditorAnim> anims = BedrockAnimationParser.parse(
-				ysmData.mainAnimJson, editor, allBoneElements, AnimationType.POSE);
-			editor.animations.addAll(anims);
-			Log.info("[YSM Import] Main animations: " + anims.size());
-		}
-		if (ysmData.armAnimJson != null) {
-			List<EditorAnim> anims = BedrockAnimationParser.parse(
-				ysmData.armAnimJson, editor, allBoneElements, AnimationType.POSE);
-			editor.animations.addAll(anims);
-			Log.info("[YSM Import] Arm animations: " + anims.size());
-		}
-		if (ysmData.extraAnimJson != null) {
-			List<EditorAnim> anims = BedrockAnimationParser.parse(
-				ysmData.extraAnimJson, editor, allBoneElements, AnimationType.GESTURE);
-			editor.animations.addAll(anims);
-			Log.info("[YSM Import] Extra animations: " + anims.size());
-		}
+		int totalAnims = 0;
+		totalAnims += parseAnimJsonSafely(ysmData.mainAnimJson, editor, allBoneElements, AnimationType.POSE, "main");
+		totalAnims += parseAnimJsonSafely(ysmData.armAnimJson, editor, allBoneElements, AnimationType.POSE, "arm");
+		totalAnims += parseAnimJsonSafely(ysmData.extraAnimJson, editor, allBoneElements, AnimationType.GESTURE, "extra");
+
 		// Also parse any additional animation files (tac, carryon, etc.)
 		for (Map.Entry<String, String> extraAnimEntry : ysmData.extraAnimFiles.entrySet()) {
 			try {
 				com.google.gson.JsonObject extraAnimJson =
 					com.google.gson.JsonParser.parseString(extraAnimEntry.getValue()).getAsJsonObject();
-				List<EditorAnim> anims = BedrockAnimationParser.parse(
-					extraAnimJson, editor, allBoneElements, AnimationType.GESTURE);
-				editor.animations.addAll(anims);
-				Log.info("[YSM Import] Extra anim file '" + extraAnimEntry.getKey() + "': " + anims.size() + " animations");
+				int n = parseAnimJsonSafely(extraAnimJson, editor, allBoneElements, AnimationType.GESTURE, extraAnimEntry.getKey());
+				totalAnims += n;
+				Log.info("[YSM Import] Extra anim file '" + extraAnimEntry.getKey() + "': " + n + " animations");
 			} catch (Exception e) {
 				Log.warn("[YSM Import] Failed to parse extra animation: " + extraAnimEntry.getKey(), e);
 			}
+		}
+
+		Log.info("[YSM Import] Total animations converted: " + totalAnims);
+	}
+
+	/** Parse an animation JSON safely, catching per-animation errors */
+	private static int parseAnimJsonSafely(com.google.gson.JsonObject animJson, Editor editor,
+	                                       Map<String, ModelElement> allBoneElements,
+	                                       AnimationType type, String label) {
+		if (animJson == null) return 0;
+		try {
+			List<EditorAnim> anims = BedrockAnimationParser.parse(animJson, editor, allBoneElements, type);
+			editor.animations.addAll(anims);
+			Log.info("[YSM Import] " + label + " animations: " + anims.size());
+			return anims.size();
+		} catch (Exception e) {
+			Log.error("[YSM Import] Failed to parse " + label + " animations", e);
+			return 0;
 		}
 	}
 
 	/**
 	 * Setup gesture buttons from ysm.json extra_animation and controller data.
+	 * Maps YSM gesture names to their corresponding EditorAnim instances
+	 * and logs the mappings for the user.
 	 */
 	private static void setupGestures(YsmModelData ysmData, Editor editor) {
 		// Create AnimationEncodingData if not present
 		if (editor.animEnc == null) {
 			editor.animEnc = new AnimationEncodingData();
 		}
+
+		int mappedCount = 0;
 
 		// Merge extra_animation mappings from ysm.json
 		for (Map.Entry<String, String> entry : ysmData.extraAnimations.entrySet()) {
@@ -271,13 +295,21 @@ public class YsmToCpmConverter {
 
 			// Find the corresponding EditorAnim
 			EditorAnim targetAnim = editor.animations.stream()
-				.filter(a -> a.displayName.equals(animName))
+				.filter(a -> a.displayName != null && a.displayName.equals(animName))
 				.findFirst().orElse(null);
 
 			if (targetAnim != null) {
-				Log.info("[YSM Import] Gesture '" + gestureName + "' → animation '" + animName + "'");
+				// Ensure the animation is typed as GESTURE for proper gesture handling
+				if (targetAnim.type != AnimationType.GESTURE && targetAnim.type != AnimationType.CUSTOM_POSE) {
+					targetAnim.type = AnimationType.GESTURE;
+				}
+				mappedCount++;
+			} else {
+				Log.info("[YSM Import] Gesture '" + gestureName + "' references unknown animation '" + animName + "'");
 			}
 		}
+
+		Log.info("[YSM Import] Gesture mappings: " + mappedCount + " of " + ysmData.extraAnimations.size() + " gestures mapped");
 
 		// Process controller data for additional gesture mappings
 		if (ysmData.controllerJson != null) {

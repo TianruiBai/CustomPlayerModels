@@ -817,3 +817,194 @@ Use the attached `Avali_零幻.ysmproject` as primary test data:
 | Phase 4: Controllers & Gestures | 3-4 days |
 | Phase 5: Polish | 2-3 days |
 | **Total** | **13-19 days** |
+
+---
+
+## 11. Phase 6 Polish Plan (Detailed, Glitch-Focused)
+
+This phase is focused on visual parity between Blockbench and CPM editor import output, with minimal intrusive changes to CPM core systems.
+
+### 11.1 Scope Locked by Current Requirements
+
+1. Multi-texture YSM projects must be usable in CPM through runtime texture switching (while CPM still has a single active skin texture).
+2. `arm.json` should be intentionally skipped for now (do not merge first-person hand model data in this phase).
+3. YSM to CPM remap must be improved to remove major geometry and UV glitches.
+4. Multiple model support should be integrated as separate imported model groups outside normal body-root remap where needed.
+
+### 11.2 Root-Cause Findings from Current Importer
+
+#### A. Geometry Explode/Spike Symptoms
+
+Observed mismatch is consistent with transform loss and thin-cube scale amplification:
+
+1. Cube-level `pivot` and `rotation` are present in YSM model data but not represented in `BedrockCube` conversion pipeline.
+2. `inflate` conversion can produce extreme mesh scaling for tiny cube axes (thin planes/strips).
+3. Current remap attaches only one inferred root bone per body part and may drop/misplace many orphan/unclassified branches.
+4. Bone name heuristic mapping alone is insufficient for large non-humanoid trees.
+
+#### B. UV/Texture Distortion Symptoms
+
+1. Negative `uv_size` is partially handled, but face orientation parity still needs verification per direction mapping.
+2. Face-level rotation handling is not currently modeled (if present in source model variants).
+3. Multi-texture projects are flattened to one selected texture with no in-editor control surface except logging.
+
+#### C. Structural Compatibility Gaps
+
+1. `arm.json` data is imported into arm roots, which can conflict with CPM's own first-person arm integration expectations.
+2. Extra model files are not yet imported as separate logical groups.
+
+### 11.3 Detailed Workstreams
+
+#### Workstream P1: Multi-Texture Runtime Switch (Minimal CPM Core Changes)
+
+Goal: Keep CPM's single active skin model, but allow user to swap among all imported YSM textures instantly.
+
+Implementation:
+
+1. Expand imported texture session state:
+  - Keep `Editor.importedTextures` as source map.
+  - Add `Editor.importedTextureNames` sorted list and `Editor.activeImportedTexture` string.
+2. Add robust switch API:
+  - Keep `Editor.switchImportedTexture(String)` and make it authoritative for all imported-texture switching.
+  - Always call `restitchTextures()`, `markElementsDirty()`, `updateGui()` after swap.
+  - Reject textures larger than CPM max and report clearly.
+3. Add always-visible UI entry points:
+  - File menu: "YSM Texture" submenu listing imported textures.
+  - Texture tab/Skin settings: a selector control bound to `activeImportedTexture`.
+  - Keep entries visible even when no imported textures exist (disabled state with explanation).
+4. Add quick actions:
+  - "Next imported texture" and "Previous imported texture" actions for rapid compare.
+5. Persist selection behavior:
+  - During current editor session: preserve selected imported texture name.
+  - On save to CPM project: if persistence format cannot store source map yet, store selected texture only and log expected behavior.
+
+Acceptance criteria:
+
+1. Any YSM project with N textures exposes N selectable entries in editor UI.
+2. Switching texture updates viewport and UV preview without reload/import.
+3. No crash when selecting invalid/corrupt texture; fallback remains stable.
+
+#### Workstream P2: Arm Model Policy (Skip `arm.json` in This Phase)
+
+Goal: avoid first-person hand regressions while importer fidelity is being stabilized.
+
+Implementation:
+
+1. Add import option/state flag: `importArmModel` default false for YSM import path.
+2. In converter, skip `arm.json` parsing and `processArmBones(...)` when flag is false.
+3. Emit explicit info log once per import: "arm.json skipped by Phase 6 policy".
+4. Keep code path intact for future opt-in, but hidden from default UI for now.
+
+Acceptance criteria:
+
+1. Imported YSM models do not inject arm-specific first-person remap nodes by default.
+2. Existing CPM first-person behavior remains unchanged from baseline.
+
+#### Workstream P3: Remap Fidelity Overhaul (Primary Glitch Fix)
+
+Goal: model imported in CPM should match Blockbench layout, orientation, and hierarchy as closely as CPM format allows.
+
+Implementation breakdown:
+
+1. Parse full cube transform data:
+  - Extend `BedrockCube` with optional `pivot`, `rotation`, and any supported face metadata needed by source files.
+  - Parse these fields from geometry JSON where present.
+2. Transform conversion correctness:
+  - Use parent-relative transform composition: parent bone pivot -> bone rotation -> cube local transform.
+  - For cubes with local pivot/rotation, convert into CPM element `pos`, `offset`, `rotation` that preserves visual placement.
+3. Thin-cube and inflate safety:
+  - Clamp mesh scale factors to safe bounds.
+  - For near-zero axis size, avoid divide-driven meshScale explosion; prefer direct size adjustment or axis-specific no-op.
+4. Root mapping strategy upgrade:
+  - Keep name heuristics as first pass.
+  - Add topology fallback: nearest ancestor chain + bounding/side hints.
+  - Never drop unmatched top-level bones; route to separate imported group container.
+5. Orphan handling and deterministic import:
+  - Build a complete bone index first.
+  - Import all disconnected trees deterministically in file order.
+6. UV face parity hardening:
+  - Validate direction mapping for each face against CPM render expectation.
+  - Normalize negative `uv_size` handling into canonical face bounds (`sx/sy/ex/ey`).
+  - Add guardrails for incomplete face UV definitions.
+7. `never_render` and mirror consistency:
+  - Respect `never_render` by hidden or skipped cube policy.
+  - Ensure bone mirror + cube mirror compose predictably.
+
+Acceptance criteria:
+
+1. No long spike artifacts from imported thin cubes.
+2. Major body silhouette and limb placement aligns with Blockbench reference.
+3. UV orientation on at least 95% sampled cubes matches expected face painting.
+4. Unmapped bone trees are still visible in editor (not silently lost).
+
+#### Workstream P4: Multiple Model Support Outside Body Root Tree
+
+Goal: support extra model sets with minimal CPM core impact and maximum compatibility.
+
+Implementation:
+
+1. Loader expansion:
+  - Read all model file references under player model block, not only `main` and `arm`.
+2. Converter grouping:
+  - `main` continues normal root-part remap.
+  - Additional models import under dedicated top-level containers attached to custom/import root area.
+3. Naming convention:
+  - Container names: `YSM::<modelKey>` (for example `YSM::arrow`, `YSM::extra_01`).
+4. Isolation behavior:
+  - These groups do not participate in automatic vanilla body-part remap.
+  - They remain editable and animatable as integrated separate model blocks.
+
+Acceptance criteria:
+
+1. Extra model files appear as separate groups instead of polluting body roots.
+2. Existing BODY/HEAD/ARM/LEG trees remain readable and stable.
+
+### 11.4 Execution Sequence (Recommended Order)
+
+1. P2 arm skip first (quick risk reduction).
+2. P1 texture switching UI/state (visible user value, low risk).
+3. P3 remap fidelity core (largest engineering effort).
+4. P4 multiple-model separation once P3 tree import is stable.
+5. Regression pass on animations and gestures after structural changes.
+
+### 11.5 Validation Matrix
+
+Use `research-tmp/Avali_零幻` as baseline fixture.
+
+Per build, verify:
+
+1. Import success without hard exceptions.
+2. Element counts by category: body roots, imported extra roots, cube totals.
+3. Bounding box sanity: no NaN/infinite values, no extreme outlier dimensions.
+4. Texture switch pass across all imported textures.
+5. Visual compare screenshots:
+  - Blockbench reference pose.
+  - CPM editor imported pose same camera angle.
+6. Animation smoke test:
+  - Main idle/walk import loads.
+  - Gesture list remains populated.
+
+### 11.6 Logging and Diagnostics to Add
+
+1. Import summary block:
+  - total bones, total cubes, skipped cubes, skipped arm models, imported model groups.
+2. UV warnings:
+  - missing face UV, unsupported face metadata, normalized negative size cases.
+3. Transform warnings:
+  - cube has pivot/rotation requiring fallback path.
+  - thin-cube inflate clamp applied.
+4. Mapping report:
+  - mapped roots, unmapped roots routed to separate containers.
+
+### 11.7 Non-Goals (Phase 6)
+
+1. Full Bedrock animation controller state-machine parity.
+2. Perfect first-person YSM arm emulation.
+3. New CPM file format extension for storing all source textures as a packaged set.
+
+### 11.8 Deliverables
+
+1. Importer behavior update implementing P1-P4.
+2. Updated UI labels/localization for texture switching actions.
+3. Updated docs section with known limitations and expected fallback behavior.
+4. Test evidence package (build success plus before/after screenshot set and import logs).

@@ -93,12 +93,16 @@ public class BedrockAnimationParser {
 		if (animations == null) return results;
 
 		for (String animName : animations.keySet()) {
-			JsonObject animData = animations.getAsJsonObject(animName);
-			if (animData == null) continue;
+			try {
+				JsonObject animData = animations.getAsJsonObject(animName);
+				if (animData == null) continue;
 
-			EditorAnim anim = convertAnimation(animName, animData, editor, boneNameToElement, defaultType);
-			if (anim != null) {
-				results.add(anim);
+				EditorAnim anim = convertAnimation(animName, animData, editor, boneNameToElement, defaultType);
+				if (anim != null) {
+					results.add(anim);
+				}
+			} catch (Exception e) {
+				Log.warn("[YSM Import] Failed to convert animation '" + animName + "': " + e.getMessage());
 			}
 		}
 		return results;
@@ -307,20 +311,36 @@ public class BedrockAnimationParser {
 			JsonElement post = obj.get("post");
 			if (post != null && post.isJsonArray() && post.getAsJsonArray().size() >= 3) {
 				JsonArray arr = post.getAsJsonArray();
+				// Guard: skip molang expressions (string elements in numeric arrays)
+				if (!isNumericArray(arr)) return null;
 				return new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
 			}
 			JsonElement pre = obj.get("pre");
 			if (pre != null && pre.isJsonArray() && pre.getAsJsonArray().size() >= 3) {
 				JsonArray arr = pre.getAsJsonArray();
+				if (!isNumericArray(arr)) return null;
 				return new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
+			}
+			// Molang value (string) — skip, not convertible
+			JsonElement molangPost = obj.get("post");
+			if (molangPost != null && molangPost.isJsonPrimitive() && molangPost.getAsJsonPrimitive().isString()) {
+				return null;
 			}
 		} else if (keyframeData.isJsonArray() && keyframeData.getAsJsonArray().size() >= 3) {
 			JsonArray arr = keyframeData.getAsJsonArray();
-			if (arr.get(0).isJsonPrimitive() && arr.get(0).getAsJsonPrimitive().isNumber()) {
+			if (isNumericArray(arr)) {
 				return new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
 			}
 		}
 		return null;
+	}
+
+	/** Check if all elements of a JsonArray are numeric primitives */
+	private static boolean isNumericArray(JsonArray arr) {
+		for (JsonElement e : arr) {
+			if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) return false;
+		}
+		return true;
 	}
 
 	private static List<Float> collectKeyframeTimes(JsonObject bonesObj) {

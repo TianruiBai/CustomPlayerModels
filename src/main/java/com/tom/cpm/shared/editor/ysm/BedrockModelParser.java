@@ -138,17 +138,19 @@ public class BedrockModelParser {
 					cube.inflate = getFloat(cubeObj, "inflate", 0f);
 					cube.mirror = getBoolean(cubeObj, "mirror", false);
 
-					// Parse per-face UV
-					JsonObject uvObj = cubeObj.getAsJsonObject("uv");
-					if (uvObj != null) {
+					// Parse UV — can be:
+					// 1. JsonObject: per-face UV {"north": {"uv": [u,v], "uv_size": [w,h]}, ...}
+					// 2. JsonArray: simple UV [u, v] applied to all faces
+					JsonElement uvElem = cubeObj.get("uv");
+					if (uvElem != null && uvElem.isJsonObject()) {
+						JsonObject uvObj = uvElem.getAsJsonObject();
 						for (String faceName : uvObj.keySet()) {
 							JsonObject faceUV = uvObj.getAsJsonObject(faceName);
 							if (faceUV != null) {
 								BedrockFaceUV fuv = new BedrockFaceUV();
-								// "uv" can be either [u, v] array or {"uv": [u, v], "uv_size": [w, h]}
-								JsonElement uvElem = faceUV.get("uv");
-								if (uvElem != null && uvElem.isJsonArray()) {
-									JsonArray uvArr = uvElem.getAsJsonArray();
+								JsonElement innerUvElem = faceUV.get("uv");
+								if (innerUvElem != null && innerUvElem.isJsonArray()) {
+									JsonArray uvArr = innerUvElem.getAsJsonArray();
 									fuv.u = uvArr.get(0).getAsInt();
 									fuv.v = uvArr.get(1).getAsInt();
 								}
@@ -164,6 +166,15 @@ public class BedrockModelParser {
 								cube.faces.put(faceName.toLowerCase(), fuv);
 							}
 						}
+					} else if (uvElem != null && uvElem.isJsonArray()) {
+						// Simple UV: [u, v] — apply to all faces as a single UV offset
+						JsonArray uvArr = uvElem.getAsJsonArray();
+						BedrockFaceUV fuv = new BedrockFaceUV();
+						fuv.u = uvArr.get(0).getAsInt();
+						fuv.v = uvArr.get(1).getAsInt();
+						fuv.uvWidth = (int) cube.size.x;
+						fuv.uvHeight = (int) cube.size.y;
+						cube.faces.put("north", fuv);
 					}
 					bone.cubes.add(cube);
 				}
