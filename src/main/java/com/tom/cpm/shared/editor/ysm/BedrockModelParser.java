@@ -48,6 +48,7 @@ public class BedrockModelParser {
 		public Vec3f rotation = new Vec3f();
 		public List<BedrockCube> cubes = new ArrayList<>();
 		public boolean neverRender;
+		public boolean mirror;
 	}
 
 	/** Parsed representation of a Bedrock cube within a bone */
@@ -123,6 +124,7 @@ public class BedrockModelParser {
 			bone.pivot = readVec3f(boneObj, "pivot");
 			bone.rotation = readVec3f(boneObj, "rotation");
 			bone.neverRender = getBoolean(boneObj, "never_render", false);
+			bone.mirror = getBoolean(boneObj, "mirror", false);
 
 			// Parse cubes
 			JsonArray cubesArr = boneObj.getAsJsonArray("cubes");
@@ -214,11 +216,14 @@ public class BedrockModelParser {
 	/**
 	 * Convert Bedrock per-face UV to CPM's {@link PerFaceUV} structure.
 	 * Returns {@code null} if all faces share the same UV coordinates (simple case).
+	 * <p>
+	 * Bedrock allows negative uv_size values to indicate texture flipping.
+	 * CPM stores UVs as start/end coords where ex &gt; sx and ey &gt; sy.
 	 */
 	public static PerFaceUV convertPerFaceUV(BedrockCube cube) {
 		if (cube.faces.isEmpty()) return null;
 
-		// Check if all faces have the same UV
+		// Check if all faces have the same UV — no need for PerFaceUV then
 		BedrockFaceUV first = cube.faces.values().iterator().next();
 		boolean allSame = cube.faces.values().stream().allMatch(f ->
 			f.u == first.u && f.v == first.v && f.uvWidth == first.uvWidth && f.uvHeight == first.uvHeight
@@ -231,11 +236,20 @@ public class BedrockModelParser {
 			if (dir == null) continue;
 			BedrockFaceUV fuv = entry.getValue();
 			Face face = new Face();
-			face.sx = fuv.u;
-			face.sy = fuv.v;
-			face.ex = fuv.u + Math.abs(fuv.uvWidth);
-			face.ey = fuv.v + Math.abs(fuv.uvHeight);
-			face.autoUV = true;
+
+			// Handle negative uv_size (Bedrock texture flipping)
+			int uvW = Math.abs(fuv.uvWidth);
+			int uvH = Math.abs(fuv.uvHeight);
+			int uEnd = fuv.u + uvW;
+			int vEnd = fuv.v + uvH;
+
+			// If uv_size was negative, swap start/end to get proper CPM coords
+			face.sx = fuv.uvWidth < 0 ? uEnd : fuv.u;
+			face.sy = fuv.uvHeight < 0 ? vEnd : fuv.v;
+			face.ex = fuv.uvWidth < 0 ? fuv.u : uEnd;
+			face.ey = fuv.uvHeight < 0 ? fuv.v : vEnd;
+
+			face.autoUV = false; // We provide explicit UVs, not auto-generated
 			pfUV.faces.put(dir, face);
 		}
 		return pfUV;

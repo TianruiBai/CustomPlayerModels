@@ -441,7 +441,7 @@ public class EditorGui extends Frame {
 		pp.addButton(gui.i18nFormat("button.cpm.file.load"), () -> checkUnsaved(() -> {
 			FileChooserPopup fc = new FileChooserPopup(this);
 			fc.setTitle(EmbeddedLocalizations.loadProject);
-			fc.setFileDescText(EmbeddedLocalizations.fileProject);
+			fc.setFileDescText(EmbeddedLocalizations.fileProjectOrYsm);
 			fc.setFilter((f, n) -> {
 				if (f.isDirectory()) return true;
 				String nl = n.toLowerCase(Locale.ROOT);

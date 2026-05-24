@@ -136,6 +136,11 @@ public class YsmToCpmConverter {
 			elem.rotation = new Vec3f(bone.rotation);
 		}
 
+		// Apply bone-level mirror to this element
+		if (bone.mirror) {
+			elem.mirror = true;
+		}
+
 		// Create cube elements for each Bedrock cube in this bone
 		for (BedrockCube cube : bone.cubes) {
 			ModelElement cubeElem = new ModelElement(editor);
@@ -162,15 +167,19 @@ public class YsmToCpmConverter {
 				}
 			}
 
+			// Inflate → meshScale: Bedrock inflate grows cube by 'inflate' units
+			// in all directions. CPM meshScale renders the cube at size*meshScale.
+			// For a cube of size S with inflate I, rendered size = S + 2*I.
+			// Therefore meshScale per axis = (S + 2*I) / S = 1 + 2*I/S.
 			if (cube.inflate != 0) {
-				float maxDim = Math.max(cube.size.x, Math.max(cube.size.y, cube.size.z));
-				if (maxDim > 0.001f) {
-					float s = 1.0f + cube.inflate / maxDim;
-					cubeElem.meshScale = new Vec3f(s, s, s);
-				}
+				float sx = cube.size.x != 0 ? 1.0f + 2.0f * cube.inflate / cube.size.x : 1.0f;
+				float sy = cube.size.y != 0 ? 1.0f + 2.0f * cube.inflate / cube.size.y : 1.0f;
+				float sz = cube.size.z != 0 ? 1.0f + 2.0f * cube.inflate / cube.size.z : 1.0f;
+				cubeElem.meshScale = new Vec3f(sx, sy, sz);
 			}
 
-			cubeElem.mirror = cube.mirror;
+			// Cube-level mirror
+			cubeElem.mirror = cube.mirror || bone.mirror;
 		}
 
 		// Process child bones with this bone's pivot as the new parentPivot
@@ -320,6 +329,9 @@ public class YsmToCpmConverter {
 
 		Log.info("[YSM Import] Found " + ysmData.textures.size() + " textures: " +
 			String.join(", ", ysmData.textures.keySet()));
+
+		// Store all textures for future user switching
+		editor.importedTextures = new HashMap<>(ysmData.textures);
 
 		// Determine which texture to use as the main skin
 		String textureName = ysmData.defaultTexture;

@@ -210,6 +210,12 @@ public class Editor {
 	public File file;
 	public ProjectFile project = new ProjectFile();
 	public int exportSize;
+	/**
+	 * Holds alternative texture byte arrays imported from external formats (e.g. YSM .ysmproject).
+	 * Key is the texture filename, value is the raw PNG data.
+	 * Allows users to switch between imported textures via {@link #switchImportedTexture(String)}.
+	 */
+	public transient Map<String, byte[]> importedTextures;
 
 	public Editor() {
 		this.definition = new EditorDefinition(this);
@@ -587,6 +593,37 @@ public class Editor {
 				});
 			}
 		});
+	}
+
+	/**
+	 * Switch the main skin texture to one of the textures imported from an external format.
+	 * @param name the texture filename (e.g. "default.png") from the imported texture map
+	 */
+	public void switchImportedTexture(String name) {
+		if (importedTextures == null || !importedTextures.containsKey(name)) {
+			Log.warn("[Editor] No imported texture named: " + name);
+			return;
+		}
+		byte[] pngData = importedTextures.get(name);
+		if (pngData == null) return;
+		try {
+			Image img = Image.loadFrom(new java.io.ByteArrayInputStream(pngData));
+			if (img == null) return;
+			ETextures skinTex = textures.get(TextureSheetType.SKIN);
+			if (skinTex != null) {
+				skinTex.setImage(img);
+				skinTex.provider.size = new Vec2i(img.getWidth(), img.getHeight());
+				skinTex.setEdited(true);
+				skinTex.markDirty();
+				restitchTextures();
+				updateGui();
+				markDirty();
+				Log.info("[Editor] Switched to imported texture: " + name +
+					" (" + img.getWidth() + "x" + img.getHeight() + ")");
+			}
+		} catch (Exception e) {
+			Log.error("[Editor] Failed to switch to texture: " + name, e);
+		}
 	}
 
 	public void reloadSkin() {
