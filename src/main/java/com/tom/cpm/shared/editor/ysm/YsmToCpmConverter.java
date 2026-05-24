@@ -22,6 +22,7 @@ import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.editor.ysm.BedrockModelParser.BedrockBone;
 import com.tom.cpm.shared.editor.ysm.BedrockModelParser.BedrockCube;
 import com.tom.cpm.shared.model.PlayerModelParts;
+import com.tom.cpm.shared.model.SkinType;
 import com.tom.cpm.shared.model.TextureSheetType;
 import com.tom.cpm.shared.model.render.PerFaceUV;
 import com.tom.cpm.shared.util.Log;
@@ -63,6 +64,7 @@ public class YsmToCpmConverter {
 		convertAnimations(ysmData, editor, built, boneIndex, mainBones);
 		setupGestures(ysmData, editor);
 		loadTextures(ysmData, editor);
+		stabilizeSkinType(editor);
 		applyModelScale(ysmData, editor);
 		setMetadata(ysmData, editor);
 
@@ -174,12 +176,22 @@ public class YsmToCpmConverter {
 			elem.mirror = true;
 		}
 
+		List<BedrockBone> children = childrenMap.get(bone.name);
+		boolean hasChildren = children != null && !children.isEmpty();
+
 		// --- Create cube elements ---
-		// If a bone has exactly 1 cube: put cube data directly on the bone element
-		// (matching CPM-reference behavior for bones like DownBody, Pelvis, Tail0).
-		// If 2+ cubes: create separate cube child elements.
+		// If a bone has exactly 1 cube: inline it on the bone only when this won't
+		// alter child hierarchy transforms. If the cube has its own pivot/rotation and
+		// this bone has children, keep bone transform pure and emit a cube child instead.
 		if (bone.cubes.size() == 1) {
-			applyCubeToElement(bone.cubes.get(0), bone, elem);
+			BedrockCube only = bone.cubes.get(0);
+			boolean cubeHasOwnTransform = only.pivot != null || isNonZero(only.rotation);
+			if (!(hasChildren && cubeHasOwnTransform)) {
+				applyCubeToElement(only, bone, elem);
+			} else {
+				ModelElement cubeElem = createCubeElement(only, bone, elem, editor, 0);
+				allElements.put(bone.name + "_cube_0", cubeElem);
+			}
 		} else {
 			int cubeIdx = 0;
 			for (BedrockCube cube : bone.cubes) {
@@ -189,7 +201,6 @@ public class YsmToCpmConverter {
 		}
 
 		// --- Recurse into children ---
-		List<BedrockBone> children = childrenMap.get(bone.name);
 		if (children != null) {
 			for (BedrockBone child : children) {
 				buildBoneTree(child, elem, refPivot, boneIndex, childrenMap,
@@ -442,6 +453,19 @@ public class YsmToCpmConverter {
 		editor.textureSlots.clear();
 
 		String defaultTex = ysmData.defaultTexture;
+		// Fuzzy match: "g" should match "g.png", "不穿！" should match "不穿！.png"
+		if (defaultTex != null && !ysmData.textures.containsKey(defaultTex)) {
+			String withPng = defaultTex + ".png";
+			if (ysmData.textures.containsKey(withPng)) {
+				defaultTex = withPng;
+			} else {
+				// Try prefix match (in case name has case differences or variants)
+				final String search = defaultTex.toLowerCase();
+				defaultTex = ysmData.textures.keySet().stream()
+					.filter(k -> k.toLowerCase().startsWith(search))
+					.findFirst().orElse(null);
+			}
+		}
 		if (defaultTex == null || !ysmData.textures.containsKey(defaultTex)) {
 			defaultTex = ysmData.textures.keySet().stream()
 				.filter(n -> !n.contains("NAF") && !n.contains("_e."))
@@ -493,12 +517,25 @@ public class YsmToCpmConverter {
 	// ========================================================================
 
 	private static void applyModelScale(YsmModelData ysmData, Editor editor) {
+		// Keep geometry parity with BlockBench/plugin output:
+		// YSM height/width scale is often an avatar/gameplay hint. Importing it as
+		// CPM render_scale shrinks/lifts the model and can create UV/arm mismatches.
 		if (Math.abs(ysmData.heightScale - 1f) > 0.001f ||
 			Math.abs(ysmData.widthScale - 1f) > 0.001f) {
-			editor.scalingElem.enabled = true;
-			editor.scalingElem.scale = new Vec3f(
-				ysmData.widthScale, ysmData.heightScale, ysmData.widthScale);
+			Log.info("[YSM Import] Ignoring YSM model scale (h=" + ysmData.heightScale +
+				", w=" + ysmData.widthScale + ") to preserve CPM geometry parity");
 		}
+		editor.scalingElem.enabled = false;
+		editor.scalingElem.scale = new Vec3f();
+		editor.scalingElem.pos = new Vec3f();
+		editor.scalingElem.rotation = new Vec3f();
+	}
+
+	private static void stabilizeSkinType(Editor editor) {
+		// YSM imports should be deterministic across players. If left implicit,
+		// export may inherit current player skin type (e.g. slim), causing width/UV drift.
+		editor.customSkinType = true;
+		editor.skinType = SkinType.DEFAULT;
 	}
 
 	private static void setMetadata(YsmModelData ysmData, Editor editor) {

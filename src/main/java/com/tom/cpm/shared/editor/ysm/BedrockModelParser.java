@@ -175,14 +175,20 @@ public class BedrockModelParser {
 							}
 						}
 					} else if (uvElem != null && uvElem.isJsonArray()) {
-						// Simple UV: [u, v] — apply to all faces as a single UV offset
+						// Simple UV: [u, v] — apply same UV offset to all 6 faces
 						JsonArray uvArr = uvElem.getAsJsonArray();
-						BedrockFaceUV fuv = new BedrockFaceUV();
-						fuv.u = uvArr.get(0).getAsInt();
-						fuv.v = uvArr.get(1).getAsInt();
-						fuv.uvWidth = (int) cube.size.x;
-						fuv.uvHeight = (int) cube.size.y;
-						cube.faces.put("north", fuv);
+						int u = uvArr.get(0).getAsInt();
+						int v = uvArr.get(1).getAsInt();
+						int w = (int) cube.size.x;
+						int h = (int) cube.size.y;
+						for (String faceName : new String[]{"north", "south", "east", "west", "up", "down"}) {
+							BedrockFaceUV fuv = new BedrockFaceUV();
+							fuv.u = u;
+							fuv.v = v;
+							fuv.uvWidth = faceName.equals("east") || faceName.equals("west") ? (int) cube.size.z : w;
+							fuv.uvHeight = faceName.equals("up") || faceName.equals("down") ? (int) cube.size.z : h;
+							cube.faces.put(faceName, fuv);
+						}
 					}
 					bone.cubes.add(cube);
 				}
@@ -273,22 +279,16 @@ public class BedrockModelParser {
 	public static PerFaceUV convertPerFaceUV(BedrockCube cube) {
 		if (cube.faces.isEmpty()) return null;
 
-		// Check if all faces have the same UV — no need for PerFaceUV then
-		BedrockFaceUV first = cube.faces.values().iterator().next();
-		boolean allSame = cube.faces.values().stream().allMatch(f ->
-			f.u == first.u && f.v == first.v && f.uvWidth == first.uvWidth && f.uvHeight == first.uvHeight
-		);
-		if (allSame) return null;
-
 		PerFaceUV pfUV = new PerFaceUV();
 		for (Map.Entry<String, BedrockFaceUV> entry : cube.faces.entrySet()) {
 			Direction dir = bedrockFaceToDirection(entry.getKey());
 			if (dir == null) continue;
 			BedrockFaceUV fuv = entry.getValue();
-			Face face = new Face();
 
 			// Skip faces with zero-size UV region (degenerate faces)
 			if (fuv.uvWidth == 0 || fuv.uvHeight == 0) continue;
+
+			Face face = new Face();
 
 			// Use signed uvWidth/uvHeight directly — negative values encode
 			// texture flipping (sx > ex = horizontal flip, sy > ey = vertical flip).

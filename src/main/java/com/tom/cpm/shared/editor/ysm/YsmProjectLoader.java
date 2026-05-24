@@ -106,11 +106,20 @@ public class YsmProjectLoader {
 						data.controllerJson = readJsonEntry(zip, "controller/main.animation_controllers.json");
 					}
 
-					// Textures
+					// Textures — can be plain string paths or objects with "uv" key
 					JsonArray textureArray = playerFiles.getAsJsonArray("texture");
 					if (textureArray != null) {
 						for (JsonElement texElem : textureArray) {
-							if (texElem.isJsonObject()) {
+							if (texElem.isJsonPrimitive() && texElem.getAsJsonPrimitive().isString()) {
+								// Plain string path: "textures/o.png"
+								String texPath = texElem.getAsString();
+								byte[] pngData = readEntryBytes(zip, texPath);
+								if (pngData != null) {
+									String fileName = texPath.substring(texPath.lastIndexOf('/') + 1);
+									data.textures.put(fileName, pngData);
+								}
+							} else if (texElem.isJsonObject()) {
+								// Object format: {"uv": "textures/o.png"}
 								JsonObject texObj = texElem.getAsJsonObject();
 								String uvPath = getString(texObj, "uv", null);
 								if (uvPath != null) {
