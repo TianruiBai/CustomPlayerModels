@@ -442,11 +442,7 @@ public class EditorGui extends Frame {
 			FileChooserPopup fc = new FileChooserPopup(this);
 			fc.setTitle(EmbeddedLocalizations.loadProject);
 			fc.setFileDescText(EmbeddedLocalizations.fileProjectOrYsm);
-			fc.setFilter((f, n) -> {
-				if (f.isDirectory()) return true;
-				String nl = n.toLowerCase(Locale.ROOT);
-				return nl.endsWith(".cpmproject") || nl.endsWith(".ysmproject");
-			});
+			fc.setFilter(new FileFilter("cpmproject", "ysmproject"));
 			fc.setAccept(this::load);
 			fc.setButtonText(gui.i18nFormat("button.cpm.ok"));
 			openPopup(fc);

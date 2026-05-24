@@ -28,9 +28,13 @@ public class TinyFDChooser implements NativeChooser {
 				return new File(sel);
 			} else if(ff.getExt() != null) {
 				try (MemoryStack stack = MemoryStack.stackPush()) {
-					PointerBuffer aFilterPatterns = stack.mallocPointer(1);
+					String[] exts = ff.getExts();
+					if(exts == null || exts.length == 0)exts = new String[] {ff.getExt()};
+					PointerBuffer aFilterPatterns = stack.mallocPointer(exts.length);
 
-					aFilterPatterns.put(stack.UTF8("*." + ff.getExt()));
+					for (String ext : exts) {
+						aFilterPatterns.put(stack.UTF8("*." + ext));
+					}
 
 					aFilterPatterns.flip();
 
