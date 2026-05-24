@@ -290,17 +290,15 @@ public class BedrockModelParser {
 			// Skip faces with zero-size UV region (degenerate faces)
 			if (fuv.uvWidth == 0 || fuv.uvHeight == 0) continue;
 
-			// Handle negative uv_size (Bedrock texture flipping)
-			int uvW = Math.abs(fuv.uvWidth);
-			int uvH = Math.abs(fuv.uvHeight);
-			int uEnd = fuv.u + uvW;
-			int vEnd = fuv.v + uvH;
+			// Compute actual UV extent using SIGNED uv_size.
+			// Negative uv_size means the texture is flipped in that axis.
+			int uEnd = fuv.u + fuv.uvWidth;
+			int vEnd = fuv.v + fuv.uvHeight;
 
-			// If uv_size was negative, swap start/end to get proper CPM coords
-			face.sx = fuv.uvWidth < 0 ? uEnd : fuv.u;
-			face.sy = fuv.uvHeight < 0 ? vEnd : fuv.v;
-			face.ex = fuv.uvWidth < 0 ? fuv.u : uEnd;
-			face.ey = fuv.uvHeight < 0 ? fuv.v : vEnd;
+			face.sx = Math.min(fuv.u, uEnd);
+			face.ex = Math.max(fuv.u, uEnd);
+			face.sy = Math.min(fuv.v, vEnd);
+			face.ey = Math.max(fuv.v, vEnd);
 
 			face.autoUV = false; // We provide explicit UVs, not auto-generated
 			pfUV.faces.put(dir, face);
@@ -318,15 +316,15 @@ public class BedrockModelParser {
 		return new Vec2i(first.u, first.v);
 	}
 
-	/** Map Bedrock face name to CPM Direction (1:1 mapping).
-	 *  Verified against CPM PerFaceUV default UV layout where Direction.UP
-	 *  maps to the top-face UV region matching Minecraft's standard box UV. */
+	/** Map Bedrock face name to CPM Direction.
+	 *  Verified against CPM-reference config: east↔west are swapped
+	 *  (Bedrock "east" UV data appears on CPM Direction.WEST and vice versa). */
 	static Direction bedrockFaceToDirection(String faceName) {
 		switch (faceName.toLowerCase()) {
 			case "north": return Direction.NORTH;
 			case "south": return Direction.SOUTH;
-			case "east":  return Direction.EAST;
-			case "west":  return Direction.WEST;
+			case "east":  return Direction.WEST;
+			case "west":  return Direction.EAST;
 			case "up":    return Direction.UP;
 			case "down":  return Direction.DOWN;
 			default:      return null;
