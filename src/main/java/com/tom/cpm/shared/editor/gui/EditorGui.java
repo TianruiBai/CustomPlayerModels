@@ -458,6 +458,13 @@ public class EditorGui extends Frame {
 			openPopup(fc);
 		}));
 
+		// Texture slot quick-switch submenu
+		PopupMenu texSlotMenu = new PopupMenu(gui, this);
+		texSlotMenu.addButton(gui.i18nFormat("button.cpm.nextTextureSlot"), editor::nextTextureSlot);
+		texSlotMenu.addButton(gui.i18nFormat("button.cpm.prevTextureSlot"), editor::prevTextureSlot);
+		pp.addMenuButton(gui.i18nFormat("label.cpm.textureSlots"), texSlotMenu).setTooltip(
+			new Tooltip(this, gui.i18nFormat("tooltip.cpm.textureSlots"), "Texture Slots"));
+
 		pp.addButton(gui.i18nFormat("button.cpm.file.save"), this::save);
 
 		pp.addButton(gui.i18nFormat("button.cpm.file.saveAs"), this::saveAs);

@@ -13,6 +13,7 @@ import com.tom.cpl.util.Image;
 import com.tom.cpm.shared.animation.AnimationType;
 import com.tom.cpm.shared.editor.ETextures;
 import com.tom.cpm.shared.editor.Editor;
+import com.tom.cpm.shared.editor.TextureSlot;
 import com.tom.cpm.shared.editor.anim.AnimationEncodingData;
 import com.tom.cpm.shared.editor.anim.EditorAnim;
 import com.tom.cpm.shared.editor.elements.ElementType;
@@ -47,14 +48,22 @@ public class YsmToCpmConverter {
 	 * @param ysmData the parsed YSM project data
 	 * @param editor  the CPM editor to populate
 	 */
+	/** Skip arm.json import in Phase 6 to avoid first-person hand regressions. */
+	private static final boolean IMPORT_ARM_MODEL = false;
+
 	public static void convert(YsmModelData ysmData, Editor editor) {
 		Log.info("[YSM Import] Starting conversion of: " + ysmData.modelName);
 
 		// 1. Parse bones from model JSONs
 		List<BedrockBone> mainBones = BedrockModelParser.parse(ysmData.mainModelJson);
-		List<BedrockBone> armBones = BedrockModelParser.parse(ysmData.armModelJson);
-
-		Log.info("[YSM Import] Main bones: " + mainBones.size() + ", Arm bones: " + armBones.size());
+		List<BedrockBone> armBones;
+		if (IMPORT_ARM_MODEL) {
+			armBones = BedrockModelParser.parse(ysmData.armModelJson);
+			Log.info("[YSM Import] Main bones: " + mainBones.size() + ", Arm bones: " + armBones.size());
+		} else {
+			armBones = java.util.Collections.emptyList();
+			Log.info("[YSM Import] Main bones: " + mainBones.size() + ", Arm bones: 0 (arm.json skipped by Phase 6 policy)");
+		}
 
 		// 2. Hide vanilla root part cubes (the default player model)
 		for (ModelElement rootElem : editor.elements) {
@@ -349,9 +358,9 @@ public class YsmToCpmConverter {
 	}
 
 	/**
-	 * Load textures from YSM data into the editor.
-	 * The default texture is loaded as the SKIN texture sheet.
-	 * All other textures are stored as byte arrays for future switching.
+	 * Load textures from YSM data into the editor's texture slot system.
+	 * The default texture becomes slot 0; all others become additional slots.
+	 * Also stores raw bytes for backward compat via {@code editor.importedTextures}.
 	 */
 	private static void loadTextures(YsmModelData ysmData, Editor editor) {
 		if (ysmData.textures.isEmpty()) {
@@ -362,56 +371,73 @@ public class YsmToCpmConverter {
 		Log.info("[YSM Import] Found " + ysmData.textures.size() + " textures: " +
 			String.join(", ", ysmData.textures.keySet()));
 
-		// Store all textures for future user switching
+		// Backward compat: keep importedTextures populated
 		editor.importedTextures = new HashMap<>(ysmData.textures);
 
-		// Determine which texture to use as the main skin
-		String textureName = ysmData.defaultTexture;
-		if (textureName != null && !ysmData.textures.containsKey(textureName)) {
-			Log.info("[YSM Import] Default texture '" + textureName + "' not found, using first available");
-			textureName = null;
+		// Clear existing slots (keep slot 0 structure, we'll replace its image)
+		editor.textureSlots.clear();
+
+		// Determine which texture to use as slot 0 (the default/active one)
+		String defaultTexName = ysmData.defaultTexture;
+		if (defaultTexName != null && !ysmData.textures.containsKey(defaultTexName)) {
+			Log.info("[YSM Import] Default texture '" + defaultTexName + "' not found, using first available");
+			defaultTexName = null;
 		}
-		if (textureName == null) {
-			// Use first non-NAF (non-emissive) texture if available, otherwise first texture
-			textureName = ysmData.textures.keySet().stream()
+		if (defaultTexName == null) {
+			defaultTexName = ysmData.textures.keySet().stream()
 				.filter(n -> !n.contains("NAF") && !n.contains("_e."))
 				.findFirst()
 				.orElse(ysmData.textures.keySet().iterator().next());
 		}
 
-		byte[] pngData = ysmData.textures.get(textureName);
-		if (pngData == null) return;
-
-		try {
-			Image img = Image.loadFrom(new ByteArrayInputStream(pngData));
-			if (img == null) return;
-
-			if (img.getWidth() > ETextures.MAX_TEX_SIZE || img.getHeight() > ETextures.MAX_TEX_SIZE) {
-				Log.warn("[YSM Import] Texture too large: " + textureName +
-					" (" + img.getWidth() + "x" + img.getHeight() + ")");
-				return;
+		// Create texture slots: default texture first (slot 0), then the rest
+		int loadedCount = 0;
+		// Add default texture as slot 0
+		byte[] defaultPng = ysmData.textures.get(defaultTexName);
+		if (defaultPng != null) {
+			try {
+				Image img = Image.loadFrom(new ByteArrayInputStream(defaultPng));
+				if (img != null && img.getWidth() <= ETextures.MAX_TEX_SIZE && img.getHeight() <= ETextures.MAX_TEX_SIZE) {
+					TextureSlot slot = new TextureSlot(defaultTexName, img, new Vec2i(img.getWidth(), img.getHeight()), false);
+					editor.textureSlots.add(slot);
+					loadedCount++;
+				}
+			} catch (IOException e) {
+				Log.error("[YSM Import] Failed to load default texture: " + defaultTexName, e);
 			}
+		}
 
-			// Set as the SKIN texture
+		// Add remaining textures as additional slots
+		for (Map.Entry<String, byte[]> entry : ysmData.textures.entrySet()) {
+			if (entry.getKey().equals(defaultTexName)) continue;
+			try {
+				Image img = Image.loadFrom(new ByteArrayInputStream(entry.getValue()));
+				if (img != null && img.getWidth() <= ETextures.MAX_TEX_SIZE && img.getHeight() <= ETextures.MAX_TEX_SIZE) {
+					TextureSlot slot = new TextureSlot(entry.getKey(), img, new Vec2i(img.getWidth(), img.getHeight()), false);
+					editor.textureSlots.add(slot);
+					loadedCount++;
+				}
+			} catch (IOException e) {
+				Log.warn("[YSM Import] Failed to load texture: " + entry.getKey(), e);
+			}
+		}
+
+		editor.activeTextureSlot = 0;
+		Log.info("[YSM Import] Loaded " + loadedCount + " texture slots" +
+			(loadedCount > 1 ? " (use Skin Settings → Texture Slots to switch)" : ""));
+
+		// Apply slot 0 as active SKIN texture
+		if (!editor.textureSlots.isEmpty()) {
+			TextureSlot activeSlot = editor.textureSlots.get(0);
 			ETextures skinTex = editor.textures.get(TextureSheetType.SKIN);
-			if (skinTex != null) {
-				skinTex.setImage(img);
-				skinTex.provider.size = new Vec2i(img.getWidth(), img.getHeight());
+			if (skinTex != null && activeSlot.image != null) {
+				skinTex.setImage(new Image(activeSlot.image));
+				skinTex.provider.size = new Vec2i(activeSlot.gridSize);
 				skinTex.setEdited(true);
 				skinTex.markDirty();
-				Log.info("[YSM Import] Loaded texture '" + textureName +
-					"' (" + img.getWidth() + "x" + img.getHeight() + ")");
+				Log.info("[YSM Import] Active texture: " + activeSlot.name +
+					" (" + activeSlot.image.getWidth() + "x" + activeSlot.image.getHeight() + ")");
 			}
-
-			// Log alternative textures that the user may want to switch to
-			if (ysmData.textures.size() > 1) {
-				List<String> altTextures = new ArrayList<>(ysmData.textures.keySet());
-				altTextures.remove(textureName);
-				Log.info("[YSM Import] Alternative textures available (use File → Reload Texture to switch): " +
-					String.join(", ", altTextures));
-			}
-		} catch (IOException e) {
-			Log.error("[YSM Import] Failed to load texture: " + textureName, e);
 		}
 	}
 

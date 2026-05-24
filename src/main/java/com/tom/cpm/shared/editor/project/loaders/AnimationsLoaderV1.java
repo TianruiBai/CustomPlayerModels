@@ -36,6 +36,7 @@ public class AnimationsLoaderV1 implements ProjectPartLoader {
 	private static final String VALUE_LAYER_PREFIX = "$value$";
 	private static final String SETUP_PREFIX = "$pre$";
 	private static final String FINISH_PREFIX = "$post$";
+	private static final String TEXTURE_PREFIX = "$tex$";
 
 	@Override
 	public String getId() {
@@ -76,6 +77,8 @@ public class AnimationsLoaderV1 implements ProjectPartLoader {
 		} else if(sp[0].equals("c")) {
 			pose = new CustomPose(displayName, 0);
 			type = AnimationType.CUSTOM_POSE;
+		} else if(sp[0].equals("t")) {
+			type = AnimationType.TEXTURE;
 		} else if(sp[0].equals("g")) {
 			type = getType(displayName);
 			displayName = cleanName(displayName);
@@ -217,6 +220,8 @@ public class AnimationsLoaderV1 implements ProjectPartLoader {
 			fname = "v_" + ((VanillaPose)pose).name().toLowerCase(Locale.ROOT) + "_" + displayName.replaceAll("[^a-zA-Z0-9\\.\\-]", "") + "_" + newId.toString() + ".json";
 		} else if(pose != null) {
 			fname = "c_" + ((CustomPose) pose).getName().replaceAll("[^a-zA-Z0-9\\.\\-]", "") + "_" + newId.toString() + ".json";
+		} else if(displayName.startsWith(TEXTURE_PREFIX)) {
+			fname = "t_" + displayName.replaceAll("[^a-zA-Z0-9\\.\\-]", "") + "_" + newId.toString() + ".json";
 		} else {
 			fname = "g_" + displayName.replaceAll("[^a-zA-Z0-9\\.\\-]", "") + "_" + newId.toString() + ".json";
 		}
@@ -228,6 +233,7 @@ public class AnimationsLoaderV1 implements ProjectPartLoader {
 		if(displayName.startsWith(VALUE_LAYER_PREFIX))return AnimationType.VALUE_LAYER;
 		if(displayName.startsWith(SETUP_PREFIX))return AnimationType.SETUP;
 		if(displayName.startsWith(FINISH_PREFIX))return AnimationType.FINISH;
+		if(displayName.startsWith(TEXTURE_PREFIX))return AnimationType.TEXTURE;
 		return AnimationType.GESTURE;
 	}
 
@@ -240,6 +246,8 @@ public class AnimationsLoaderV1 implements ProjectPartLoader {
 			return displayName.substring(SETUP_PREFIX.length());
 		if(displayName.startsWith(FINISH_PREFIX))
 			return displayName.substring(FINISH_PREFIX.length());
+		if(displayName.startsWith(TEXTURE_PREFIX))
+			return displayName.substring(TEXTURE_PREFIX.length());
 		return displayName;
 	}
 
@@ -248,6 +256,7 @@ public class AnimationsLoaderV1 implements ProjectPartLoader {
 		if(type == AnimationType.VALUE_LAYER)return VALUE_LAYER_PREFIX + displayName;
 		if(type == AnimationType.SETUP)return SETUP_PREFIX + displayName;
 		if(type == AnimationType.FINISH)return FINISH_PREFIX + displayName;
+		if(type == AnimationType.TEXTURE)return TEXTURE_PREFIX + displayName;
 		return displayName;
 	}
 }

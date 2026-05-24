@@ -65,7 +65,7 @@ public class AnimationExporter {
 		if (a.pose instanceof VanillaPose) {
 			tr.pose = (VanillaPose) a.pose;
 			tr.mustFinish = a.mustFinish;
-		} else if(a.type == AnimationType.CUSTOM_POSE || a.type == AnimationType.GESTURE || a.type.isLayer()) {
+		} else if(a.type == AnimationType.CUSTOM_POSE || a.type == AnimationType.GESTURE || a.type == AnimationType.TEXTURE || a.type.isLayer()) {
 			tr.looping = a.type == AnimationType.GESTURE ? a.loop : true;
 			if (!allButtons.containsKey(a.getId())) {
 				ParameterInfo info = makeButtonInfo(a);

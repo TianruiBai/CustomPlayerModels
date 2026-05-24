@@ -214,12 +214,21 @@ public class Editor {
 	 * Holds alternative texture byte arrays imported from external formats (e.g. YSM .ysmproject).
 	 * Key is the texture filename, value is the raw PNG data.
 	 * Allows users to switch between imported textures via {@link #switchImportedTexture(String)}.
+	 * @deprecated Use {@link #textureSlots} for new code. This field is migrated on next save.
 	 */
+	@Deprecated
 	public transient Map<String, byte[]> importedTextures;
+
+	/** Multi-texture slot system. Slot 0 is always the default/primary texture. */
+	public final List<TextureSlot> textureSlots = new ArrayList<>();
+	/** Index into {@link #textureSlots} of the currently active texture. */
+	public int activeTextureSlot = 0;
 
 	public Editor() {
 		this.definition = new EditorDefinition(this);
 		textures.put(TextureSheetType.SKIN, new ETextures(this, TextureSheetType.SKIN, stitcher -> templates.forEach(e -> e.stitch(stitcher))));
+		// Initialize with one default texture slot
+		textureSlots.add(new TextureSlot());
 	}
 
 	public void setUI(UI ui) {
@@ -597,8 +606,11 @@ public class Editor {
 
 	/**
 	 * Switch the main skin texture to one of the textures imported from an external format.
+	 * Also migrates the texture into the {@link #textureSlots} system.
 	 * @param name the texture filename (e.g. "default.png") from the imported texture map
+	 * @deprecated Use {@link #switchToTextureSlot(int)} for new code.
 	 */
+	@Deprecated
 	public void switchImportedTexture(String name) {
 		if (importedTextures == null || !importedTextures.containsKey(name)) {
 			Log.warn("[Editor] No imported texture named: " + name);
@@ -609,21 +621,66 @@ public class Editor {
 		try {
 			Image img = Image.loadFrom(new java.io.ByteArrayInputStream(pngData));
 			if (img == null) return;
-			ETextures skinTex = textures.get(TextureSheetType.SKIN);
-			if (skinTex != null) {
-				skinTex.setImage(img);
-				skinTex.provider.size = new Vec2i(img.getWidth(), img.getHeight());
-				skinTex.setEdited(true);
-				skinTex.markDirty();
-				restitchTextures();
-				updateGui();
-				markDirty();
-				Log.info("[Editor] Switched to imported texture: " + name +
-					" (" + img.getWidth() + "x" + img.getHeight() + ")");
+			// Find or create a texture slot for this imported texture
+			int slotIdx = -1;
+			for (int i = 0; i < textureSlots.size(); i++) {
+				if (name.equals(textureSlots.get(i).name)) { slotIdx = i; break; }
 			}
+			if (slotIdx < 0) {
+				TextureSlot slot = new TextureSlot(name, img, new Vec2i(img.getWidth(), img.getHeight()), false);
+				textureSlots.add(slot);
+				slotIdx = textureSlots.size() - 1;
+			} else {
+				textureSlots.get(slotIdx).image = img;
+			}
+			switchToTextureSlot(slotIdx);
 		} catch (Exception e) {
 			Log.error("[Editor] Failed to switch to texture: " + name, e);
 		}
+	}
+
+	/**
+	 * Switch the active texture to the given slot index.
+	 * Updates the SKIN texture sheet and refreshes the viewport.
+	 * @param index 0-based index into {@link #textureSlots}
+	 */
+	public void switchToTextureSlot(int index) {
+		if (index < 0 || index >= textureSlots.size()) {
+			Log.warn("[Editor] Invalid texture slot index: " + index);
+			return;
+		}
+		TextureSlot slot = textureSlots.get(index);
+		if (slot.image == null) return;
+
+		activeTextureSlot = index;
+		ETextures skinTex = textures.get(TextureSheetType.SKIN);
+		if (skinTex != null) {
+			skinTex.setImage(new Image(slot.image));
+			skinTex.provider.size = new Vec2i(slot.gridSize);
+			skinTex.customGridSize = slot.customGridSize;
+			skinTex.setEdited(true);
+			skinTex.markDirty();
+			restitchTextures();
+			markElementsDirty();
+			updateGui();
+			markDirty();
+			Log.info("[Editor] Switched to texture slot " + index + ": " + slot.name +
+				" (" + slot.image.getWidth() + "x" + slot.image.getHeight() + ")");
+		}
+	}
+
+	/** Cycle to the next texture slot. Wraps around. */
+	public void nextTextureSlot() {
+		if (textureSlots.size() <= 1) return;
+		int next = (activeTextureSlot + 1) % textureSlots.size();
+		switchToTextureSlot(next);
+	}
+
+	/** Cycle to the previous texture slot. Wraps around. */
+	public void prevTextureSlot() {
+		if (textureSlots.size() <= 1) return;
+		int prev = (activeTextureSlot - 1 + textureSlots.size()) % textureSlots.size();
+		switchToTextureSlot(prev);
 	}
 
 	public void reloadSkin() {

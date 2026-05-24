@@ -14,6 +14,7 @@ import com.tom.cpm.shared.definition.ModelDefinitionLoader;
 import com.tom.cpm.shared.editor.ETextures;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.editor.Generators;
+import com.tom.cpm.shared.editor.TextureSlot;
 import com.tom.cpm.shared.editor.anim.AnimatedTex;
 import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.editor.elements.RootGroups;
@@ -94,6 +95,29 @@ public class TexturesLoaderV1 implements ProjectPartLoader {
 			}
 		}
 		groups.forEach(g -> Generators.loadTextures(editor, g, editor.textures::put));
+
+		// Load texture slots (multi-texture system, Phase 6+)
+		JsonList slotList = data.getList("textureSlots");
+		if (slotList != null && slotList.size() > 0) {
+			editor.textureSlots.clear();
+			for (int i = 0; i < slotList.size(); i++) {
+				JsonMap slotMap = slotList.getMap(i);
+				if (slotMap == null) continue;
+				TextureSlot slot = TextureSlot.fromMap(slotMap);
+				// Load the slot's PNG image
+				String pngPath = "skin_" + i + ".png";
+				Image slotImg = project.getIfExists(pngPath, Image::loadFrom);
+				if (slotImg != null) {
+					slot.image = slotImg;
+				}
+				editor.textureSlots.add(slot);
+			}
+			// Restore active slot index
+			editor.activeTextureSlot = data.getInt("activeTextureSlot", 0);
+			if (editor.activeTextureSlot >= editor.textureSlots.size())
+				editor.activeTextureSlot = 0;
+			Log.info("[TexturesLoader] Loaded " + editor.textureSlots.size() + " texture slots");
+		}
 	}
 
 	@Override
@@ -121,6 +145,25 @@ public class TexturesLoaderV1 implements ProjectPartLoader {
 			} else {
 				project.delete(name + ".png");
 			}
+		}
+
+		// Save texture slots (multi-texture system, Phase 6+)
+		if (editor.textureSlots.size() > 1) {
+			JsonList slotList = data.putList("textureSlots");
+			for (int i = 0; i < editor.textureSlots.size(); i++) {
+				TextureSlot slot = editor.textureSlots.get(i);
+				JsonMap slotMap = slotList.addMap();
+				slotMap.put("name", slot.name);
+				slotMap.put("gridSizeX", slot.gridSize.x);
+				slotMap.put("gridSizeY", slot.gridSize.y);
+				slotMap.put("customGridSize", slot.customGridSize);
+				// Save slot PNG (slot 0 is already saved as skin.png)
+				if (i > 0 && slot.image != null) {
+					final int idx = i;
+					project.putFile("skin_" + idx + ".png", slot.image, Image::storeTo);
+				}
+			}
+			data.put("activeTextureSlot", editor.activeTextureSlot);
 		}
 	}
 

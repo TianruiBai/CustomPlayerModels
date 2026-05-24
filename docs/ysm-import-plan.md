@@ -820,191 +820,383 @@ Use the attached `Avali_零幻.ysmproject` as primary test data:
 
 ---
 
-## 11. Phase 6 Polish Plan (Detailed, Glitch-Focused)
+## 11. Phase 6 Polish Plan — Detailed Implementation Steps
 
-This phase is focused on visual parity between Blockbench and CPM editor import output, with minimal intrusive changes to CPM core systems.
+### 11.0 Architectural Decision: Multi-Texture as a Cross-Cutting CPM Feature
 
-### 11.1 Scope Locked by Current Requirements
+Rather than building YSM-specific texture switching, this phase introduces **multi-texture-slot support** as a first-class CPM editor and runtime capability. This benefits ALL CPM models (not just YSM imports) and is non-breaking for existing `.cpmproject` files which still use a single texture slot.
 
-1. Multi-texture YSM projects must be usable in CPM through runtime texture switching (while CPM still has a single active skin texture).
-2. `arm.json` should be intentionally skipped for now (do not merge first-person hand model data in this phase).
-3. YSM to CPM remap must be improved to remove major geometry and UV glitches.
-4. Multiple model support should be integrated as separate imported model groups outside normal body-root remap where needed.
+**Core design principle**: CPM's single-SKIN-texture-per-frame render model stays unchanged. A new `AnimationType.TEXTURE` + `InterpolatorChannel.TEXTURE_ID` drives which texture slot is active at any point in an animation timeline. When no TEXTURE animation is playing, the first slot (slot 0) is used — preserving 100% backward compatibility.
 
-### 11.2 Root-Cause Findings from Current Importer
+---
 
-#### A. Geometry Explode/Spike Symptoms
+### 11.1 Cross-Cutting Architecture: Texture Slot System
 
-Observed mismatch is consistent with transform loss and thin-cube scale amplification:
+#### 11.1.1 New Data Structures
 
-1. Cube-level `pivot` and `rotation` are present in YSM model data but not represented in `BedrockCube` conversion pipeline.
-2. `inflate` conversion can produce extreme mesh scaling for tiny cube axes (thin planes/strips).
-3. Current remap attaches only one inferred root bone per body part and may drop/misplace many orphan/unclassified branches.
-4. Bone name heuristic mapping alone is insufficient for large non-humanoid trees.
+**`TextureSlot` (new class, `src/main/java/com/tom/cpm/shared/editor/TextureSlot.java`)**
+```java
+public class TextureSlot {
+    public String name;        // Display name, e.g. "default", "作战服"
+    public Image image;        // The texture image
+    public Vec2i gridSize;     // Texture grid dimensions (may differ from image size)
+    public boolean customGridSize;
+    // Serialization support
+    public JsonMap toJson();
+    public static TextureSlot fromJson(JsonMap map);
+}
+```
 
-#### B. UV/Texture Distortion Symptoms
+**`Editor` additions:**
+```java
+// Replaces the ad-hoc importedTextures map with a proper slot system
+public List<TextureSlot> textureSlots = new ArrayList<>();  // All texture slots
+public int activeTextureSlot = 0;                            // Currently active slot index
+@Deprecated public transient Map<String, byte[]> importedTextures; // Migrated to textureSlots on next save
+```
 
-1. Negative `uv_size` is partially handled, but face orientation parity still needs verification per direction mapping.
-2. Face-level rotation handling is not currently modeled (if present in source model variants).
-3. Multi-texture projects are flattened to one selected texture with no in-editor control surface except logging.
+**`ModelDefinition` additions:**
+```java
+// Multi-texture support at runtime
+private List<TextureProvider> textureSlotProviders;  // Parallel to editor's textureSlots
+private int activeTextureSlot = 0;
+// Animation-driven texture slot selection
+public void setActiveTextureSlot(int index);
+public TextureProvider getActiveSkinTexture();
+```
 
-#### C. Structural Compatibility Gaps
+#### 11.1.2 New Animation Channel
 
-1. `arm.json` data is imported into arm roots, which can conflict with CPM's own first-person arm integration expectations.
-2. Extra model files are not yet imported as separate logical groups.
+**`InterpolatorChannel` addition:**
+```java
+TEXTURE_ID(12, 0),  // Integer channel: which texture slot is active. Default value = 0 (first slot).
+```
 
-### 11.3 Detailed Workstreams
+This fits cleanly after the existing 12 channels (0–11). The channel value is an integer index into the texture slot list. During interpolation, the nearest integer frame value is used (no fractional blending between textures).
 
-#### Workstream P1: Multi-Texture Runtime Switch (Minimal CPM Core Changes)
+**`FrameData` addition:**
+```java
+private int textureId;  // Which texture slot this frame references
 
-Goal: Keep CPM's single active skin model, but allow user to swap among all imported YSM textures instantly.
+public int getTextureId() { return textureId; }
+public void setTextureId(int id) { this.textureId = id; }
+public boolean hasTextureChange() { return textureId != activeTextureSlot; }
+```
 
-Implementation:
+**`AnimFrame.toArray()` and `AnimFrame.getValue()`**: Include `TEXTURE_ID` channel in the interpolation array, using step interpolation (nearest neighbor, not linear — textures can't blend).
 
-1. Expand imported texture session state:
-  - Keep `Editor.importedTextures` as source map.
-  - Add `Editor.importedTextureNames` sorted list and `Editor.activeImportedTexture` string.
-2. Add robust switch API:
-  - Keep `Editor.switchImportedTexture(String)` and make it authoritative for all imported-texture switching.
-  - Always call `restitchTextures()`, `markElementsDirty()`, `updateGui()` after swap.
-  - Reject textures larger than CPM max and report clearly.
-3. Add always-visible UI entry points:
-  - File menu: "YSM Texture" submenu listing imported textures.
-  - Texture tab/Skin settings: a selector control bound to `activeImportedTexture`.
-  - Keep entries visible even when no imported textures exist (disabled state with explanation).
-4. Add quick actions:
-  - "Next imported texture" and "Previous imported texture" actions for rapid compare.
-5. Persist selection behavior:
-  - During current editor session: preserve selected imported texture name.
-  - On save to CPM project: if persistence format cannot store source map yet, store selected texture only and log expected behavior.
+#### 11.1.3 New Animation Type
 
-Acceptance criteria:
+**`AnimationType` addition:**
+```java
+TEXTURE,  // Animation that controls texture slot selection via TEXTURE_ID channel
+```
 
-1. Any YSM project with N textures exposes N selectable entries in editor UI.
-2. Switching texture updates viewport and UV preview without reload/import.
-3. No crash when selecting invalid/corrupt texture; fallback remains stable.
+Properties:
+- `isCustom()` → true
+- `canLoop()` → true (texture swaps can loop)
+- `isLayer()` → false (explicit animation, not continuous layer)
+- When saved to project: filename prefix `"t_"` in `animations/t_<name>.json`
+- In `AnimationExporter`: exported as `AnimationType.LAYER` with VALUE_LAYER semantics for runtime
 
-#### Workstream P2: Arm Model Policy (Skip `arm.json` in This Phase)
+---
 
-Goal: avoid first-person hand regressions while importer fidelity is being stabilized.
+### 11.2 Workstream P1: Multi-Texture Slot System — Editor Side
 
-Implementation:
+**Goal**: Users can add, remove, reorder, and name multiple texture slots in the editor. The active slot drives viewport rendering. This works for BOTH CPM-native projects and YSM imports.
 
-1. Add import option/state flag: `importArmModel` default false for YSM import path.
-2. In converter, skip `arm.json` parsing and `processArmBones(...)` when flag is false.
-3. Emit explicit info log once per import: "arm.json skipped by Phase 6 policy".
-4. Keep code path intact for future opt-in, but hidden from default UI for now.
+#### Step P1.1: `TextureSlot` class
+- **File**: NEW `src/main/java/com/tom/cpm/shared/editor/TextureSlot.java`
+- Store: `name` (String), `image` (Image), `gridSize` (Vec2i), `customGridSize` (boolean)
+- Serialization: `toJson()` / `fromJson(JsonMap)` for project save/load
 
-Acceptance criteria:
+#### Step P1.2: Editor state migration
+- **File**: `Editor.java`
+- Add `textureSlots: List<TextureSlot>` — initialized with one slot from default SKIN texture
+- Add `activeTextureSlot: int` — default 0
+- `getActiveTextureSlot()`: returns `textureSlots.get(activeTextureSlot)` or null
+- `getTextureProvider()`: modified to return active slot's image, not hardcoded `TextureSheetType.SKIN`
+- `switchToTextureSlot(int index)`: validates index, swaps active SKIN ETextures image, calls `restitchTextures()` + `markDirty()` + `updateGui()`
+- Deprecation path for `importedTextures`: on next editor load, if `importedTextures != null && textureSlots.size() <= 1`, migrate entries into `textureSlots`
 
-1. Imported YSM models do not inject arm-specific first-person remap nodes by default.
-2. Existing CPM first-person behavior remains unchanged from baseline.
+#### Step P1.3: Texture slot UI — always-visible panel
+- **File**: `SkinSettingsPopup.java` (extend existing)
+- Add a `ListPicker` or scrollable button list showing all texture slots
+- Each row: slot name label + "Set Active" button
+- "Add Slot" button: opens a file chooser for PNG, creates new slot
+- "Remove Slot" button: removes non-active slot (minimum 1 slot)
+- "Rename Slot" button: inline text edit for slot name
+- Always visible — not gated on YSM import state
 
-#### Workstream P3: Remap Fidelity Overhaul (Primary Glitch Fix)
+#### Step P1.4: Quick-switch keybinds
+- **File**: `EditorGui.java`, `Keybinds.java`
+- Add `nextTextureSlot` and `prevTextureSlot` keybinds
+- Cycling wraps around; only enabled when `textureSlots.size() > 1`
 
-Goal: model imported in CPM should match Blockbench layout, orientation, and hierarchy as closely as CPM format allows.
+#### Step P1.5: Viewport/texture editor integration
+- **File**: `TextureEditorPanel.java` — already reads `editor.getTextureProvider()`, no change needed after P1.2
+- **File**: `EditorGui.java` 3D viewport — already binds SKIN texture, no change needed
 
-Implementation breakdown:
+#### Step P1.6: Project save/load for texture slots
+- **File**: `TexturesLoaderV1.java` — extend `save()` and `load()`
+- In `save()`: for each texture slot beyond slot 0, write `skin_<index>.png` and metadata to `config.json` under `"textureSlots"` array
+- In `load()`: read `"textureSlots"` from `config.json`, create additional `TextureSlot` entries
+- Backward compat: if `"textureSlots"` key missing, single-slot behavior unchanged
 
-1. Parse full cube transform data:
-  - Extend `BedrockCube` with optional `pivot`, `rotation`, and any supported face metadata needed by source files.
-  - Parse these fields from geometry JSON where present.
-2. Transform conversion correctness:
-  - Use parent-relative transform composition: parent bone pivot -> bone rotation -> cube local transform.
-  - For cubes with local pivot/rotation, convert into CPM element `pos`, `offset`, `rotation` that preserves visual placement.
-3. Thin-cube and inflate safety:
-  - Clamp mesh scale factors to safe bounds.
-  - For near-zero axis size, avoid divide-driven meshScale explosion; prefer direct size adjustment or axis-specific no-op.
-4. Root mapping strategy upgrade:
-  - Keep name heuristics as first pass.
-  - Add topology fallback: nearest ancestor chain + bounding/side hints.
-  - Never drop unmatched top-level bones; route to separate imported group container.
-5. Orphan handling and deterministic import:
-  - Build a complete bone index first.
-  - Import all disconnected trees deterministically in file order.
-6. UV face parity hardening:
-  - Validate direction mapping for each face against CPM render expectation.
-  - Normalize negative `uv_size` handling into canonical face bounds (`sx/sy/ex/ey`).
-  - Add guardrails for incomplete face UV definitions.
-7. `never_render` and mirror consistency:
-  - Respect `never_render` by hidden or skipped cube policy.
-  - Ensure bone mirror + cube mirror compose predictably.
+---
 
-Acceptance criteria:
+### 11.3 Workstream P2: Multi-Texture Animation — Runtime Side
 
-1. No long spike artifacts from imported thin cubes.
-2. Major body silhouette and limb placement aligns with Blockbench reference.
-3. UV orientation on at least 95% sampled cubes matches expected face painting.
-4. Unmapped bone trees are still visible in editor (not silently lost).
+**Goal**: A `TEXTURE` animation can change the active texture slot during gameplay. This is the CPM animation system enhancement.
 
-#### Workstream P4: Multiple Model Support Outside Body Root Tree
+#### Step P2.1: `InterpolatorChannel.TEXTURE_ID` 
+- **File**: `InterpolatorChannel.java`
+- Add `TEXTURE_ID(12, 0)` enum constant
+- No special interpolator needed; uses step/nearest-neighbor logic
 
-Goal: support extra model sets with minimal CPM core impact and maximum compatibility.
+#### Step P2.2: `FrameData` texture ID field
+- **File**: `AnimFrame.java` (inner `FrameData` class)
+- Add `textureId: int` field, default 0
+- Add `getTextureId()`, `setTextureId(int)`, `hasTextureChange()` methods
+- In constructor: initialize `textureId = 0`
+- In `apply()`: if `hasTextureChange()`, call a new method on the render component to set texture slot
 
-Implementation:
+#### Step P2.3: Interpolation array extension
+- **File**: `AnimFrame.java`
+- In `toArray()`: include TEXTURE_ID channel data
+- In `getValue()`: handle TEXTURE_ID with step interpolation (return value at nearest keyframe, no blending)
 
-1. Loader expansion:
-  - Read all model file references under player model block, not only `main` and `arm`.
-2. Converter grouping:
-  - `main` continues normal root-part remap.
-  - Additional models import under dedicated top-level containers attached to custom/import root area.
-3. Naming convention:
-  - Container names: `YSM::<modelKey>` (for example `YSM::arrow`, `YSM::extra_01`).
-4. Isolation behavior:
-  - These groups do not participate in automatic vanilla body-part remap.
-  - They remain editable and animatable as integrated separate model blocks.
+#### Step P2.4: `AnimationType.TEXTURE`
+- **File**: `AnimationType.java`
+- Add `TEXTURE` enum value
+- `isCustom()` → true, `canLoop()` → true, `isLayer()` → false
 
-Acceptance criteria:
+#### Step P2.5: Editor animation UI for TEXTURE type
+- **File**: `AnimationsLoaderV1.java`
+- `getType()`: recognize `"t_"` prefix → `AnimationType.TEXTURE`
+- `getFileName()`: for TEXTURE type, use `"t_"` prefix
+- In animation properties editor: when type=TEXTURE, show texture slot dropdown for each frame instead of bone transform fields
+- **File**: `EditorGui.java` animation panel — add TEXTURE type to the "New Animation" type dropdown
 
-1. Extra model files appear as separate groups instead of polluting body roots.
-2. Existing BODY/HEAD/ARM/LEG trees remain readable and stable.
+#### Step P2.6: Runtime texture swap during animation
+- **File**: `AnimationHandler.java` — after `animate()` call, check if any TEXTURE animation triggered a slot change
+- **File**: `ModelDefinition.java`:
+  - Add `setActiveTextureSlot(int)` method
+  - In `getTexture(TextureSheetType, boolean)`: for SKIN, return `textureSlotProviders.get(activeTextureSlot)` 
+  - Add `textureSlotProviders` population in `resolveAll()` from `ModelPartTextureSlot` parts
+- Create `ModelPartTextureSlot` (new class, similar to `ModelPartSkin` but for a specific slot index):
+  ```java
+  public class ModelPartTextureSlot implements IModelPart, IResolvedModelPart {
+      private int slotIndex;
+      private TextureProvider image;
+      // write/read/apply — stores texture for slot N
+  }
+  ```
+- **File**: `ModelPartType.java` — add `TEXTURE_SLOT` type
+- **File**: `Exporter.java` — for each texture slot beyond 0, emit a `ModelPartTextureSlot`
 
-### 11.4 Execution Sequence (Recommended Order)
+#### Step P2.7: Animated texture slot in `AnimationRegistry`
+- **File**: `AnimationRegistry.java`
+- During `tickAnimated()`, after existing `AnimatedTexture` updates, also evaluate active TEXTURE animations:
+  - Get current TEXTURE_ID channel value from playing TEXTURE animations
+  - If value differs from `def.activeTextureSlot`, call `def.setActiveTextureSlot(value)`
+  - This triggers texture rebind on next render frame
 
-1. P2 arm skip first (quick risk reduction).
-2. P1 texture switching UI/state (visible user value, low risk).
-3. P3 remap fidelity core (largest engineering effort).
-4. P4 multiple-model separation once P3 tree import is stable.
-5. Regression pass on animations and gestures after structural changes.
+---
 
-### 11.5 Validation Matrix
+### 11.4 Workstream P3: Arm Model Skip Policy
 
-Use `research-tmp/Avali_零幻` as baseline fixture.
+**Goal**: Safe default that avoids first-person hand regressions.
 
-Per build, verify:
+#### Step P3.1: Skip flag
+- **File**: `YsmToCpmConverter.java`
+- Add `private static final boolean IMPORT_ARM_MODEL = false;` (constant for this phase)
+- In `convert()`: wrap `BedrockModelParser.parse(ysmData.armModelJson)` and `processArmBones(...)` in `if (IMPORT_ARM_MODEL)` block
+- Log: `Log.info("[YSM Import] arm.json skipped (IMPORT_ARM_MODEL=false)")`
 
-1. Import success without hard exceptions.
-2. Element counts by category: body roots, imported extra roots, cube totals.
-3. Bounding box sanity: no NaN/infinite values, no extreme outlier dimensions.
-4. Texture switch pass across all imported textures.
-5. Visual compare screenshots:
-  - Blockbench reference pose.
-  - CPM editor imported pose same camera angle.
-6. Animation smoke test:
-  - Main idle/walk import loads.
-  - Gesture list remains populated.
+#### Step P3.2: Future toggle preparation
+- Keep `processArmBones()` method intact
+- Add comment block documenting the intended re-enablement conditions
 
-### 11.6 Logging and Diagnostics to Add
+---
 
-1. Import summary block:
-  - total bones, total cubes, skipped cubes, skipped arm models, imported model groups.
-2. UV warnings:
-  - missing face UV, unsupported face metadata, normalized negative size cases.
-3. Transform warnings:
-  - cube has pivot/rotation requiring fallback path.
-  - thin-cube inflate clamp applied.
-4. Mapping report:
-  - mapped roots, unmapped roots routed to separate containers.
+### 11.5 Workstream P4: Remap Fidelity Overhaul
 
-### 11.7 Non-Goals (Phase 6)
+#### Step P4.1: Parse cube-level pivot and rotation
+- **File**: `BedrockModelParser.java`
+- Extend `BedrockCube`:
+  ```java
+  public Vec3f pivot;     // null if not present
+  public Vec3f rotation;  // null if not present
+  ```
+- In `parse()`: read `pivot` and `rotation` from cube JSON objects when present
+
+#### Step P4.2: Transform composition for cubes with local pivot/rotation
+- **File**: `YsmToCpmConverter.java` — `buildBoneHierarchy()` cube creation loop
+- For cubes with local pivot: compute `cubeElem.offset = cube.origin.sub(cube.pivot)` and `cubeElem.pos = cube.pivot.sub(bone.pivot)` — splitting the translation so rotation happens around the cube pivot
+- For cubes with local rotation: set `cubeElem.rotation`
+- Apply transforms in order: bone pivot → bone rotation → cube pivot → cube rotation → cube offset
+
+#### Step P4.3: Thin-cube inflate safety
+- **File**: `YsmToCpmConverter.java` — inflate handling
+- Clamp `meshScale` per-axis to [0.1, 10.0] to prevent extreme geometry
+- If axis size < 0.01, skip meshScale for that axis (set to 1.0) and warn
+- Log: `"[YSM Import] Thin cube meshScale clamped for bone 'X'"`
+
+#### Step P4.4: Root mapping upgrade
+- **File**: `BedrockModelParser.java`
+- Keep `BONE_NAME_TO_PART` map
+- Add `mapBoneByTopology(List<BedrockBone> allBones, BedrockBone bone)`:
+  - Walk ancestor chain; if any ancestor maps to a known part, inherit that mapping
+  - For unmatched top-level bones: check pivot position for body-region hints (e.g., high Y → HEAD, low Y with bilateral X → LEG)
+- In `YsmToCpmConverter`: unmatched bones that cannot be mapped go to a new `YSM_UNMAPPED` container (see P5)
+
+#### Step P4.5: Orphan bone handling
+- **File**: `YsmToCpmConverter.java`
+- Before hierarchy build: create a full `Map<String, BedrockBone> boneIndex`
+- After all root-mapped bones are processed: iterate remaining unvisited bones
+- Attach orphan trees to a dedicated `YSM_UNMAPPED` root attached to `CUSTOM_PART`
+- This ensures no bones are silently dropped
+
+#### Step P4.6: UV face hardening
+- **File**: `BedrockModelParser.java` — `convertPerFaceUV()`
+- Add validation: if `uv_size` is [0, 0], skip that face and warn
+- Add face orientation test: verify direction mapping produces correct CPM face orientation by comparing expected UV winding
+- For negative `uv_size` with abs value logic: add unit test cases against Blockbench reference
+
+#### Step P4.7: `never_render` and mirror consistency
+- **File**: `YsmToCpmConverter.java`
+- If `bone.neverRender`: set `elem.hidden = true`
+- Mirror composition: `cubeElem.mirror = cube.mirror ^ bone.mirror` (XOR — bone mirror flips, cube mirror flips again)
+
+---
+
+### 11.6 Workstream P5: Multiple Model Support Outside Body Roots
+
+#### Step P5.1: Loader expansion
+- **File**: `YsmProjectLoader.java`
+- In `parseMetadata()`: read all keys under `files.player.model` (not just `main` and `arm`)
+- Store additional models in `YsmModelData.extraModelJsons: Map<String, JsonObject>` (keyed by model key name)
+
+#### Step P5.2: `YsmModelData` extension
+- **File**: `YsmModelData.java`
+- Add `public Map<String, JsonObject> extraModelJsons = new LinkedHashMap<>();`
+
+#### Step P5.3: Converter grouping
+- **File**: `YsmToCpmConverter.java`
+- After main model import: iterate `ysmData.extraModelJsons`
+- For each extra model: parse bones, create a new `ModelElement` container named `"YSM::" + modelKey`
+- Attach containers as children of a new dedicated root or directly to `editor.elements`
+- Container elements have `type = ElementType.NORMAL`, not `ROOT_PART` — they don't participate in vanilla body-part remap
+
+#### Step P5.4: Animation targeting
+- Extra model groups are addressable by their element names in animations
+- The `allBoneElements` map includes bones from extra models, so existing animation conversion works automatically
+
+---
+
+### 11.7 Workstream P6: YSM Import Leverages Texture Slots
+
+**Goal**: When importing a YSM project, all textures become texture slots with a generated TEXTURE animation that cycles through them (or a default static assignment).
+
+#### Step P6.1: Importer integration
+- **File**: `YsmToCpmConverter.java` — `loadTextures()`
+- Replace: `editor.importedTextures = new HashMap<>(...)` with:
+  - For each texture in `ysmData.textures`: create a `TextureSlot`, add to `editor.textureSlots`
+  - Set `editor.activeTextureSlot` to index of `defaultTexture` (or 0)
+  - Set the active SKIN texture from the selected slot
+- Deprecation: `editor.importedTextures` set to null (migrated)
+
+#### Step P6.2: Auto-generate TEXTURE animation (optional convenience)
+- If YSM project has N > 1 textures: create an `EditorAnim` of type `TEXTURE` named "YSM Textures"
+- One frame per texture, each setting `TEXTURE_ID` to the slot index
+- Duration: 1 frame per texture, loop = false
+- This gives the user an immediate way to browse textures via the animation timeline
+
+---
+
+### 11.8 Execution Sequence (Recommended Order)
+
+| Step | Workstream | Description | Risk | Dependencies |
+|------|-----------|-------------|------|-------------|
+| 1 | P3.1 | Arm model skip policy | Low | None |
+| 2 | P1.1-P1.2 | `TextureSlot` class + Editor state | Low | None |
+| 3 | P1.3-P1.4 | Texture slot UI + keybinds | Low | P1.2 |
+| 4 | P1.5-P1.6 | Viewport integration + save/load | Medium | P1.2 |
+| 5 | P2.1-P2.3 | `InterpolatorChannel.TEXTURE_ID` + `FrameData` | Medium | None |
+| 6 | P2.4-P2.5 | `AnimationType.TEXTURE` + editor UI | Medium | P2.3 |
+| 7 | P2.6-P2.7 | Runtime texture swap (ModelDefinition + Exporter) | High | P2.5, P1.6 |
+| 8 | P6 | YSM import → texture slots | Low | P1.6 |
+| 9 | P4.1-P4.2 | Cube pivot/rotation parsing | Medium | None |
+| 10 | P4.3-P4.5 | Inflate safety + root mapping + orphans | Medium | P4.2 |
+| 11 | P4.6-P4.7 | UV hardening + mirror | Medium | None |
+| 12 | P5 | Multiple model support | Medium | P4.5 |
+
+---
+
+### 11.9 Affected Files Summary
+
+| File | Change Type | Workstream |
+|------|------------|------------|
+| `TextureSlot.java` | **NEW** | P1.1 |
+| `ModelPartTextureSlot.java` | **NEW** | P2.6 |
+| `Editor.java` | MODIFY — add `textureSlots`, `activeTextureSlot`, deprecate `importedTextures` | P1.2 |
+| `TextureSheetType.java` | No change (SKIN stays single active sheet) | — |
+| `InterpolatorChannel.java` | MODIFY — add `TEXTURE_ID(12, 0)` | P2.1 |
+| `AnimFrame.java` | MODIFY — add `textureId` to `FrameData`, extend `toArray()` | P2.2-P2.3 |
+| `AnimationType.java` | MODIFY — add `TEXTURE` | P2.4 |
+| `AnimationRegistry.java` | MODIFY — evaluate TEXTURE animations in `tickAnimated()` | P2.7 |
+| `AnimationHandler.java` | MODIFY — handle TEXTURE_ID channel in `animate()` | P2.7 |
+| `ModelDefinition.java` | MODIFY — add `textureSlotProviders`, `setActiveTextureSlot()` | P2.6 |
+| `Exporter.java` | MODIFY — emit `ModelPartTextureSlot` for slots > 0 | P2.6 |
+| `ModelPartType.java` | MODIFY — add `TEXTURE_SLOT` | P2.6 |
+| `AnimationsLoaderV1.java` | MODIFY — handle `t_` prefix, TEXTURE type | P2.5 |
+| `TexturesLoaderV1.java` | MODIFY — save/load `textureSlots` array | P1.6 |
+| `SkinSettingsPopup.java` | MODIFY — add slot list UI | P1.3 |
+| `EditorGui.java` | MODIFY — texture slot menu, keybinds | P1.4, P2.5 |
+| `Keybinds.java` | MODIFY — next/prev texture slot | P1.4 |
+| `BedrockModelParser.java` | MODIFY — cube pivot/rotation, UV hardening | P4.1, P4.6 |
+| `YsmToCpmConverter.java` | MODIFY — arm skip, inflate safety, root mapping, orphans, slot integration | P3, P4, P5, P6 |
+| `YsmProjectLoader.java` | MODIFY — extra model loading | P5.1 |
+| `YsmModelData.java` | MODIFY — extra model storage | P5.2 |
+
+---
+
+### 11.10 Validation Matrix
+
+Per build cycle, verify:
+
+| # | Check | Method |
+|---|-------|--------|
+| 1 | Import `Avali_零幻.ysmproject` — no exceptions | Console log |
+| 2 | All textures appear as slots in UI | Manual check Skin Settings |
+| 3 | Switching texture slot updates viewport + UV preview | Visual |
+| 4 | Save as `.cpmproject`, close, reopen — slots preserved | Round-trip test |
+| 5 | Existing single-texture `.cpmproject` opens correctly | Backward compat test |
+| 6 | New TEXTURE animation can be created and plays in editor | Manual test |
+| 7 | Arm model NOT imported (log message present) | Console log |
+| 8 | No NaN/infinite positions in any element | Bounding box scan |
+| 9 | No extreme (>1000%) meshScale values | Mesh scale scan |
+| 10 | Bone count matches expected (no silent drops) | Element count vs bone count |
+
+---
+
+### 11.11 Non-Goals (Phase 6)
 
 1. Full Bedrock animation controller state-machine parity.
 2. Perfect first-person YSM arm emulation.
-3. New CPM file format extension for storing all source textures as a packaged set.
+3. Per-element texture slot binding (each element using a different slot) — whole-model only.
+4. Texture blending/crossfade between slots.
+5. Stitching multiple textures into a single atlas automatically.
 
-### 11.8 Deliverables
+---
 
-1. Importer behavior update implementing P1-P4.
-2. Updated UI labels/localization for texture switching actions.
-3. Updated docs section with known limitations and expected fallback behavior.
-4. Test evidence package (build success plus before/after screenshot set and import logs).
+### 11.12 Deliverables
+
+1. Multi-texture slot system functional in editor for CPM and YSM models.
+2. `AnimationType.TEXTURE` + `InterpolatorChannel.TEXTURE_ID` working end-to-end.
+3. `arm.json` skip policy active with clear logging.
+4. Remap fidelity improvements (cube transforms, inflate safety, orphan handling, UV hardening).
+5. Multiple model support for extra YSM model files.
+6. Updated localization entries for new UI elements.
+7. Build-success evidence with validation matrix pass.

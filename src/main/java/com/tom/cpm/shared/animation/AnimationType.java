@@ -8,6 +8,8 @@ public enum AnimationType {
 	VALUE_LAYER,
 	SETUP,
 	FINISH,
+	/** Animation that controls which texture slot is active via TEXTURE_ID channel. */
+	TEXTURE,
 	;
 
 	public static final AnimationType[] VALUES = values();
@@ -21,7 +23,7 @@ public enum AnimationType {
 	}
 
 	public boolean canLoop() {
-		return this == GESTURE;
+		return this == GESTURE || this == TEXTURE;
 	}
 
 	public boolean isStaged() {
