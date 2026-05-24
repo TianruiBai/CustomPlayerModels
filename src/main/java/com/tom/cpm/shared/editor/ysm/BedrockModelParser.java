@@ -318,17 +318,17 @@ public class BedrockModelParser {
 		return new Vec2i(first.u, first.v);
 	}
 
-	/** Map Bedrock face name to CPM Direction.
-	 *  Note: CPM's Direction.UP renders on Vec3f.NEGATIVE_Y (bottom face in world),
-	 *  while Bedrock "up" is +Y (top face). So the mapping is intentionally swapped. */
+	/** Map Bedrock face name to CPM Direction (1:1 mapping).
+	 *  Verified against CPM PerFaceUV default UV layout where Direction.UP
+	 *  maps to the top-face UV region matching Minecraft's standard box UV. */
 	static Direction bedrockFaceToDirection(String faceName) {
 		switch (faceName.toLowerCase()) {
 			case "north": return Direction.NORTH;
 			case "south": return Direction.SOUTH;
 			case "east":  return Direction.EAST;
 			case "west":  return Direction.WEST;
-			case "up":    return Direction.DOWN;   // Bedrock +Y(top) → CPM DOWN(renders on POSITIVE_Y)
-			case "down":  return Direction.UP;     // Bedrock -Y(bottom) → CPM UP(renders on NEGATIVE_Y)
+			case "up":    return Direction.UP;
+			case "down":  return Direction.DOWN;
 			default:      return null;
 		}
 	}

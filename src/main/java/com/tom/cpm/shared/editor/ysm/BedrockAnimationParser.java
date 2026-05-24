@@ -167,6 +167,11 @@ public class BedrockAnimationParser {
 			type = AnimationType.GESTURE;
 			filenamePrefix = "g_ysm_";
 		}
+		// Guard: UI expects POSE animations to always have a non-null pose.
+		if (pose == null && type == AnimationType.POSE) {
+			type = AnimationType.GESTURE;
+			filenamePrefix = "g_ysm_";
+		}
 
 		// ---- Animation-level properties ----
 		boolean loop = animData.has("loop") && animData.get("loop").getAsBoolean();
@@ -331,13 +336,22 @@ public class BedrockAnimationParser {
 	}
 
 	/**
-	 * Convert a YSM absolute animation position value to a CPM additive delta.
+	 * Convert a YSM absolute animation position/rotation value to a CPM additive delta.
 	 * For non-position channels or when no default position is available, returns unchanged.
+	 * Rotation is 1:1 (verified identical between YSM and CPM).
+	 * Position uses [x, -y, z] mapping (only Y axis flipped).
 	 */
 	private static Vec3f convertPositionValue(Vec3f value, ChannelType channelType, Vec3f defaultWorldPos) {
+		if (channelType == ChannelType.ROTATION) {
+			// Rotation: 1:1 identical, no sign change
+			return new Vec3f(value);
+		}
 		if (channelType != ChannelType.POSITION || defaultWorldPos == null) return value;
-		// delta = animation_target - default_world_position
-		return value.sub(defaultWorldPos);
+		// Position: map both target and default from YSM→CPM space ([x, -y, z])
+		Vec3f mappedTarget = new Vec3f(value.x, -value.y, value.z);
+		Vec3f mappedDefault = new Vec3f(defaultWorldPos.x, -defaultWorldPos.y, defaultWorldPos.z);
+		// delta = animation_target - default_world_position in CPM space
+		return mappedTarget.sub(mappedDefault);
 	}
 
 	private static Vec3f extractPostValue(JsonElement keyframeData) {
