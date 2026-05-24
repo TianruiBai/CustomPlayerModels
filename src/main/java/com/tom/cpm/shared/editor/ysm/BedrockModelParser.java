@@ -290,17 +290,15 @@ public class BedrockModelParser {
 			// Skip faces with zero-size UV region (degenerate faces)
 			if (fuv.uvWidth == 0 || fuv.uvHeight == 0) continue;
 
-			// Compute actual UV extent using SIGNED uv_size.
-			// Negative uv_size means the texture is flipped in that axis.
-			int uEnd = fuv.u + fuv.uvWidth;
-			int vEnd = fuv.v + fuv.uvHeight;
+			// Use signed uvWidth/uvHeight directly — negative values encode
+			// texture flipping (sx > ex = horizontal flip, sy > ey = vertical flip).
+			// CPM's renderer interprets inverted start/end as flipped UV.
+			face.sx = fuv.u;
+			face.sy = fuv.v;
+			face.ex = fuv.u + fuv.uvWidth;
+			face.ey = fuv.v + fuv.uvHeight;
 
-			face.sx = Math.min(fuv.u, uEnd);
-			face.ex = Math.max(fuv.u, uEnd);
-			face.sy = Math.min(fuv.v, vEnd);
-			face.ey = Math.max(fuv.v, vEnd);
-
-			face.autoUV = false; // We provide explicit UVs, not auto-generated
+			face.autoUV = false;
 			pfUV.faces.put(dir, face);
 		}
 		return pfUV;
