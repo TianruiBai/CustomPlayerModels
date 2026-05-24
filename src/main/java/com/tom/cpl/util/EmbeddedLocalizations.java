@@ -20,6 +20,8 @@ public class EmbeddedLocalizations {
 	public static final EmbeddedLocalization fileLog = new EmbeddedLocalization("label.cpm.file_logs");
 	public static final EmbeddedLocalization exportUV = new EmbeddedLocalization("label.cpm.exportUVs");
 	public static final EmbeddedLocalization fileOra = new EmbeddedLocalization("label.cpm.file_openraster");
+	public static final EmbeddedLocalization importYsm = new EmbeddedLocalization("label.cpm.importYsm");
+	public static final EmbeddedLocalization fileYsm = new EmbeddedLocalization("label.cpm.file_ysm");
 
 	public static void load() {}
 

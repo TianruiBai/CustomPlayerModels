@@ -70,6 +70,9 @@ import com.tom.cpm.shared.editor.tree.VecType;
 import com.tom.cpm.shared.editor.util.ModelDescription;
 import com.tom.cpm.shared.editor.util.QuickTask;
 import com.tom.cpm.shared.editor.util.StoreIDGen;
+import com.tom.cpm.shared.editor.ysm.YsmModelData;
+import com.tom.cpm.shared.editor.ysm.YsmProjectLoader;
+import com.tom.cpm.shared.editor.ysm.YsmToCpmConverter;
 import com.tom.cpm.shared.gui.ViewportCamera;
 import com.tom.cpm.shared.model.PartPosition;
 import com.tom.cpm.shared.model.PlayerModelParts;
@@ -546,6 +549,42 @@ public class Editor {
 			setInfoMsg.accept(Pair.of(2000, ui.i18nFormat("tooltip.cpm.loadSuccess", file.getName())));
 			return CompletableFuture.completedFuture(null);
 		}, ui::executeLater);
+	}
+
+	/**
+	 * Import a YSM (.ysmproject) file into the editor.
+	 * This parses the ZIP archive, converts Bedrock-format models/animations/textures
+	 * into CPM's internal format, and populates the editor state.
+	 *
+	 * @param ysmFile the .ysmproject file to import
+	 */
+	public void importYsmProject(File ysmFile) {
+		setInfoMsg.accept(Pair.of(200000, ui.i18nFormat("tooltip.cpm.loading", ysmFile.getName())));
+		CompletableFuture.runAsync(() -> {
+			try {
+				YsmModelData ysmData = YsmProjectLoader.load(ysmFile);
+				ui.executeLater(() -> {
+					try {
+						loadDefaultPlayerModel();
+						YsmToCpmConverter.convert(ysmData, this);
+						restitchTextures();
+						updateGui();
+						this.file = null; // Mark as new unsaved project
+						setInfoMsg.accept(Pair.of(2000, ui.i18nFormat("tooltip.cpm.loadSuccess", ysmFile.getName())));
+					} catch (Exception e) {
+						Log.error("Failed to convert YSM project", e);
+						ui.displayMessagePopup(ui.i18nFormat("label.cpm.error"),
+							ui.i18nFormat("error.cpm.ysm_import_failed", e.getMessage()));
+					}
+				});
+			} catch (Exception e) {
+				Log.error("Failed to load YSM project", e);
+				ui.executeLater(() -> {
+					ui.displayMessagePopup(ui.i18nFormat("label.cpm.error"),
+						ui.i18nFormat("error.cpm.ysm_load_failed", e.getMessage()));
+				});
+			}
+		});
 	}
 
 	public void reloadSkin() {

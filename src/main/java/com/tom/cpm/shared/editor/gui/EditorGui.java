@@ -448,6 +448,16 @@ public class EditorGui extends Frame {
 			openPopup(fc);
 		}));
 
+		pp.addButton(gui.i18nFormat("button.cpm.file.importYsm"), () -> checkUnsaved(() -> {
+			FileChooserPopup fc = new FileChooserPopup(this);
+			fc.setTitle(EmbeddedLocalizations.importYsm);
+			fc.setFileDescText(EmbeddedLocalizations.fileYsm);
+			fc.setFilter(new FileFilter("ysmproject"));
+			fc.setAccept(this::importYsm);
+			fc.setButtonText(gui.i18nFormat("button.cpm.ok"));
+			openPopup(fc);
+		}));
+
 		pp.addButton(gui.i18nFormat("button.cpm.file.save"), this::save);
 
 		pp.addButton(gui.i18nFormat("button.cpm.file.saveAs"), this::saveAs);
@@ -883,6 +893,12 @@ public class EditorGui extends Frame {
 			group.addElement(item, r -> pp.addCheckbox(gui.i18nFormat("button.cpm.heldItem." + item.name().toLowerCase(Locale.ROOT)), r));
 		}
 		group.accept(editor.handDisplay.getOrDefault(hand, DisplayItem.NONE));
+	}
+
+	private void importYsm(File file) {
+		checkUnsaved(() -> {
+			editor.importYsmProject(file);
+		});
 	}
 
 	private void load(File file) {
