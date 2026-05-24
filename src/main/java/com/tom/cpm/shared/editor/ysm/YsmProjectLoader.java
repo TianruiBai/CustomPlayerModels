@@ -172,6 +172,8 @@ public class YsmProjectLoader {
 			}
 		}
 
+		captureTextureGrid(data);
+
 		// 3. Scan for sound files in sounds/ directory (for projects with explicit "files" section)
 		if (!data.sounds.isEmpty()) {
 			Log.info("[YSM Import] Found " + data.sounds.size() + " sound files");
@@ -208,6 +210,10 @@ public class YsmProjectLoader {
 		if (properties != null) {
 			data.heightScale = getFloat(properties, "height_scale", 1.0f);
 			data.widthScale = getFloat(properties, "width_scale", 1.0f);
+			data.preserveYsmScale =
+				getBoolean(properties, "cpm_preserve_scale", false) ||
+				getBoolean(properties, "preserve_scale", false) ||
+				getBoolean(properties, "import_scale_to_cpm", false);
 			data.defaultTexture = getString(properties, "default_texture", null);
 
 			// Extra animation mappings (gesture name → animation name)
@@ -246,6 +252,22 @@ public class YsmProjectLoader {
 				}
 			}
 		}
+	}
+
+	private static void captureTextureGrid(YsmModelData data) {
+		readTextureGrid(data.mainModelJson, data);
+		readTextureGrid(data.armModelJson, data);
+	}
+
+	private static void readTextureGrid(JsonObject modelJson, YsmModelData data) {
+		if (modelJson == null) return;
+		JsonArray geometries = modelJson.getAsJsonArray("minecraft:geometry");
+		if (geometries == null || geometries.size() == 0) return;
+		JsonObject geometry = geometries.get(0).getAsJsonObject();
+		JsonObject description = geometry.getAsJsonObject("description");
+		if (description == null) return;
+		data.textureWidth = Math.max(data.textureWidth, getInt(description, "texture_width", data.textureWidth));
+		data.textureHeight = Math.max(data.textureHeight, getInt(description, "texture_height", data.textureHeight));
 	}
 
 	// ---- ZIP reading helpers ----
@@ -320,5 +342,15 @@ public class YsmProjectLoader {
 	private static float getFloat(JsonObject obj, String key, float def) {
 		JsonElement e = obj.get(key);
 		return e != null && !e.isJsonNull() ? e.getAsFloat() : def;
+	}
+
+	private static boolean getBoolean(JsonObject obj, String key, boolean def) {
+		JsonElement e = obj.get(key);
+		return e != null && !e.isJsonNull() ? e.getAsBoolean() : def;
+	}
+
+	private static int getInt(JsonObject obj, String key, int def) {
+		JsonElement e = obj.get(key);
+		return e != null && !e.isJsonNull() ? e.getAsInt() : def;
 	}
 }

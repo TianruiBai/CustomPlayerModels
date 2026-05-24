@@ -58,6 +58,8 @@ public class BedrockModelParser {
 		public float inflate;
 		/** Per-face UV mappings: face name (north/south/east/west/up/down) → UV data */
 		public Map<String, BedrockFaceUV> faces = new HashMap<>();
+		/** Simple Bedrock box UV origin from uv:[u,v]; distinct from per-face UV. */
+		public Vec2i simpleUV;
 		public boolean mirror;
 		/** Cube-level pivot (rotation anchor). null if not present in source JSON. */
 		public Vec3f pivot;
@@ -108,7 +110,7 @@ public class BedrockModelParser {
 	 * @param modelJson the parsed JSON for a model file (e.g., main.json or arm.json)
 	 * @return flat list of all bones in the geometry
 	 */
-	public static List<BedrockBone> parse(JsonObject modelJson) {
+	public static List<BedrockBone> parse(JsonObject modelJson, int uvScale) {
 		List<BedrockBone> bones = new ArrayList<>();
 		if (modelJson == null) return bones;
 
@@ -147,8 +149,8 @@ public class BedrockModelParser {
 					if (cubeObj.has("rotation")) cube.rotation = readVec3f(cubeObj, "rotation");
 
 					// Parse UV — can be:
-					// 1. JsonObject: per-face UV {"north": {"uv": [u,v], "uv_size": [w,h]}, ...}
-					// 2. JsonArray: simple UV [u, v] applied to all faces
+					// 1. JsonObject: explicit per-face UV {"north": {"uv": [u,v], "uv_size": [w,h]}, ...}
+					// 2. JsonArray: Bedrock box UV origin [u, v] (not identical UV on every face)
 					JsonElement uvElem = cubeObj.get("uv");
 					if (uvElem != null && uvElem.isJsonObject()) {
 						JsonObject uvObj = uvElem.getAsJsonObject();
@@ -159,36 +161,25 @@ public class BedrockModelParser {
 								JsonElement innerUvElem = faceUV.get("uv");
 								if (innerUvElem != null && innerUvElem.isJsonArray()) {
 									JsonArray uvArr = innerUvElem.getAsJsonArray();
-									fuv.u = uvArr.get(0).getAsInt();
-									fuv.v = uvArr.get(1).getAsInt();
+									fuv.u = scaleUv(uvArr.get(0).getAsInt(), uvScale);
+									fuv.v = scaleUv(uvArr.get(1).getAsInt(), uvScale);
 								}
 								JsonElement uvSizeElem = faceUV.get("uv_size");
 								if (uvSizeElem != null && uvSizeElem.isJsonArray()) {
 									JsonArray uvSizeArr = uvSizeElem.getAsJsonArray();
-									fuv.uvWidth = uvSizeArr.get(0).getAsInt();
-									fuv.uvHeight = uvSizeArr.get(1).getAsInt();
+									fuv.uvWidth = scaleUv(uvSizeArr.get(0).getAsInt(), uvScale);
+									fuv.uvHeight = scaleUv(uvSizeArr.get(1).getAsInt(), uvScale);
 								} else {
-									fuv.uvWidth = (int) cube.size.x;
-									fuv.uvHeight = (int) cube.size.y;
+									fuv.uvWidth = scaleUv((int) cube.size.x, uvScale);
+									fuv.uvHeight = scaleUv((int) cube.size.y, uvScale);
 								}
 								cube.faces.put(faceName.toLowerCase(), fuv);
 							}
 						}
 					} else if (uvElem != null && uvElem.isJsonArray()) {
-						// Simple UV: [u, v] — apply same UV offset to all 6 faces
+						// Bedrock box UV. Preserve as plain u/v so CPM can use its normal box layout.
 						JsonArray uvArr = uvElem.getAsJsonArray();
-						int u = uvArr.get(0).getAsInt();
-						int v = uvArr.get(1).getAsInt();
-						int w = (int) cube.size.x;
-						int h = (int) cube.size.y;
-						for (String faceName : new String[]{"north", "south", "east", "west", "up", "down"}) {
-							BedrockFaceUV fuv = new BedrockFaceUV();
-							fuv.u = u;
-							fuv.v = v;
-							fuv.uvWidth = faceName.equals("east") || faceName.equals("west") ? (int) cube.size.z : w;
-							fuv.uvHeight = faceName.equals("up") || faceName.equals("down") ? (int) cube.size.z : h;
-							cube.faces.put(faceName, fuv);
-						}
+						cube.simpleUV = new Vec2i(scaleUv(uvArr.get(0).getAsInt(), uvScale), scaleUv(uvArr.get(1).getAsInt(), uvScale));
 					}
 					bone.cubes.add(cube);
 				}
@@ -277,6 +268,7 @@ public class BedrockModelParser {
 	 * CPM stores UVs as start/end coords where ex &gt; sx and ey &gt; sy.
 	 */
 	public static PerFaceUV convertPerFaceUV(BedrockCube cube) {
+		if (cube.simpleUV != null) return null;
 		if (cube.faces.isEmpty()) return null;
 
 		PerFaceUV pfUV = new PerFaceUV();
@@ -309,6 +301,7 @@ public class BedrockModelParser {
 	 * Returns [u, v] as a Vec2i, or null if no faces have UV data.
 	 */
 	public static Vec2i getPrimaryUV(BedrockCube cube) {
+		if (cube.simpleUV != null) return cube.simpleUV;
 		if (cube.faces.isEmpty()) return null;
 		BedrockFaceUV first = cube.faces.values().iterator().next();
 		return new Vec2i(first.u, first.v);
@@ -354,5 +347,9 @@ public class BedrockModelParser {
 	private static boolean getBoolean(JsonObject obj, String key, boolean def) {
 		JsonElement e = obj.get(key);
 		return e != null && !e.isJsonNull() ? e.getAsBoolean() : def;
+	}
+
+	private static int scaleUv(int value, int uvScale) {
+		return value * Math.max(1, uvScale);
 	}
 }

@@ -49,11 +49,13 @@ import com.tom.cpm.shared.util.Log;
  * </ol>
  */
 public class YsmToCpmConverter {
+	private static final int SMALL_GRID_UV_SCALE = 16;
 
 	public static void convert(YsmModelData ysmData, Editor editor) {
 		Log.info("[YSM Import] Starting conversion of: " + ysmData.modelName);
+		ysmData.uvScale = computeUvScale(ysmData);
 
-		List<BedrockBone> mainBones = BedrockModelParser.parse(ysmData.mainModelJson);
+		List<BedrockBone> mainBones = BedrockModelParser.parse(ysmData.mainModelJson, ysmData.uvScale);
 		Log.info("[YSM Import] Parsed " + mainBones.size() + " main bones");
 
 		// Build bone lookup (needed by both model and animation conversion)
@@ -186,7 +188,7 @@ public class YsmToCpmConverter {
 		if (bone.cubes.size() == 1) {
 			BedrockCube only = bone.cubes.get(0);
 			boolean cubeHasOwnTransform = only.pivot != null || isNonZero(only.rotation);
-			if (!(hasChildren && cubeHasOwnTransform)) {
+			if (!cubeHasOwnTransform) {
 				applyCubeToElement(only, bone, elem);
 			} else {
 				ModelElement cubeElem = createCubeElement(only, bone, elem, editor, 0);
@@ -449,7 +451,7 @@ public class YsmToCpmConverter {
 	private static void loadTextures(YsmModelData ysmData, Editor editor) {
 		if (ysmData.textures.isEmpty()) return;
 
-		editor.importedTextures = new HashMap<>(ysmData.textures);
+		editor.importedTextures = new LinkedHashMap<>(ysmData.textures);
 		editor.textureSlots.clear();
 
 		String defaultTex = ysmData.defaultTexture;
@@ -475,11 +477,11 @@ public class YsmToCpmConverter {
 
 		int loaded = 0;
 		byte[] defPng = ysmData.textures.get(defaultTex);
-		if (defPng != null) loaded += loadOneTexture(defPng, defaultTex, editor);
+		if (defPng != null) loaded += loadOneTexture(defPng, defaultTex, editor, ysmData);
 
 		for (Map.Entry<String, byte[]> e : ysmData.textures.entrySet()) {
 			if (!e.getKey().equals(defaultTex))
-				loaded += loadOneTexture(e.getValue(), e.getKey(), editor);
+				loaded += loadOneTexture(e.getValue(), e.getKey(), editor, ysmData);
 		}
 
 		editor.activeTextureSlot = 0;
@@ -497,13 +499,14 @@ public class YsmToCpmConverter {
 		}
 	}
 
-	private static int loadOneTexture(byte[] pngData, String name, Editor editor) {
+	private static int loadOneTexture(byte[] pngData, String name, Editor editor, YsmModelData ysmData) {
 		try {
 			Image img = Image.loadFrom(new ByteArrayInputStream(pngData));
 			if (img != null && img.getWidth() <= ETextures.MAX_TEX_SIZE &&
 				img.getHeight() <= ETextures.MAX_TEX_SIZE) {
-				editor.textureSlots.add(new TextureSlot(name, img,
-					new Vec2i(img.getWidth(), img.getHeight()), false));
+				Vec2i gridSize = computeTextureGrid(ysmData, img);
+				boolean customGrid = gridSize.x != img.getWidth() || gridSize.y != img.getHeight();
+				editor.textureSlots.add(new TextureSlot(name, img, gridSize, customGrid));
 				return 1;
 			}
 		} catch (IOException e) {
@@ -512,18 +515,49 @@ public class YsmToCpmConverter {
 		return 0;
 	}
 
+	private static Vec2i computeTextureGrid(YsmModelData ysmData, Image img) {
+		int srcWidth = Math.max(1, ysmData.textureWidth);
+		int srcHeight = Math.max(1, ysmData.textureHeight);
+		int gridWidth = srcWidth * Math.max(1, ysmData.uvScale);
+		int gridHeight = srcHeight * Math.max(1, ysmData.uvScale);
+		if (gridWidth <= 0) gridWidth = img.getWidth();
+		if (gridHeight <= 0) gridHeight = img.getHeight();
+		gridWidth = Math.min(gridWidth, ETextures.MAX_TEX_SIZE);
+		gridHeight = Math.min(gridHeight, ETextures.MAX_TEX_SIZE);
+		return new Vec2i(gridWidth, gridHeight);
+	}
+
+	private static int computeUvScale(YsmModelData ysmData) {
+		int width = Math.max(1, ysmData.textureWidth);
+		int height = Math.max(1, ysmData.textureHeight);
+		if (width <= 256 && height <= 256) {
+			return SMALL_GRID_UV_SCALE;
+		}
+		return 1;
+	}
+
 	// ========================================================================
 	// Model Scale & Metadata
 	// ========================================================================
 
 	private static void applyModelScale(YsmModelData ysmData, Editor editor) {
-		// Keep geometry parity with BlockBench/plugin output:
-		// YSM height/width scale is often an avatar/gameplay hint. Importing it as
-		// CPM render_scale shrinks/lifts the model and can create UV/arm mismatches.
-		if (Math.abs(ysmData.heightScale - 1f) > 0.001f ||
-			Math.abs(ysmData.widthScale - 1f) > 0.001f) {
+		boolean hasYsmScale = Math.abs(ysmData.heightScale - 1f) > 0.001f ||
+			Math.abs(ysmData.widthScale - 1f) > 0.001f;
+		if (ysmData.preserveYsmScale && hasYsmScale) {
+			editor.scalingElem.enabled = true;
+			editor.scalingElem.scale = new Vec3f(
+				ysmData.widthScale, ysmData.heightScale, ysmData.widthScale);
+			Log.info("[YSM Import] Applied YSM model scale by opt-in flag (h=" +
+				ysmData.heightScale + ", w=" + ysmData.widthScale + ")");
+			return;
+		}
+
+		// Keep geometry parity with BlockBench/plugin output by default.
+		// YSM height/width scale is often an avatar/gameplay hint and may shrink/lift model.
+		if (hasYsmScale) {
 			Log.info("[YSM Import] Ignoring YSM model scale (h=" + ysmData.heightScale +
-				", w=" + ysmData.widthScale + ") to preserve CPM geometry parity");
+				", w=" + ysmData.widthScale + ") to preserve CPM geometry parity. " +
+				"Set properties.cpm_preserve_scale=true to apply it.");
 		}
 		editor.scalingElem.enabled = false;
 		editor.scalingElem.scale = new Vec3f();
