@@ -146,8 +146,24 @@ public class AnimationState {
 		h.accept(VanillaPose.AIR);
 		if(invisible)h.accept(VanillaPose.INVISIBLE);
 		h.accept(VanillaPose.LIGHT);
-		h.accept(VanillaPose.HEAD_ROTATION_YAW);
-		h.accept(VanillaPose.HEAD_ROTATION_PITCH);
+		if (allowIndependentHeadLook(registry)) {
+			h.accept(VanillaPose.HEAD_ROTATION_YAW);
+			h.accept(VanillaPose.HEAD_ROTATION_PITCH);
+		}
+	}
+
+	private boolean allowIndependentHeadLook(AnimationRegistry registry) {
+		if (registry == null) return true;
+		if (usingAnimation == HandAnimation.BOW) {
+			VanillaPose pose = activeHand == Hand.LEFT ? VanillaPose.BOW_LEFT : VanillaPose.BOW_RIGHT;
+			return !registry.hasPoseAnimations(pose);
+		}
+		if (usingAnimation == HandAnimation.CROSSBOW) {
+			VanillaPose charge = activeHand == Hand.LEFT ? VanillaPose.CROSSBOW_CH_LEFT : VanillaPose.CROSSBOW_CH_RIGHT;
+			VanillaPose hold = activeHand == Hand.LEFT ? VanillaPose.CROSSBOW_LEFT : VanillaPose.CROSSBOW_RIGHT;
+			return !registry.hasPoseAnimations(charge) && !registry.hasPoseAnimations(hold);
+		}
+		return true;
 	}
 
 	private VanillaPose getArmPose(ArmPose pose, boolean left) {

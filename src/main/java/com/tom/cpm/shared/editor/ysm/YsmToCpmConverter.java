@@ -53,7 +53,7 @@ import com.tom.cpm.shared.util.Log;
  *         <li>Bone pos = {@code [dx, -dy, dz]} where d = childPivot - parentPivot</li>
  *         <li>Cut subtree root pos = YSM pivot converted relative to the CPM part pivot</li>
  *         <li>Bone rotation = 1:1 copy (local rotation, coord transform via position)</li>
- *         <li>Cube offset = {@code [pivot.x-(origin.x+size.x), pivot.y-(origin.y+size.y), origin.z-pivot.z]}</li>
+ *         <li>Cube offset = {@code [origin.x-pivot.x, pivot.y-(origin.y+size.y), origin.z-pivot.z]}</li>
  *         <li>Cube with own pivot: offset uses cube pivot; pos = rel to bone</li>
  *         <li>UV direction mapping = 1:1 (Bedrock "up" → CPM Direction.UP)</li>
  *       </ul>
@@ -206,6 +206,7 @@ public class YsmToCpmConverter {
 		if (!matchesHandSide(normalized, left)) return Integer.MIN_VALUE;
 		int score = 0;
 		PlayerModelParts namedPart = YsmBoneClassifier.matchByName(boneName);
+		score += explicitHandLocatorScore(normalized, bone, boneIndex);
 		if (namedPart == (left ? PlayerModelParts.LEFT_ARM : PlayerModelParts.RIGHT_ARM)) score += 40;
 		if (normalized.equals(left ? "lefthand" : "righthand") || normalized.equals(left ? "lhand" : "rhand")) score += 160;
 		if (normalized.contains("hand")) score += 120;
@@ -214,9 +215,31 @@ public class YsmToCpmConverter {
 		if (normalized.contains("glove")) score += 80;
 		if (normalized.contains("forearm") || normalized.contains("lowerarm")) score += 40;
 		if (normalized.contains("arm")) score += 20;
+		if (normalized.contains("shoulder") || normalized.contains("waist") || normalized.contains("sheath") ||
+				normalized.contains("viewlocator") || normalized.contains("backpack") ||
+				normalized.contains("rifle") || normalized.contains("pistol") || normalized.contains("blade")) score -= 200;
 		if (bone != null) score += Math.min(30, boneDepth(bone, boneIndex) * 3);
 		if (element.hidden) score -= 80;
 		return score;
+	}
+
+	private static int explicitHandLocatorScore(String normalized, BedrockBone bone,
+			Map<String, BedrockBone> boneIndex) {
+		if (normalized.contains("handlocator")) return 360;
+		if (normalized.contains("itemlocator")) return 340;
+		if (normalized.contains("locator") && (normalized.contains("hand") || hasHandAncestor(bone, boneIndex))) return 260;
+		return 0;
+	}
+
+	private static boolean hasHandAncestor(BedrockBone bone, Map<String, BedrockBone> boneIndex) {
+		BedrockBone current = bone;
+		while (current != null && current.parent != null) {
+			current = boneIndex.get(current.parent);
+			if (current == null) break;
+			String normalized = normalizeBoneName(current.name);
+			if (normalized.contains("hand")) return true;
+		}
+		return false;
 	}
 
 	private static boolean matchesHandSide(String normalized, boolean left) {
@@ -406,20 +429,13 @@ public class YsmToCpmConverter {
 		if (parent != null && isCuttableHeadControlBone(parent)) {
 			cutRoot = parent;
 		}
-		String ancestorName = cutRoot.parent;
-		while (ancestorName != null) {
-			BedrockBone ancestor = boneIndex.get(ancestorName);
-			if (ancestor == null || !isHeadCarrierBone(ancestor)) break;
-			cutRoot = ancestor;
-			ancestorName = ancestor.parent;
-		}
 		return cutRoot;
 	}
 
 	private static boolean isCuttableHeadControlBone(BedrockBone bone) {
 		if (bone == null || hasRenderableGeometry(bone)) return false;
 		String normalized = normalizeBoneName(bone.name);
-		return isNeckBone(bone.name) || normalized.contains("headroot") ||
+		return normalized.contains("headroot") ||
 			normalized.contains("headbase") || normalized.contains("mhead") ||
 			(normalized.contains("head") && !isExplicitHeadBone(bone.name));
 	}
@@ -484,7 +500,7 @@ public class YsmToCpmConverter {
 		BedrockBone head = findExplicitHeadBone(boneIndex);
 		if (head == null || head.parent == null) return null;
 		BedrockBone headParent = boneIndex.get(head.parent);
-		BedrockBone cutRoot = findHeadCutRoot(boneIndex);
+		BedrockBone bodyAnchor = findHeadBodyAnchorBone(headParent, boneIndex);
 
 		List<BedrockBone> ancestors = new ArrayList<>();
 		String parentName = head.parent;
@@ -495,10 +511,9 @@ public class YsmToCpmConverter {
 			parentName = parent.parent;
 		}
 
-		if (cutRoot != null && cutRoot != head && cutRoot != headParent && headParent != null &&
-				hasRenderableGeometry(cutRoot) && isSamePivot(head.pivot, headParent.pivot)) {
-			return new HeadPivotSelection(cutRoot.name, new Vec3f(cutRoot.pivot),
-				"head carrier neck pivot");
+		if (headParent != null && isSamePivot(head.pivot, headParent.pivot) && bodyAnchor != null) {
+			return new HeadPivotSelection(bodyAnchor.name, new Vec3f(bodyAnchor.pivot),
+				"head body seam pivot");
 		}
 
 		HeadPivotSelection directPivot = findDirectHeadControlPivot(headParent, ancestors);
@@ -521,6 +536,23 @@ public class YsmToCpmConverter {
 			new Vec3f(headParent.pivot), "direct head parent pivot") :
 			(!ancestors.isEmpty() ? new HeadPivotSelection(ancestors.get(0).name,
 				new Vec3f(ancestors.get(0).pivot), "nearest ancestor pivot") : null);
+	}
+
+	private static BedrockBone findHeadBodyAnchorBone(BedrockBone headParent,
+			Map<String, BedrockBone> boneIndex) {
+		String ancestorName = headParent != null ? headParent.parent : null;
+		while (ancestorName != null) {
+			BedrockBone ancestor = boneIndex.get(ancestorName);
+			if (ancestor == null) break;
+			if (isHeadBodyAnchorCandidate(ancestor)) return ancestor;
+			ancestorName = ancestor.parent;
+		}
+		return null;
+	}
+
+	private static boolean isHeadBodyAnchorCandidate(BedrockBone bone) {
+		return bone != null && (isNeckBone(bone.name) ||
+				(hasRenderableGeometry(bone) && isHeadCarrierBone(bone)));
 	}
 
 	private static HeadPivotSelection findDirectHeadControlPivot(BedrockBone headParent,
@@ -1002,12 +1034,26 @@ public class YsmToCpmConverter {
 		}
 		if (elem.parent.typeData == PlayerModelParts.HEAD) {
 			BedrockBone bone = boneIndex.get(elem.name);
-			if (bone != null && isExplicitHeadBone(bone.name) && bone.parent != null &&
-					boneIndex.containsKey(bone.parent)) {
-				return bone.parent;
-			}
+			String headAnchor = inheritedHeadAnchorBoneName(bone, boneIndex);
+			if (headAnchor != null) return headAnchor;
 		}
 		return elem.name;
+	}
+
+	private static String inheritedHeadAnchorBoneName(BedrockBone bone,
+			Map<String, BedrockBone> boneIndex) {
+		if (bone == null) return null;
+		BedrockBone head = findExplicitHeadBone(boneIndex);
+		if (head == null || head.parent == null) return bone.name;
+		BedrockBone headParent = boneIndex.get(head.parent);
+		BedrockBone bodyAnchor = findHeadBodyAnchorBone(headParent, boneIndex);
+		if (headParent != null && isSamePivot(head.pivot, headParent.pivot) && bodyAnchor != null) {
+			return bodyAnchor.name;
+		}
+		if (isExplicitHeadBone(bone.name) && bone.parent != null && boneIndex.containsKey(bone.parent)) {
+			return bone.parent;
+		}
+		return bone.name;
 	}
 
 	private static ModelElement elementForBone(Map<String, ModelElement> builtElements, String boneName) {

@@ -96,7 +96,7 @@ public class YsmCoordUtil {
 		);
 	}
 
-	/** YSM rotation to CPM rotation — verified 1:1 identical (no sign change). */
+	/** YSM rest rotation to CPM rest rotation: 1:1, matching the base model importer. */
 	public static Vec3f ysmToCpmRotation(Vec3f ysmRot) {
 		if (ysmRot == null || ysmRot.epsilon(0.001f)) return new Vec3f();
 		return new Vec3f(ysmRot);

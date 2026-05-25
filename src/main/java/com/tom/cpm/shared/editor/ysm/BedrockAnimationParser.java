@@ -258,6 +258,11 @@ public class BedrockAnimationParser {
 			}
 		}
 		float animLength = animData.has("animation_length") ? animData.get("animation_length").getAsFloat() : 1.0f;
+		JsonObject bonesObj = animData.getAsJsonObject("bones");
+		float keyedLength = findLastKeyframeTime(bonesObj);
+		boolean trimHoldSentinel = (mustFinish || handSpec != null) && keyedLength > 0.001f &&
+			animLength > Math.max(10f, keyedLength * 4f);
+		float sampleLength = trimHoldSentinel ? keyedLength : animLength;
 
 		// Parse optional blend/override settings
 		boolean overridePrev = animData.has("override_previous_animation")
@@ -269,7 +274,7 @@ public class BedrockAnimationParser {
 		anim.pose = pose;
 		anim.loop = loop;
 		anim.mustFinish = mustFinish;
-		anim.duration = Math.max(50, (int)(animLength * 1000));
+		anim.duration = Math.max(50, (int)(sampleLength * 1000));
 		anim.add = true;
 		if (handSpec != null) {
 			anim.triggerItem = handSpec.itemFilter;
@@ -307,7 +312,6 @@ public class BedrockAnimationParser {
 		}
 
 		// ---- Parse bone keyframes ----
-		JsonObject bonesObj = animData.getAsJsonObject("bones");
 		if (bonesObj == null) {
 			anim.getFrames().add(new AnimFrame(anim));
 			if (!anim.getFrames().isEmpty()) anim.setSelectedFrame(anim.getFrames().get(0));
@@ -318,7 +322,7 @@ public class BedrockAnimationParser {
 		// and maps real time → frame index via: (millis % duration) / duration * frameCount.
 		// Non-uniform keyframe times would cause wrong interpolation.
 		final int FPS = 20;
-		int frameCount = Math.max(2, (int)(animLength * FPS));
+		int frameCount = Math.max(2, (int)(sampleLength * FPS));
 		if (frameCount > MAX_FRAMES) frameCount = MAX_FRAMES;
 
 		for (int i = 0; i < frameCount; i++) {
@@ -347,20 +351,45 @@ public class BedrockAnimationParser {
 			for (AnimationTarget target : targets) {
 				if (boneData.has("rotation")) {
 					sampleChannel(boneData.get("rotation"), boneName, target, anim, frameCount,
-						animLength, loop, ChannelType.ROTATION, false, worldPositions, parentRotations, boneIndex);
+						sampleLength, loop, ChannelType.ROTATION, false, worldPositions, parentRotations, boneIndex);
 				}
 				if (boneData.has("position")) {
 					sampleChannel(boneData.get("position"), boneName, target, anim, frameCount,
-						animLength, loop, ChannelType.POSITION, normalizeClosedPositionTracks, worldPositions, parentRotations, boneIndex);
+						sampleLength, loop, ChannelType.POSITION, normalizeClosedPositionTracks, worldPositions, parentRotations, boneIndex);
 				}
 				if (boneData.has("scale")) {
 					sampleChannel(boneData.get("scale"), boneName, target, anim, frameCount,
-						animLength, loop, ChannelType.SCALE, false, worldPositions, parentRotations, boneIndex);
+						sampleLength, loop, ChannelType.SCALE, false, worldPositions, parentRotations, boneIndex);
 				}
 			}
 		}
 
 		return anim;
+	}
+
+	private static float findLastKeyframeTime(JsonObject bonesObj) {
+		if (bonesObj == null) return 0;
+		float max = 0;
+		for (String boneName : bonesObj.keySet()) {
+			JsonObject boneData = bonesObj.getAsJsonObject(boneName);
+			if (boneData == null) continue;
+			max = Math.max(max, findLastKeyframeTime(boneData.get("rotation")));
+			max = Math.max(max, findLastKeyframeTime(boneData.get("position")));
+			max = Math.max(max, findLastKeyframeTime(boneData.get("scale")));
+		}
+		return max;
+	}
+
+	private static float findLastKeyframeTime(JsonElement channelData) {
+		if (channelData == null || !channelData.isJsonObject()) return 0;
+		float max = 0;
+		JsonObject keyframes = channelData.getAsJsonObject();
+		for (String timeKey : keyframes.keySet()) {
+			try {
+				max = Math.max(max, Float.parseFloat(timeKey));
+			} catch (NumberFormatException ignored) {}
+		}
+		return max;
 	}
 
 	private static VanillaPose resolveVanillaPose(String animName, String source) {
@@ -439,7 +468,8 @@ public class BedrockAnimationParser {
 			itemFilter = null;
 			useAnimation = HandAnimation.DRINK.name();
 		} else if ("bow".equals(normalizedItem) || "bowandarrow".equals(normalizedItem)) {
-			pose = left ? VanillaPose.BOW_LEFT : VanillaPose.BOW_RIGHT;
+			pose = "use".equals(action) ? (left ? VanillaPose.BOW_LEFT : VanillaPose.BOW_RIGHT) :
+				(left ? VanillaPose.HOLDING_LEFT : VanillaPose.HOLDING_RIGHT);
 			itemFilter = "bow";
 			useAnimation = "use".equals(action) ? HandAnimation.BOW.name() : null;
 		} else if ("chargedcrossbow".equals(normalizedItem)) {
@@ -451,30 +481,37 @@ public class BedrockAnimationParser {
 			itemFilter = "crossbow";
 			useAnimation = HandAnimation.CROSSBOW.name();
 		} else if ("crossbow".equals(normalizedItem)) {
-			pose = left ? VanillaPose.CROSSBOW_LEFT : VanillaPose.CROSSBOW_RIGHT;
+			pose = "hold".equals(action) ? (left ? VanillaPose.HOLDING_LEFT : VanillaPose.HOLDING_RIGHT) :
+				(left ? VanillaPose.CROSSBOW_LEFT : VanillaPose.CROSSBOW_RIGHT);
 			itemFilter = "crossbow";
 		} else if ("spyglass".equals(normalizedItem)) {
-			pose = left ? VanillaPose.SPYGLASS_LEFT : VanillaPose.SPYGLASS_RIGHT;
+			pose = "use".equals(action) ? (left ? VanillaPose.SPYGLASS_LEFT : VanillaPose.SPYGLASS_RIGHT) :
+				(left ? VanillaPose.HOLDING_LEFT : VanillaPose.HOLDING_RIGHT);
 			itemFilter = "spyglass";
 			useAnimation = "use".equals(action) ? HandAnimation.SPYGLASS.name() : null;
 		} else if ("shield".equals(normalizedItem) || "block".equals(normalizedItem) || "blocking".equals(normalizedItem)) {
-			pose = left ? VanillaPose.BLOCKING_LEFT : VanillaPose.BLOCKING_RIGHT;
+			pose = "use".equals(action) ? (left ? VanillaPose.BLOCKING_LEFT : VanillaPose.BLOCKING_RIGHT) :
+				(left ? VanillaPose.HOLDING_LEFT : VanillaPose.HOLDING_RIGHT);
 			itemFilter = "shield";
 			useAnimation = "use".equals(action) ? HandAnimation.BLOCK.name() : null;
 		} else if ("trident".equals(normalizedItem)) {
-			pose = left ? VanillaPose.TRIDENT_LEFT : VanillaPose.TRIDENT_RIGHT;
+			pose = "use".equals(action) ? (left ? VanillaPose.TRIDENT_LEFT : VanillaPose.TRIDENT_RIGHT) :
+				(left ? VanillaPose.HOLDING_LEFT : VanillaPose.HOLDING_RIGHT);
 			itemFilter = "trident";
 			useAnimation = "use".equals(action) ? HandAnimation.TRIDENT.name() : null;
 		} else if ("spear".equals(normalizedItem)) {
-			pose = left ? VanillaPose.SPEAR_LEFT : VanillaPose.SPEAR_RIGHT;
+			pose = "use".equals(action) ? (left ? VanillaPose.SPEAR_LEFT : VanillaPose.SPEAR_RIGHT) :
+				(left ? VanillaPose.HOLDING_LEFT : VanillaPose.HOLDING_RIGHT);
 			itemFilter = "spear";
 			useAnimation = "use".equals(action) ? HandAnimation.TRIDENT.name() : null;
 		} else if ("brush".equals(normalizedItem) || "brushing".equals(normalizedItem)) {
-			pose = left ? VanillaPose.BRUSH_LEFT : VanillaPose.BRUSH_RIGHT;
+			pose = "use".equals(action) ? (left ? VanillaPose.BRUSH_LEFT : VanillaPose.BRUSH_RIGHT) :
+				(left ? VanillaPose.HOLDING_LEFT : VanillaPose.HOLDING_RIGHT);
 			itemFilter = "brush";
 			useAnimation = "use".equals(action) ? HandAnimation.BRUSH.name() : null;
 		} else if ("horn".equals(normalizedItem) || "goathorn".equals(normalizedItem) || "toothorn".equals(normalizedItem)) {
-			pose = left ? VanillaPose.TOOT_HORN_LEFT : VanillaPose.TOOT_HORN_RIGHT;
+			pose = "use".equals(action) ? (left ? VanillaPose.TOOT_HORN_LEFT : VanillaPose.TOOT_HORN_RIGHT) :
+				(left ? VanillaPose.HOLDING_LEFT : VanillaPose.HOLDING_RIGHT);
 			itemFilter = "goat_horn";
 			useAnimation = "use".equals(action) ? HandAnimation.TOOT_HORN.name() : null;
 		} else if ("hold".equals(action) || "use".equals(action)) {
@@ -836,8 +873,8 @@ public class BedrockAnimationParser {
 	 * Convert a Bedrock animation value to a CPM additive delta.
 	 * <p>
 	 * YSM rotation keyframes are additive offsets from the bone's initial
-	 * rotation. The CPM model importer stores YSM bone rest rotations in the same
-	 * rotation basis, so keep animation rotations as raw additive deltas too.
+		 * rotation. The CPM model importer stores YSM bone rest rotations in the same
+		 * rotation basis, so keep imported animation rotations as raw additive deltas too.
 	 * <p>
 	 * YSM position keyframes are usually offsets from the default pose, but some
 	 * Bedrock exports store absolute pivot positions. Absolute-looking tracks are
