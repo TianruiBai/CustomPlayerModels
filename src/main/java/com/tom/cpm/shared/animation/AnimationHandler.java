@@ -43,11 +43,12 @@ public class AnimationHandler {
 		player.get().resetAnimationPos();
 
 		for (PlayingAnim a : currentAnimations) {
-			if(!a.finished) {
+			if(!a.finished || a.mustFinish) {
 				long currentStep = (currentTime - a.currentStart);
-				a.currentAnimation.animate(state, a.getTime(state, currentStep), player.get(), mode);
+				long playbackStep = a.finished ? a.lastFrameTime(mode) : currentStep;
+				a.currentAnimation.animate(state, a.getTime(state, playbackStep), player.get(), mode);
 
-				if(!a.loop && currentStep / a.currentAnimation.getDuration(mode) != a.lastFrame / a.currentAnimation.getDuration(mode)) {
+				if(!a.finished && !a.loop && currentStep / a.currentAnimation.getDuration(mode) != a.lastFrame / a.currentAnimation.getDuration(mode)) {
 					a.finished = true;
 				}
 				a.lastFrame = currentStep;
@@ -110,6 +111,11 @@ public class AnimationHandler {
 			this.loop = anim.isLoop();
 			this.finished = false;
 			this.mustFinish = anim.trigger.mustFinish;
+			if (anim.trigger.startsAtEnd()) {
+				this.currentStart = currentStart - lastFrameTime(mode);
+				this.lastFrame = lastFrameTime(mode);
+				this.finished = true;
+			}
 		}
 
 		public boolean checkAndUpdateRemove(AnimationMode mode) {
@@ -121,8 +127,12 @@ public class AnimationHandler {
 		}
 
 		public long getTime(AnimationState state, long time) {
-			if(trigger == null || !currentAnimation.useTriggerTime())return time;
-			else return trigger.getTime(state, time);
+			long animTime = trigger == null || !currentAnimation.useTriggerTime() ? time : trigger.getTime(state, time);
+			return loop ? animTime : Math.min(animTime, lastFrameTime(mode));
+		}
+
+		private long lastFrameTime(AnimationMode mode) {
+			return Math.max(0, currentAnimation.getDuration(mode) - 1L);
 		}
 	}
 }

@@ -388,12 +388,56 @@ public class YsmToCpmConverter {
 
 	private static boolean isInExplicitHeadSubtree(BedrockBone bone,
 			Map<String, BedrockBone> boneIndex) {
+		BedrockBone cutRoot = findHeadCutRoot(boneIndex);
+		if (cutRoot == null) return false;
 		BedrockBone current = bone;
 		while (current != null) {
-			if (isExplicitHeadBone(current.name)) return true;
+			if (current == cutRoot || current.name.equals(cutRoot.name)) return true;
 			current = current.parent != null ? boneIndex.get(current.parent) : null;
 		}
 		return false;
+	}
+
+	private static BedrockBone findHeadCutRoot(Map<String, BedrockBone> boneIndex) {
+		BedrockBone head = findExplicitHeadBone(boneIndex);
+		if (head == null || head.parent == null) return head;
+		BedrockBone cutRoot = head;
+		BedrockBone parent = boneIndex.get(head.parent);
+		if (parent != null && isCuttableHeadControlBone(parent)) {
+			cutRoot = parent;
+		}
+		String ancestorName = cutRoot.parent;
+		while (ancestorName != null) {
+			BedrockBone ancestor = boneIndex.get(ancestorName);
+			if (ancestor == null || !isHeadCarrierBone(ancestor)) break;
+			cutRoot = ancestor;
+			ancestorName = ancestor.parent;
+		}
+		return cutRoot;
+	}
+
+	private static boolean isCuttableHeadControlBone(BedrockBone bone) {
+		if (bone == null || hasRenderableGeometry(bone)) return false;
+		String normalized = normalizeBoneName(bone.name);
+		return isNeckBone(bone.name) || normalized.contains("headroot") ||
+			normalized.contains("headbase") || normalized.contains("mhead") ||
+			(normalized.contains("head") && !isExplicitHeadBone(bone.name));
+	}
+
+	private static boolean isHeadCarrierBone(BedrockBone bone) {
+		if (bone == null) return false;
+		String normalized = normalizeBoneName(bone.name);
+		if (normalized.isEmpty() || isNeckBone(bone.name)) return false;
+		if (normalized.contains("upperbody") || normalized.contains("upbody") ||
+				normalized.contains("lowerbody") || normalized.contains("allbody") ||
+				normalized.contains("body") || normalized.contains("torso") ||
+				normalized.contains("chest") || normalized.contains("pelvis") ||
+				normalized.contains("waist")) {
+			return false;
+		}
+		return normalized.contains("allhead") || normalized.contains("headroot") ||
+			normalized.contains("headbase") || normalized.contains("head") ||
+			normalized.contains("brow") || normalized.contains("face");
 	}
 
 	private static boolean isExplicitHeadBone(String boneName) {
@@ -439,7 +483,8 @@ public class YsmToCpmConverter {
 			Map<String, List<BedrockBone>> childrenMap) {
 		BedrockBone head = findExplicitHeadBone(boneIndex);
 		if (head == null || head.parent == null) return null;
-		Vec3f headBottom = computeSubtreeBottomCenter(head, childrenMap);
+		BedrockBone headParent = boneIndex.get(head.parent);
+		BedrockBone cutRoot = findHeadCutRoot(boneIndex);
 
 		List<BedrockBone> ancestors = new ArrayList<>();
 		String parentName = head.parent;
@@ -450,50 +495,81 @@ public class YsmToCpmConverter {
 			parentName = parent.parent;
 		}
 
+		if (cutRoot != null && cutRoot != head && cutRoot != headParent && headParent != null &&
+				hasRenderableGeometry(cutRoot) && isSamePivot(head.pivot, headParent.pivot)) {
+			return new HeadPivotSelection(cutRoot.name, new Vec3f(cutRoot.pivot),
+				"head carrier neck pivot");
+		}
+
+		HeadPivotSelection directPivot = findDirectHeadControlPivot(headParent, ancestors);
+		if (directPivot != null) return directPivot;
+
 		for (BedrockBone ancestor : ancestors) {
 			if (!isNeckBone(ancestor.name)) continue;
 			Vec3f pivot = computeNonHeadSubtreeTopCenter(ancestor, childrenMap, true);
-			if (pivot != null) return clampHeadAnchorToHeadBottom(
-				new HeadPivotSelection(ancestor.name, pivot, "neck top center"), headBottom);
+			if (pivot != null) return alignGeometryHeadAnchorToParentBand(
+				new HeadPivotSelection(ancestor.name, pivot, "neck top center"), head, headParent);
 		}
 
 		for (BedrockBone ancestor : ancestors) {
 			Vec3f pivot = computeNonHeadSubtreeTopCenter(ancestor, childrenMap, false);
-			if (pivot != null) return clampHeadAnchorToHeadBottom(
-				new HeadPivotSelection(ancestor.name, pivot, "nearest neck geometry top center"), headBottom);
+			if (pivot != null) return alignGeometryHeadAnchorToParentBand(
+				new HeadPivotSelection(ancestor.name, pivot, "nearest neck geometry top center"), head, headParent);
 		}
 
-		return !ancestors.isEmpty() ? clampHeadAnchorToHeadBottom(new HeadPivotSelection(ancestors.get(0).name,
-			ancestors.get(0).pivot, "head parent pivot"), headBottom) : null;
+		return headParent != null ? new HeadPivotSelection(headParent.name,
+			new Vec3f(headParent.pivot), "direct head parent pivot") :
+			(!ancestors.isEmpty() ? new HeadPivotSelection(ancestors.get(0).name,
+				new Vec3f(ancestors.get(0).pivot), "nearest ancestor pivot") : null);
 	}
 
-	private static HeadPivotSelection clampHeadAnchorToHeadBottom(HeadPivotSelection selection,
-			Vec3f headBottom) {
-		if (selection == null || headBottom == null) return selection;
-		if (selection.pivot.y <= headBottom.y + 0.01f) return selection;
-		return new HeadPivotSelection(selection.boneName,
-			new Vec3f(selection.pivot.x, headBottom.y, selection.pivot.z),
-			selection.reason + ", clamped to head seam");
-	}
-
-	private static Vec3f computeSubtreeBottomCenter(BedrockBone root,
-			Map<String, List<BedrockBone>> childrenMap) {
-		BoundsAccumulator bounds = new BoundsAccumulator();
-		collectSubtreeBounds(root, childrenMap, bounds);
-		return bounds.hasBounds() ? bounds.bottomCenter() : null;
-	}
-
-	private static void collectSubtreeBounds(BedrockBone bone,
-			Map<String, List<BedrockBone>> childrenMap, BoundsAccumulator bounds) {
-		for (BedrockCube cube : bone.cubes) {
-			bounds.include(cube);
+	private static HeadPivotSelection findDirectHeadControlPivot(BedrockBone headParent,
+			List<BedrockBone> ancestors) {
+		if (headParent != null && isLikelyHeadPivotBone(headParent.name, true, headParent.cubes.isEmpty())) {
+			return new HeadPivotSelection(headParent.name, new Vec3f(headParent.pivot), "direct head control pivot");
 		}
-		List<BedrockBone> children = childrenMap.get(bone.name);
-		if (children != null) {
-			for (BedrockBone child : children) {
-				collectSubtreeBounds(child, childrenMap, bounds);
+		for (BedrockBone ancestor : ancestors) {
+			if (headParent != null && ancestor == headParent) continue;
+			if (isLikelyHeadPivotBone(ancestor.name, false, ancestor.cubes.isEmpty())) {
+				return new HeadPivotSelection(ancestor.name, new Vec3f(ancestor.pivot), "head control ancestor pivot");
 			}
 		}
+		if (headParent != null && headParent.cubes.isEmpty()) {
+			return new HeadPivotSelection(headParent.name, new Vec3f(headParent.pivot), "direct head parent pivot");
+		}
+		return null;
+	}
+
+	private static boolean isLikelyHeadPivotBone(String boneName, boolean directParent, boolean noGeometry) {
+		String normalized = normalizeBoneName(boneName);
+		if (isNeckBone(boneName)) return true;
+		if (normalized.contains("headroot") || normalized.contains("headbase") ||
+				normalized.contains("allhead") || normalized.contains("mhead")) {
+			return true;
+		}
+		if (directParent && normalized.contains("head") && !isExplicitHeadBone(boneName)) return true;
+		return noGeometry && directParent;
+	}
+
+	private static boolean hasRenderableGeometry(BedrockBone bone) {
+		for (BedrockCube cube : bone.cubes) {
+			if (Math.abs(cube.size.x) > 0.001f || Math.abs(cube.size.y) > 0.001f ||
+					Math.abs(cube.size.z) > 0.001f) return true;
+		}
+		return false;
+	}
+
+	private static HeadPivotSelection alignGeometryHeadAnchorToParentBand(HeadPivotSelection selection,
+			BedrockBone head, BedrockBone headParent) {
+		if (selection == null || headParent == null) return selection;
+		float minY = Math.min(head.pivot.y, headParent.pivot.y);
+		float maxY = Math.max(head.pivot.y, headParent.pivot.y);
+		float y = Math.max(minY, Math.min(maxY, selection.pivot.y));
+		String reason = selection.reason;
+		if (Math.abs(y - selection.pivot.y) > 0.01f) reason += ", seam clamped";
+		return new HeadPivotSelection(selection.boneName,
+			new Vec3f(headParent.pivot.x, y, headParent.pivot.z),
+			reason + ", aligned to head parent");
 	}
 
 	private static Vec3f computeNonHeadSubtreeTopCenter(BedrockBone root,
@@ -548,10 +624,6 @@ public class YsmToCpmConverter {
 
 		Vec3f topCenter() {
 			return new Vec3f((minX + maxX) * 0.5f, maxY, (minZ + maxZ) * 0.5f);
-		}
-
-		Vec3f bottomCenter() {
-			return new Vec3f((minX + maxX) * 0.5f, minY, (minZ + maxZ) * 0.5f);
 		}
 	}
 
@@ -733,6 +805,11 @@ public class YsmToCpmConverter {
 			Math.abs(v.y) > 0.001f || Math.abs(v.z) > 0.001f);
 	}
 
+	private static boolean isSamePivot(Vec3f a, Vec3f b) {
+		return a != null && b != null && Math.abs(a.x - b.x) < 0.01f &&
+			Math.abs(a.y - b.y) < 0.01f && Math.abs(a.z - b.z) < 0.01f;
+	}
+
 	// ========================================================================
 	// Helpers
 	// ========================================================================
@@ -853,7 +930,7 @@ public class YsmToCpmConverter {
 		registerAlias(targets, "LongHead", elementForBone(builtElements,
 			firstBoneName(boneIndex, builtElements, "LongHead", "Head", "head")));
 		registerInheritedCutTargets(targets, builtElements, boneIndex);
-		registerInheritedBodyAliasesForCutTargets(targets, builtElements,
+		registerInheritedBodyAliasesForCutTargets(targets, builtElements, boneIndex,
 			"Root", "root", "MAllBody", "AllBody", "Allbody", "Body", "body",
 			"MUpperBody", "UpperBody", "UpBody", "Arm", "DownBody", "LowerBody",
 			"Hips", "Pelvis", "Waist");
@@ -870,9 +947,10 @@ public class YsmToCpmConverter {
 		for (BedrockBone bone : boneIndex.values()) {
 			ModelElement elem = builtElements.get(bone.name);
 			if (elem == null || elem.parent == null || elem.parent.type != ElementType.ROOT_PART) continue;
+			String targetBoneName = inheritedTargetBoneName(elem, boneIndex);
 			String ancestor = bone.parent;
 			while (ancestor != null && boneIndex.containsKey(ancestor)) {
-				registerTarget(targets, ancestor, elem, true);
+				registerTarget(targets, ancestor, elem, targetBoneName, true);
 				BedrockBone parent = boneIndex.get(ancestor);
 				ancestor = parent != null ? parent.parent : null;
 			}
@@ -882,12 +960,14 @@ public class YsmToCpmConverter {
 	private static void registerInheritedBodyAliasesForCutTargets(
 			Map<String, List<AnimationTarget>> targets,
 			Map<String, ModelElement> builtElements,
+			Map<String, BedrockBone> boneIndex,
 			String... aliases) {
 		for (ModelElement elem : builtElements.values()) {
 			if (elem.parent == null || elem.parent.type != ElementType.ROOT_PART ||
 				elem.parent.typeData == PlayerModelParts.BODY) continue;
+			String targetBoneName = inheritedTargetBoneName(elem, boneIndex);
 			for (String alias : aliases) {
-				registerTarget(targets, alias, elem, true);
+				registerTarget(targets, alias, elem, targetBoneName, true);
 			}
 		}
 	}
@@ -902,12 +982,32 @@ public class YsmToCpmConverter {
 
 	private static void registerTarget(Map<String, List<AnimationTarget>> targets, String name,
 			ModelElement elem, boolean inherited) {
+		registerTarget(targets, name, elem, elem != null ? elem.name : null, inherited);
+	}
+
+	private static void registerTarget(Map<String, List<AnimationTarget>> targets, String name,
+			ModelElement elem, String targetBoneName, boolean inherited) {
 		if (name == null || elem == null) return;
 		List<AnimationTarget> list = targets.computeIfAbsent(name, k -> new ArrayList<>());
 		for (AnimationTarget target : list) {
-			if (target.element == elem && target.inherited == inherited) return;
+			if (target.element == elem && target.inherited == inherited &&
+					matchesBoneName(target.boneName, targetBoneName)) return;
 		}
-		list.add(new AnimationTarget(elem, elem.name, inherited));
+		list.add(new AnimationTarget(elem, targetBoneName != null ? targetBoneName : elem.name, inherited));
+	}
+
+	private static String inheritedTargetBoneName(ModelElement elem, Map<String, BedrockBone> boneIndex) {
+		if (elem == null || elem.parent == null || elem.parent.type != ElementType.ROOT_PART) {
+			return elem != null ? elem.name : null;
+		}
+		if (elem.parent.typeData == PlayerModelParts.HEAD) {
+			BedrockBone bone = boneIndex.get(elem.name);
+			if (bone != null && isExplicitHeadBone(bone.name) && bone.parent != null &&
+					boneIndex.containsKey(bone.parent)) {
+				return bone.parent;
+			}
+		}
+		return elem.name;
 	}
 
 	private static ModelElement elementForBone(Map<String, ModelElement> builtElements, String boneName) {
@@ -1263,6 +1363,7 @@ public class YsmToCpmConverter {
 			int max = control != null ? control.max : 1;
 			target.maxValue = Math.max(1, max - min);
 			target.interpolateValue = true;
+			target.layerDefault = defaultRangeLayerValue(control, displayName);
 		} else if ("radio".equalsIgnoreCase(type)) {
 			target.type = AnimationType.LAYER;
 			target.group = displayName;
@@ -1271,14 +1372,32 @@ public class YsmToCpmConverter {
 			target.type = AnimationType.LAYER;
 			target.layerDefault = 0;
 		}
-		synthesizeEmptyControlVisibility(target, displayName, fallbackName, type);
+		synthesizeEmptyControlVisibility(target, displayName, fallbackName, type, control);
+	}
+
+	private static float defaultRangeLayerValue(YsmModelData.ExtraAnimationControl control, String displayName) {
+		if (control == null) return 0;
+		int min = control.min;
+		int max = Math.max(control.max, min + 1);
+		String normalized = normalizeBoneName(displayName != null ? displayName : "");
+		if ((normalized.contains("size") || normalized.contains("scale") ||
+				normalized.contains("propeller") || normalized.contains("rotor") ||
+				displayName != null && displayName.contains("大小")) && min <= 1 && max >= 1) {
+			return (1f - min) / Math.max(1, max - min);
+		}
+		return 0;
 	}
 
 	private static void synthesizeEmptyControlVisibility(EditorAnim target,
-			String displayName, String fallbackName, String type) {
+			String displayName, String fallbackName, String type,
+			YsmModelData.ExtraAnimationControl control) {
 		if (target.getComponentsFiltered().size() > 0) return;
 		List<ModelElement> elements = findVisibilityControlTargets(target.editor, displayName, fallbackName);
 		if (elements.isEmpty()) return;
+		if ("range".equalsIgnoreCase(type)) {
+			synthesizeEmptyRangeControl(target, elements, control);
+			return;
+		}
 		if (target.getFrames().isEmpty()) target.addFrame(false);
 		boolean hideWhenActive = isHideWhenActiveControl(displayName, fallbackName);
 		boolean showWhenActive = !hideWhenActive && !"range".equalsIgnoreCase(type);
@@ -1289,6 +1408,26 @@ public class YsmToCpmConverter {
 		}
 		Log.info("[YSM Import] Synthesized visibility " + target.type.name().toLowerCase() +
 			" for empty YSM control '" + target.displayName + "' on " + elements.size() + " element(s)");
+	}
+
+	private static void synthesizeEmptyRangeControl(EditorAnim target, List<ModelElement> elements,
+			YsmModelData.ExtraAnimationControl control) {
+		int min = control != null ? control.min : 0;
+		int max = Math.max(control != null ? control.max : 1, min + 1);
+		resetFrames(target, Math.max(2, max - min + 1));
+		for (int i = 0; i < target.getFrames().size(); i++) {
+			int value = min + i;
+			float scale = value <= 0 ? 0.01f : value;
+			boolean visible = value > 0;
+			for (ModelElement element : elements) {
+				if (!visible && target.layerDefault <= 0.001f) element.hidden = true;
+				FrameData data = target.getFrames().get(i).makeData(element);
+				data.setScale(new Vec3f(scale, scale, scale));
+				data.setShow(visible);
+			}
+		}
+		Log.info("[YSM Import] Synthesized value-layer scale control '" + target.displayName +
+			"' on " + elements.size() + " element(s)");
 	}
 
 	private static List<ModelElement> findVisibilityControlTargets(Editor editor,
@@ -1348,6 +1487,23 @@ public class YsmToCpmConverter {
 		if (combined.contains("盔甲") || normalized.contains("armor") || normalized.contains("armour")) {
 			tokens.add("armor");
 			tokens.add("armour");
+		}
+		if (combined.contains("螺旋桨") || normalized.contains("propeller") ||
+				normalized.contains("rotor") || normalized.contains("luoxuanjiang")) {
+			tokens.add("fengshan");
+			tokens.add("feixingzujian");
+			tokens.add("propeller");
+			tokens.add("rotor");
+		}
+		if (combined.contains("背包") || normalized.contains("backpack") || normalized.contains("bag")) {
+			tokens.add("backpack");
+			tokens.add("bag");
+		}
+		if (combined.contains("翅") || normalized.contains("wing") || normalized.contains("elytra") ||
+				normalized.contains("chibang")) {
+			tokens.add("chibang");
+			tokens.add("wing");
+			tokens.add("elytra");
 		}
 		return tokens;
 	}

@@ -402,7 +402,7 @@ public class BedrockAnimationParser {
 		String[] prefixes = {
 			"hold_mainhand", "hold_offhand", "hold_righthand", "hold_lefthand",
 			"use_mainhand", "use_offhand", "use_righthand", "use_lefthand",
-			"swing_mainhand", "swing_offhand", "swing_righthand", "swing_lefthand", "swing"
+			"swing_mainhand", "swing_offhand", "swing_righthand", "swing_lefthand", "swing_hand", "swing"
 		};
 		String prefix = null;
 		for (String candidate : prefixes) {
@@ -629,10 +629,10 @@ public class BedrockAnimationParser {
 			if (channelData.isJsonArray()) {
 				JsonArray arr = channelData.getAsJsonArray();
 				if (arr.size() == 0) return;
-				if (!isNumericArray(arr)) return; // molang → skip
 
 				if (arr.size() >= 3) {
-					Vec3f value = new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
+					Vec3f value = readVec3(arr);
+					if (value == null) return;
 					List<float[]> rawSamples = new ArrayList<>();
 					rawSamples.add(new float[]{0, value.x, value.y, value.z});
 					boolean absolutePosition = channelType == ChannelType.POSITION &&
@@ -644,7 +644,9 @@ public class BedrockAnimationParser {
 							boneName, target, worldPositions);
 					}
 				} else if (arr.size() == 1) {
-					float val = arr.get(0).getAsFloat();
+					Float parsed = readFloat(arr.get(0));
+					if (parsed == null) return;
+					float val = parsed;
 					if (channelType == ChannelType.SCALE) {
 						for (AnimFrame frame : anim.getFrames()) {
 							getOrMakeData(frame, target.element).setScale(new Vec3f(val, val, val));
@@ -925,16 +927,15 @@ public class BedrockAnimationParser {
 			JsonObject obj = keyframeData.getAsJsonObject();
 			JsonElement post = obj.get("post");
 			if (post != null && post.isJsonArray() && post.getAsJsonArray().size() >= 3) {
-				JsonArray arr = post.getAsJsonArray();
-				// Guard: skip molang expressions (string elements in numeric arrays)
-				if (!isNumericArray(arr)) return null;
-				return new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
+				Vec3f value = readVec3(post.getAsJsonArray());
+				if (value == null) return null;
+				return value;
 			}
 			JsonElement pre = obj.get("pre");
 			if (pre != null && pre.isJsonArray() && pre.getAsJsonArray().size() >= 3) {
-				JsonArray arr = pre.getAsJsonArray();
-				if (!isNumericArray(arr)) return null;
-				return new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
+				Vec3f value = readVec3(pre.getAsJsonArray());
+				if (value == null) return null;
+				return value;
 			}
 			// Molang value (string) — skip, not convertible
 			JsonElement molangPost = obj.get("post");
@@ -942,20 +943,110 @@ public class BedrockAnimationParser {
 				return null;
 			}
 		} else if (keyframeData.isJsonArray() && keyframeData.getAsJsonArray().size() >= 3) {
-			JsonArray arr = keyframeData.getAsJsonArray();
-			if (isNumericArray(arr)) {
-				return new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
-			}
+			return readVec3(keyframeData.getAsJsonArray());
 		}
 		return null;
 	}
 
-	/** Check if all elements of a JsonArray are numeric primitives */
-	private static boolean isNumericArray(JsonArray arr) {
-		for (JsonElement e : arr) {
-			if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) return false;
+	private static Vec3f readVec3(JsonArray arr) {
+		if (arr.size() < 3) return null;
+		Float x = readFloat(arr.get(0));
+		Float y = readFloat(arr.get(1));
+		Float z = readFloat(arr.get(2));
+		return x != null && y != null && z != null ? new Vec3f(x, y, z) : null;
+	}
+
+	private static Float readFloat(JsonElement element) {
+		if (element == null || !element.isJsonPrimitive()) return null;
+		if (element.getAsJsonPrimitive().isNumber()) return element.getAsFloat();
+		if (element.getAsJsonPrimitive().isString()) return evaluateSimpleMolangFloat(element.getAsString());
+		return null;
+	}
+
+	private static Float evaluateSimpleMolangFloat(String expression) {
+		if (expression == null) return null;
+		String expr = expression.trim();
+		if (expr.endsWith(";")) expr = expr.substring(0, expr.length() - 1).trim();
+		String lower = expr.toLowerCase(Locale.ROOT);
+		if (lower.contains("ysm.") || lower.contains("math.") || lower.contains("query.") || lower.contains("q.")) {
+			return null;
 		}
-		return true;
+		if (!expr.contains("?")) return parseNumericSum(expr);
+
+		float total = 0;
+		boolean matched = false;
+		int index = 0;
+		while (index < expr.length()) {
+			int question = expr.indexOf('?', index);
+			if (question < 0) break;
+			int condStart = expr.lastIndexOf('(', question);
+			int valueStart = expr.indexOf('(', question);
+			int valueEnd = findMatchingParen(expr, valueStart);
+			if (condStart < 0 || valueStart < 0 || valueEnd < 0) return null;
+			String condition = expr.substring(condStart + 1, question);
+			String valueExpr = expr.substring(valueStart + 1, valueEnd);
+			if (defaultMolangCondition(condition)) {
+				Float value = parseNumericSum(valueExpr);
+				if (value == null) return null;
+				total += value;
+			}
+			matched = true;
+			index = valueEnd + 1;
+		}
+		return matched ? total : null;
+	}
+
+	private static boolean defaultMolangCondition(String condition) {
+		String normalized = condition.toLowerCase(Locale.ROOT).replace(" ", "");
+		return normalized.contains("v.qh==1") || normalized.contains("v.qh=1") ||
+			normalized.contains("v.state==1") || normalized.contains("v.state=1");
+	}
+
+	private static int findMatchingParen(String value, int openIndex) {
+		if (openIndex < 0 || openIndex >= value.length() || value.charAt(openIndex) != '(') return -1;
+		int depth = 0;
+		for (int i = openIndex; i < value.length(); i++) {
+			char c = value.charAt(i);
+			if (c == '(') depth++;
+			else if (c == ')' && --depth == 0) return i;
+		}
+		return -1;
+	}
+
+	private static Float parseNumericSum(String expression) {
+		String expr = expression.replace("v.random", "0").replace("V.random", "0").trim();
+		while (expr.length() >= 2 && expr.charAt(0) == '(' && findMatchingParen(expr, 0) == expr.length() - 1) {
+			expr = expr.substring(1, expr.length() - 1).trim();
+		}
+		if (expr.isEmpty()) return 0f;
+		float total = 0;
+		int index = 0;
+		while (index < expr.length()) {
+			while (index < expr.length() && Character.isWhitespace(expr.charAt(index))) index++;
+			int sign = 1;
+			if (index < expr.length() && expr.charAt(index) == '+') {
+				index++;
+			} else if (index < expr.length() && expr.charAt(index) == '-') {
+				sign = -1;
+				index++;
+			}
+			while (index < expr.length() && Character.isWhitespace(expr.charAt(index))) index++;
+			int start = index;
+			while (index < expr.length()) {
+				char c = expr.charAt(index);
+				if (!Character.isDigit(c) && c != '.') break;
+				index++;
+			}
+			if (start == index) return null;
+			try {
+				total += sign * Float.parseFloat(expr.substring(start, index));
+			} catch (NumberFormatException e) {
+				return null;
+			}
+			while (index < expr.length() && Character.isWhitespace(expr.charAt(index))) index++;
+			if (index < expr.length() && expr.charAt(index) != '+' && expr.charAt(index) != '-') return null;
+		}
+		return total;
 	}
 
 	private static void setValue(FrameData fd, Vec3f value, ChannelType type) {

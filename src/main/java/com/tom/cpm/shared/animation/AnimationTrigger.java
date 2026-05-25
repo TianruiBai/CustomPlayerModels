@@ -45,6 +45,10 @@ public class AnimationTrigger {
 		return false;
 	}
 
+	public boolean startsAtEnd() {
+		return false;
+	}
+
 	public static class ItemAnimationTrigger extends AnimationTrigger {
 		private final String itemFilter;
 		private final String hand;
@@ -87,6 +91,11 @@ public class AnimationTrigger {
 		@Override
 		public boolean isExclusiveMatch() {
 			return true;
+		}
+
+		@Override
+		public boolean startsAtEnd() {
+			return "hold".equals(action) && mustFinish;
 		}
 
 		private static String clean(String value) {
