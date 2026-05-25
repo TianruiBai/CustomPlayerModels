@@ -330,9 +330,15 @@ public class IOHelper implements DataInput, DataOutput, Closeable {
 	}
 
 	public void writeAngle(Vec3f v) throws IOException {
-		dout.writeShort(MathHelper.clamp((int) (v.x / 360f * 65535), 0, 65535));
-		dout.writeShort(MathHelper.clamp((int) (v.y / 360f * 65535), 0, 65535));
-		dout.writeShort(MathHelper.clamp((int) (v.z / 360f * 65535), 0, 65535));
+		dout.writeShort(angleToShort(v.x));
+		dout.writeShort(angleToShort(v.y));
+		dout.writeShort(angleToShort(v.z));
+	}
+
+	private static int angleToShort(float angle) {
+		float normalized = angle % 360f;
+		if (normalized < 0) normalized += 360f;
+		return MathHelper.clamp((int) (normalized / 360f * 65535), 0, 65535);
 	}
 
 	public Vec3f readVec6b() throws IOException {

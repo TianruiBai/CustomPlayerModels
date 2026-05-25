@@ -158,6 +158,10 @@ public class ModelDefinitionLoader<GP> {
 
 			@Override
 			public byte[] loadResource(String path, ResourceEncoding enc, ModelDefinition def) throws IOException {
+				try {
+					return LocalModelFiles.loadLocalLinkedResource("local", path);
+				} catch (IOException e) {
+				}
 				throw new LocalizedIOException("Test in-game model", new FormatText("error.cpm.testModel"));
 			}
 		});

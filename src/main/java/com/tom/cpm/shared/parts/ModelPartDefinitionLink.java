@@ -24,6 +24,20 @@ public class ModelPartDefinitionLink extends ModelPartLink {
 
 	@Override
 	protected IModelPart load(IOHelper din, ModelDefinition def) throws IOException {
+		try {
+			IModelPart part = din.readObjectBlock(ModelPartType.VALUES, (t, d) -> t.getFactory().create(d, def));
+			if (part instanceof ModelPartDefinition) {
+				while (true) {
+					IModelPart extra = din.readObjectBlock(ModelPartType.VALUES, (t, d) -> t.getFactory().create(d, def));
+					if (extra == null) continue;
+					if (extra instanceof ModelPartEnd) break;
+					throw new IOException("Invalid tag after linked definition: " + extra.getType());
+				}
+				return part;
+			}
+		} catch (IOException e) {
+			din.reset();
+		}
 		return new ModelPartDefinition(din, def);
 	}
 }

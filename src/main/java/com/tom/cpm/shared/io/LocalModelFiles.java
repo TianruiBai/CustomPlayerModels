@@ -47,8 +47,12 @@ public final class LocalModelFiles {
 	}
 
 	public static byte[] loadLocalOverflowResource(String path) throws IOException {
+		return loadLocalLinkedResource(LOCAL_OVERFLOW_LOADER, path);
+	}
+
+	public static byte[] loadLocalLinkedResource(String loader, String path) throws IOException {
 		File modelsDir = new File(MinecraftClientAccess.get().getGameDir(), "player_models");
-		Link target = new Link(LOCAL_OVERFLOW_LOADER, path);
+		Link target = new Link(loader, path);
 		for (File file : listModelsRecursive(modelsDir)) {
 			try {
 				ModelFile modelFile = ModelFile.load(file);
