@@ -62,6 +62,8 @@ public class YsmModelData {
 
 	/** YSM extra_animation_buttons control id → imported control metadata. */
 	public Map<String, ExtraAnimationControl> extraAnimationControls = new HashMap<>();
+	/** YSM extra_animation_buttons control id → all config forms for that button. */
+	public Map<String, List<ExtraAnimationControl>> extraAnimationControlForms = new HashMap<>();
 
 	/** P5: Extra model files beyond main/arm, keyed by model key name (e.g. "arrow", "extra_01"). */
 	public Map<String, JsonObject> extraModelJsons = new LinkedHashMap<>();
@@ -76,5 +78,6 @@ public class YsmModelData {
 		public String value;
 		public int min;
 		public int max = 1;
+		public Map<String, String> labels = new LinkedHashMap<>();
 	}
 }

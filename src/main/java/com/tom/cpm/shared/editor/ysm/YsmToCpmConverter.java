@@ -5,10 +5,14 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.tom.cpl.math.Vec2i;
 import com.tom.cpl.math.Vec3f;
 import com.tom.cpl.util.ItemSlot;
@@ -18,6 +22,9 @@ import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.editor.TextureSlot;
 import com.tom.cpm.shared.animation.AnimationType;
 import com.tom.cpm.shared.editor.anim.AnimationEncodingData;
+import com.tom.cpm.shared.editor.anim.AnimFrame;
+import com.tom.cpm.shared.editor.anim.AnimFrame.FrameData;
+import com.tom.cpm.shared.editor.anim.IElem;
 import com.tom.cpm.shared.editor.anim.EditorAnim;
 import com.tom.cpm.shared.editor.elements.ElementType;
 import com.tom.cpm.shared.editor.elements.ModelElement;
@@ -432,6 +439,7 @@ public class YsmToCpmConverter {
 			Map<String, List<BedrockBone>> childrenMap) {
 		BedrockBone head = findExplicitHeadBone(boneIndex);
 		if (head == null || head.parent == null) return null;
+		Vec3f headBottom = computeSubtreeBottomCenter(head, childrenMap);
 
 		List<BedrockBone> ancestors = new ArrayList<>();
 		String parentName = head.parent;
@@ -445,16 +453,47 @@ public class YsmToCpmConverter {
 		for (BedrockBone ancestor : ancestors) {
 			if (!isNeckBone(ancestor.name)) continue;
 			Vec3f pivot = computeNonHeadSubtreeTopCenter(ancestor, childrenMap, true);
-			if (pivot != null) return new HeadPivotSelection(ancestor.name, pivot, "neck top center");
+			if (pivot != null) return clampHeadAnchorToHeadBottom(
+				new HeadPivotSelection(ancestor.name, pivot, "neck top center"), headBottom);
 		}
 
 		for (BedrockBone ancestor : ancestors) {
 			Vec3f pivot = computeNonHeadSubtreeTopCenter(ancestor, childrenMap, false);
-			if (pivot != null) return new HeadPivotSelection(ancestor.name, pivot, "nearest neck geometry top center");
+			if (pivot != null) return clampHeadAnchorToHeadBottom(
+				new HeadPivotSelection(ancestor.name, pivot, "nearest neck geometry top center"), headBottom);
 		}
 
-		return !ancestors.isEmpty() ? new HeadPivotSelection(ancestors.get(0).name,
-			ancestors.get(0).pivot, "head parent pivot") : null;
+		return !ancestors.isEmpty() ? clampHeadAnchorToHeadBottom(new HeadPivotSelection(ancestors.get(0).name,
+			ancestors.get(0).pivot, "head parent pivot"), headBottom) : null;
+	}
+
+	private static HeadPivotSelection clampHeadAnchorToHeadBottom(HeadPivotSelection selection,
+			Vec3f headBottom) {
+		if (selection == null || headBottom == null) return selection;
+		if (selection.pivot.y <= headBottom.y + 0.01f) return selection;
+		return new HeadPivotSelection(selection.boneName,
+			new Vec3f(selection.pivot.x, headBottom.y, selection.pivot.z),
+			selection.reason + ", clamped to head seam");
+	}
+
+	private static Vec3f computeSubtreeBottomCenter(BedrockBone root,
+			Map<String, List<BedrockBone>> childrenMap) {
+		BoundsAccumulator bounds = new BoundsAccumulator();
+		collectSubtreeBounds(root, childrenMap, bounds);
+		return bounds.hasBounds() ? bounds.bottomCenter() : null;
+	}
+
+	private static void collectSubtreeBounds(BedrockBone bone,
+			Map<String, List<BedrockBone>> childrenMap, BoundsAccumulator bounds) {
+		for (BedrockCube cube : bone.cubes) {
+			bounds.include(cube);
+		}
+		List<BedrockBone> children = childrenMap.get(bone.name);
+		if (children != null) {
+			for (BedrockBone child : children) {
+				collectSubtreeBounds(child, childrenMap, bounds);
+			}
+		}
 	}
 
 	private static Vec3f computeNonHeadSubtreeTopCenter(BedrockBone root,
@@ -490,6 +529,8 @@ public class YsmToCpmConverter {
 		private float maxZ = Float.NEGATIVE_INFINITY;
 
 		void include(BedrockCube cube) {
+			if (Math.abs(cube.size.x) < 0.001f && Math.abs(cube.size.y) < 0.001f &&
+					Math.abs(cube.size.z) < 0.001f) return;
 			Vec3f origin = cube.origin;
 			Vec3f size = cube.size;
 			float inflate = cube.inflate;
@@ -507,6 +548,10 @@ public class YsmToCpmConverter {
 
 		Vec3f topCenter() {
 			return new Vec3f((minX + maxX) * 0.5f, maxY, (minZ + maxZ) * 0.5f);
+		}
+
+		Vec3f bottomCenter() {
+			return new Vec3f((minX + maxX) * 0.5f, minY, (minZ + maxZ) * 0.5f);
 		}
 	}
 
@@ -965,8 +1010,14 @@ public class YsmToCpmConverter {
 			if (target == null) continue;
 			String mapping = entry.getValue();
 			if (mapping != null && mapping.startsWith("#")) {
-				YsmModelData.ExtraAnimationControl control = ysmData.extraAnimationControls.get(mapping.substring(1));
-				applyExtraAnimationControl(target, control, mapping.substring(1));
+				String controlId = mapping.substring(1);
+				List<YsmModelData.ExtraAnimationControl> forms = ysmData.extraAnimationControlForms.get(controlId);
+				if (forms != null && forms.size() > 1) {
+					applyMultiFormControls(editor, target, forms, controlId, ysmData.controllerJson);
+				} else {
+					YsmModelData.ExtraAnimationControl control = ysmData.extraAnimationControls.get(controlId);
+					applyExtraAnimationControl(target, control, controlId);
+				}
 			} else if (target.type != AnimationType.CUSTOM_POSE) {
 				target.type = AnimationType.GESTURE;
 				target.pose = null;
@@ -987,6 +1038,201 @@ public class YsmToCpmConverter {
 			}
 			Log.info("[YSM Import] Initialized " + editor.animEnc.freeLayers.size() +
 				" encoding layers for " + editor.animations.size() + " animations");
+		}
+	}
+
+	private static void applyMultiFormControls(Editor editor, EditorAnim backingAnimation,
+			List<YsmModelData.ExtraAnimationControl> forms, String controlId, JsonObject controllerJson) {
+		retireBackingControlAnimation(backingAnimation, controlId);
+		Set<String> handledValueControls = new LinkedHashSet<>();
+		for (YsmModelData.ExtraAnimationControl form : forms) {
+			String type = form.type != null ? form.type : "checkbox";
+			if (("range".equalsIgnoreCase(type) || "radio".equalsIgnoreCase(type)) &&
+					form.value != null && hasRadioForm(forms, form.value) &&
+					!"radio".equalsIgnoreCase(type)) {
+				continue;
+			}
+			if (("range".equalsIgnoreCase(type) || "radio".equalsIgnoreCase(type)) &&
+					form.value != null && !handledValueControls.add(form.value)) {
+				continue;
+			}
+			if ("radio".equalsIgnoreCase(type) && !form.labels.isEmpty()) {
+				createRadioControl(editor, form, controllerJson);
+			} else {
+				EditorAnim synthetic = createSyntheticControlAnimation(editor, form.name, type);
+				if ("range".equalsIgnoreCase(type) && synthesizeValueControl(editor, synthetic, form, controllerJson)) {
+					continue;
+				}
+				applyExtraAnimationControl(synthetic, form, form.name != null ? form.name : controlId);
+			}
+		}
+	}
+
+	private static void retireBackingControlAnimation(EditorAnim target, String controlId) {
+		target.type = AnimationType.GESTURE;
+		target.pose = null;
+		target.layerControlled = false;
+		target.loop = false;
+		target.hidden = true;
+		target.displayName = controlId;
+		resetFrames(target, 1);
+	}
+
+	private static boolean hasRadioForm(List<YsmModelData.ExtraAnimationControl> forms, String value) {
+		for (YsmModelData.ExtraAnimationControl form : forms) {
+			if (value.equals(form.value) && "radio".equalsIgnoreCase(form.type) && !form.labels.isEmpty()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static void createRadioControl(Editor editor, YsmModelData.ExtraAnimationControl control,
+			JsonObject controllerJson) {
+		Map<Integer, String> valueAnimations = extractVariableAnimationMappings(controllerJson, control.value);
+		String group = control.name != null && !control.name.isEmpty() ? control.name : control.id;
+		int created = 0;
+		for (Map.Entry<String, String> label : control.labels.entrySet()) {
+			Integer value = parseAssignmentValue(label.getValue(), control.value);
+			if (value == null) continue;
+			EditorAnim layer = createSyntheticControlAnimation(editor, label.getKey(), "radio");
+			layer.type = AnimationType.LAYER;
+			layer.group = group;
+			layer.layerDefault = value == 0 ? 1 : 0;
+			String sourceName = valueAnimations.get(value);
+			EditorAnim source = sourceName != null ? findYsmAnimation(editor, sourceName) : null;
+			if (source != null) {
+				copyFirstFrame(source, layer.getFrames().get(0));
+				source.hidden = true;
+			}
+			created++;
+		}
+		if (created > 0) {
+			Log.info("[YSM Import] Synthesized radio control '" + group + "' with " + created + " option(s)");
+		}
+	}
+
+	private static boolean synthesizeValueControl(Editor editor, EditorAnim target,
+			YsmModelData.ExtraAnimationControl control, JsonObject controllerJson) {
+		Map<Integer, String> valueAnimations = extractVariableAnimationMappings(controllerJson, control.value);
+		if (valueAnimations.isEmpty()) return false;
+		int min = control.min;
+		int max = Math.max(control.max, min + 1);
+		resetFrames(target, Math.max(2, max - min + 1));
+		applyExtraAnimationControl(target, control, control.name);
+		target.interpolateValue = false;
+		for (int value = min; value <= max; value++) {
+			String sourceName = valueAnimations.get(value);
+			if (sourceName == null) continue;
+			EditorAnim source = findYsmAnimation(editor, sourceName);
+			if (source == null) continue;
+			copyFirstFrame(source, target.getFrames().get(value - min));
+			source.hidden = true;
+		}
+		Log.info("[YSM Import] Synthesized value control '" + target.displayName + "' from controller variable " + control.value);
+		return true;
+	}
+
+	private static Map<Integer, String> extractVariableAnimationMappings(JsonObject controllerJson, String variable) {
+		Map<Integer, String> mappings = new LinkedHashMap<>();
+		if (controllerJson == null || variable == null || variable.isEmpty()) return mappings;
+		collectVariableAnimationMappings(controllerJson, variable, mappings);
+		return mappings;
+	}
+
+	private static void collectVariableAnimationMappings(JsonElement element, String variable,
+			Map<Integer, String> mappings) {
+		if (element == null || element.isJsonNull()) return;
+		if (element.isJsonObject()) {
+			JsonObject obj = element.getAsJsonObject();
+			for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
+				if (entry.getValue().isJsonPrimitive() && entry.getValue().getAsJsonPrimitive().isString()) {
+					Integer value = parseEqualityValue(entry.getValue().getAsString(), variable);
+					if (value != null) mappings.putIfAbsent(value, entry.getKey());
+				}
+				collectVariableAnimationMappings(entry.getValue(), variable, mappings);
+			}
+		} else if (element.isJsonArray()) {
+			element.getAsJsonArray().forEach(child -> collectVariableAnimationMappings(child, variable, mappings));
+		}
+	}
+
+	private static Integer parseEqualityValue(String expression, String variable) {
+		String compact = expression.replace(" ", "");
+		String marker = variable + "==";
+		int index = compact.indexOf(marker);
+		if (index < 0) return null;
+		return parseLeadingInt(compact.substring(index + marker.length()));
+	}
+
+	private static Integer parseAssignmentValue(String expression, String variable) {
+		String compact = expression.replace(" ", "");
+		String marker = variable + "=";
+		int index = compact.indexOf(marker);
+		if (index < 0 || compact.startsWith(marker + "=")) return null;
+		return parseLeadingInt(compact.substring(index + marker.length()));
+	}
+
+	private static Integer parseLeadingInt(String text) {
+		int end = 0;
+		while (end < text.length() && (Character.isDigit(text.charAt(end)) ||
+				(end == 0 && text.charAt(end) == '-'))) {
+			end++;
+		}
+		if (end == 0) return null;
+		try {
+			return Integer.parseInt(text.substring(0, end));
+		} catch (NumberFormatException e) {
+			return null;
+		}
+	}
+
+	private static EditorAnim createSyntheticControlAnimation(Editor editor, String name, String type) {
+		EditorAnim anim = new EditorAnim(editor,
+			"ysm_control_" + sanitizeControlFileName(name != null ? name : type) + ".json",
+			AnimationType.LAYER, false);
+		anim.displayName = name;
+		anim.pose = null;
+		anim.loop = true;
+		anim.add = true;
+		anim.layerControlled = true;
+		anim.duration = 1000;
+		resetFrames(anim, 1);
+		editor.animations.add(anim);
+		return anim;
+	}
+
+	private static String sanitizeControlFileName(String name) {
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < name.length(); i++) {
+			char c = name.charAt(i);
+			if (Character.isLetterOrDigit(c) || c == '_' || c == '-') sb.append(c);
+			else sb.append('_');
+		}
+		return sb.length() > 0 ? sb.toString() : "control";
+	}
+
+	private static void resetFrames(EditorAnim anim, int count) {
+		anim.getFrames().clear();
+		for (int i = 0; i < count; i++) {
+			anim.getFrames().add(new AnimFrame(anim));
+		}
+		if (!anim.getFrames().isEmpty()) anim.setSelectedFrame(anim.getFrames().get(0));
+	}
+
+	private static void copyFirstFrame(EditorAnim source, AnimFrame targetFrame) {
+		if (source.getFrames().isEmpty()) return;
+		AnimFrame sourceFrame = source.getFrames().get(0);
+		for (ModelElement element : source.getComponentsFiltered()) {
+			IElem src = sourceFrame.getData(element);
+			if (src == null) continue;
+			FrameData dst = targetFrame.makeData(element);
+			dst.setPos(new Vec3f(src.getPosition()));
+			dst.setRot(new Vec3f(src.getRotation()));
+			dst.setScale(new Vec3f(src.getScale()));
+			dst.setColor(new Vec3f(src.getColor()));
+			dst.setShow(src.isVisible());
+			dst.setTextureId(src.getTextureId());
 		}
 	}
 
@@ -1025,6 +1271,95 @@ public class YsmToCpmConverter {
 			target.type = AnimationType.LAYER;
 			target.layerDefault = 0;
 		}
+		synthesizeEmptyControlVisibility(target, displayName, fallbackName, type);
+	}
+
+	private static void synthesizeEmptyControlVisibility(EditorAnim target,
+			String displayName, String fallbackName, String type) {
+		if (target.getComponentsFiltered().size() > 0) return;
+		List<ModelElement> elements = findVisibilityControlTargets(target.editor, displayName, fallbackName);
+		if (elements.isEmpty()) return;
+		if (target.getFrames().isEmpty()) target.addFrame(false);
+		boolean hideWhenActive = isHideWhenActiveControl(displayName, fallbackName);
+		boolean showWhenActive = !hideWhenActive && !"range".equalsIgnoreCase(type);
+		for (ModelElement element : elements) {
+			if (showWhenActive) element.hidden = true;
+			FrameData data = target.getFrames().get(0).makeData(element);
+			data.setShow(showWhenActive);
+		}
+		Log.info("[YSM Import] Synthesized visibility " + target.type.name().toLowerCase() +
+			" for empty YSM control '" + target.displayName + "' on " + elements.size() + " element(s)");
+	}
+
+	private static List<ModelElement> findVisibilityControlTargets(Editor editor,
+			String displayName, String fallbackName) {
+		Set<String> tokens = visibilityControlTokens(displayName, fallbackName);
+		if (tokens.isEmpty()) return List.of();
+		Set<ModelElement> candidates = new LinkedHashSet<>();
+		Editor.walkElements(editor.elements, element -> {
+			if (element.type == ElementType.ROOT_PART) return;
+			String normalized = normalizeBoneName(element.name);
+			for (String token : tokens) {
+				if (normalized.contains(token)) {
+					candidates.add(element);
+					break;
+				}
+			}
+		});
+		List<ModelElement> roots = new ArrayList<>();
+		for (ModelElement candidate : candidates) {
+			if (!hasAncestorIn(candidate, candidates)) roots.add(candidate);
+		}
+		return roots;
+	}
+
+	private static boolean hasAncestorIn(ModelElement element, Set<ModelElement> candidates) {
+		ModelElement parent = element.parent;
+		while (parent != null) {
+			if (candidates.contains(parent)) return true;
+			parent = parent.parent;
+		}
+		return false;
+	}
+
+	private static Set<String> visibilityControlTokens(String displayName, String fallbackName) {
+		Set<String> tokens = new LinkedHashSet<>();
+		String combined = ((displayName != null ? displayName : "") + " " +
+			(fallbackName != null ? fallbackName : "")).toLowerCase();
+		String normalized = normalizeBoneName(combined);
+		if (combined.contains("表情") || normalized.contains("expression") ||
+				normalized.contains("meme") || normalized.contains("emoji") ||
+				normalized.contains("biaoqing")) {
+			tokens.add("expression");
+			tokens.add("biaoqing");
+			tokens.add("meme");
+			tokens.add("emoji");
+		}
+		if (combined.contains("面具") || normalized.contains("mask") || normalized.contains("mianju")) {
+			tokens.add("mask");
+			tokens.add("mianju");
+		}
+		if (combined.contains("斗篷") || normalized.contains("cape") || normalized.contains("cloak") ||
+				normalized.contains("doupeng")) {
+			tokens.add("doupeng");
+			tokens.add("cape");
+			tokens.add("cloak");
+		}
+		if (combined.contains("盔甲") || normalized.contains("armor") || normalized.contains("armour")) {
+			tokens.add("armor");
+			tokens.add("armour");
+		}
+		return tokens;
+	}
+
+	private static boolean isHideWhenActiveControl(String displayName, String fallbackName) {
+		String combined = ((displayName != null ? displayName : "") + " " +
+			(fallbackName != null ? fallbackName : "")).toLowerCase();
+		String normalized = normalizeBoneName(combined);
+		return combined.contains("不显示") || combined.contains("隐藏") ||
+			normalized.contains("hide") || normalized.contains("hidden") ||
+			normalized.contains("disable") || normalized.contains("notdisplay") ||
+			normalized.contains("nodisplay") || normalized.contains("off");
 	}
 
 	// ========================================================================

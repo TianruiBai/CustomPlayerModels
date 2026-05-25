@@ -282,6 +282,7 @@ public class BedrockAnimationParser {
 		// so all gestures can be registered without hitting the limit.
 		if (type == AnimationType.GESTURE) {
 			anim.layerControlled = false;
+			if (isExternalAnimationSource(source)) anim.hidden = true;
 		}
 		anim.priority = overridePrev ? 10 : 0;
 		anim.intType = InterpolatorType.POLY_LOOP;
@@ -505,6 +506,11 @@ public class BedrockAnimationParser {
 		return source == null || "main".equalsIgnoreCase(source) || "arm".equalsIgnoreCase(source);
 	}
 
+	private static boolean isExternalAnimationSource(String source) {
+		return source != null && !"main".equalsIgnoreCase(source) &&
+			!"arm".equalsIgnoreCase(source) && !"extra".equalsIgnoreCase(source);
+	}
+
 	private static boolean hasVanillaNamespace(String animName) {
 		int colon = animName.indexOf(':');
 		if (colon <= 0) return false;
@@ -715,9 +721,22 @@ public class BedrockAnimationParser {
 				setOrAddPosition(data, value, inherited || !isZero(data.getPosition()));
 				break;
 			case SCALE:
-				data.setScale(new Vec3f(value));
+				data.setScale(sanitizeScale(value));
+				if (isZeroScale(value)) data.setShow(false);
 				break;
 		}
+	}
+
+	private static Vec3f sanitizeScale(Vec3f value) {
+		return new Vec3f(sanitizeScaleComponent(value.x), sanitizeScaleComponent(value.y), sanitizeScaleComponent(value.z));
+	}
+
+	private static float sanitizeScaleComponent(float value) {
+		return Math.abs(value) < 0.001f ? 0.01f : value;
+	}
+
+	private static boolean isZeroScale(Vec3f value) {
+		return Math.abs(value.x) < 0.001f && Math.abs(value.y) < 0.001f && Math.abs(value.z) < 0.001f;
 	}
 
 	private static void setOrAddRotation(FrameData data, Vec3f value, boolean add) {

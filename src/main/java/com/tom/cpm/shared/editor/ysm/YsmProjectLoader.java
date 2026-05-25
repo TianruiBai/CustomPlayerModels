@@ -7,7 +7,10 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -288,6 +291,8 @@ public class YsmProjectLoader {
 		String id = getString(buttonObj, "id", fallbackId);
 		if (id == null || id.isEmpty()) return;
 		YsmModelData.ExtraAnimationControl selected = null;
+		List<YsmModelData.ExtraAnimationControl> parsedForms = new ArrayList<>();
+		String buttonName = getString(buttonObj, "name", id);
 		JsonArray forms = buttonObj.getAsJsonArray("config_forms");
 		if (forms != null) {
 			for (JsonElement formElem : forms) {
@@ -295,11 +300,13 @@ public class YsmProjectLoader {
 				JsonObject form = formElem.getAsJsonObject();
 				YsmModelData.ExtraAnimationControl candidate = new YsmModelData.ExtraAnimationControl();
 				candidate.id = id;
-				candidate.name = getString(buttonObj, "name", id);
+				candidate.name = getString(form, "title", buttonName);
 				candidate.type = getString(form, "type", "checkbox");
 				candidate.value = getString(form, "value", null);
 				candidate.min = getInt(form, "min", 0);
 				candidate.max = getInt(form, "max", candidate.max);
+				candidate.labels = parseLabels(form);
+				parsedForms.add(candidate);
 				if (selected == null || controlPriority(candidate.type) > controlPriority(selected.type)) {
 					selected = candidate;
 				}
@@ -308,13 +315,28 @@ public class YsmProjectLoader {
 		if (selected == null) {
 			selected = new YsmModelData.ExtraAnimationControl();
 			selected.id = id;
-			selected.name = getString(buttonObj, "name", id);
+			selected.name = buttonName;
 			selected.type = getString(buttonObj, "type", "checkbox");
 			selected.value = getString(buttonObj, "value", null);
 			selected.min = getInt(buttonObj, "min", 0);
 			selected.max = getInt(buttonObj, "max", selected.max);
+			selected.labels = parseLabels(buttonObj);
+			parsedForms.add(selected);
 		}
 		data.extraAnimationControls.put(id, selected);
+		data.extraAnimationControlForms.put(id, parsedForms);
+	}
+
+	private static Map<String, String> parseLabels(JsonObject obj) {
+		Map<String, String> labels = new LinkedHashMap<>();
+		JsonObject labelsObj = obj.getAsJsonObject("labels");
+		if (labelsObj == null) return labels;
+		for (Map.Entry<String, JsonElement> entry : labelsObj.entrySet()) {
+			if (entry.getValue().isJsonPrimitive()) {
+				labels.put(entry.getKey(), entry.getValue().getAsString());
+			}
+		}
+		return labels;
 	}
 
 	private static int controlPriority(String type) {
