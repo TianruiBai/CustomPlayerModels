@@ -44,6 +44,12 @@ public class YsmModelData {
 	 * Default false for BlockBench/plugin geometry parity.
 	 */
 	public boolean preserveYsmScale;
+	/**
+	 * Optional import flag from ysm.json properties.
+	 * Default false keeps imported limb trees under BODY so vanilla arm/leg
+	 * pass-through does not double-drive YSM pose animations.
+	 */
+	public boolean flattenToAllPlayerParts;
 	public String defaultTexture;
 	/** Gesture name → animation name mappings from extra_animation section */
 	public Map<String, String> extraAnimations = new HashMap<>();

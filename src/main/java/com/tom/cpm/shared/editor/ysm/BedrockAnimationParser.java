@@ -9,6 +9,8 @@ import java.util.Map;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.tom.cpl.math.Mat3f;
+import com.tom.cpl.math.Rotation;
 import com.tom.cpl.math.Vec3f;
 import com.tom.cpm.shared.animation.AnimationType;
 import com.tom.cpm.shared.animation.IPose;
@@ -38,37 +40,82 @@ public class BedrockAnimationParser {
 
 	private static final int MAX_FRAMES = 240;
 
-	/** Maps common YSM animation name patterns to CPM VanillaPose values */
-	private static final Map<String, VanillaPose> NAME_TO_POSE = new LinkedHashMap<>();
+	public static class AnimationTarget {
+		public final ModelElement element;
+		public final String boneName;
+		public final boolean inherited;
+
+		public AnimationTarget(ModelElement element, String boneName, boolean inherited) {
+			this.element = element;
+			this.boneName = boneName;
+			this.inherited = inherited;
+		}
+	}
+
+	/** Maps common YSM animation state names to CPM VanillaPose triggers. */
+	private static final Map<String, VanillaPose> EXACT_NAME_TO_POSE = new LinkedHashMap<>();
+	private static final Map<String, VanillaPose> PATTERN_NAME_TO_POSE = new LinkedHashMap<>();
 	static {
-		NAME_TO_POSE.put("idle", VanillaPose.STANDING);
-		NAME_TO_POSE.put("walk", VanillaPose.WALKING);
-		NAME_TO_POSE.put("run", VanillaPose.RUNNING);
-		NAME_TO_POSE.put("sprint", VanillaPose.RUNNING);
-		NAME_TO_POSE.put("sneak", VanillaPose.SNEAKING);
-		NAME_TO_POSE.put("crouch", VanillaPose.SNEAKING);
-		NAME_TO_POSE.put("swim", VanillaPose.SWIMMING);
-		NAME_TO_POSE.put("fall", VanillaPose.FALLING);
-		NAME_TO_POSE.put("sleep", VanillaPose.SLEEPING);
-		NAME_TO_POSE.put("ride", VanillaPose.RIDING);
-		NAME_TO_POSE.put("fly", VanillaPose.FLYING);
-		NAME_TO_POSE.put("elytra", VanillaPose.CREATIVE_FLYING);
-		NAME_TO_POSE.put("die", VanillaPose.DYING);
-		NAME_TO_POSE.put("death", VanillaPose.DYING);
-		NAME_TO_POSE.put("jump", VanillaPose.JUMPING);
-		NAME_TO_POSE.put("hurt", VanillaPose.HURT);
-		NAME_TO_POSE.put("damage", VanillaPose.HURT);
-		NAME_TO_POSE.put("ladder", VanillaPose.ON_LADDER);
-		NAME_TO_POSE.put("climb", VanillaPose.CLIMBING_ON_LADDER);
-		NAME_TO_POSE.put("crawl", VanillaPose.CRAWLING);
-		NAME_TO_POSE.put("fire", VanillaPose.ON_FIRE);
-		NAME_TO_POSE.put("freeze", VanillaPose.FREEZING);
-		NAME_TO_POSE.put("invisible", VanillaPose.INVISIBLE);
-		NAME_TO_POSE.put("eating", VanillaPose.EATING_RIGHT);
-		NAME_TO_POSE.put("punch", VanillaPose.PUNCH_RIGHT);
-		NAME_TO_POSE.put("bow", VanillaPose.BOW_RIGHT);
-		NAME_TO_POSE.put("block", VanillaPose.BLOCKING_RIGHT);
-		NAME_TO_POSE.put("speak", VanillaPose.SPEAKING);
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.STANDING, "idle", "stand", "standing");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.WALKING, "walk", "walking");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.RUNNING, "run", "running", "sprint", "sprinting");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.SNEAK_WALK, "sneak", "sneak_walk");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.SNEAKING, "sneaking", "crouch", "crouching");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.SWIMMING, "swim", "swimming");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.RETRO_SWIMMING, "swim_stand", "swimstand", "retro_swim", "retro_swimming");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.FALLING, "fall", "falling");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.SLEEPING, "sleep", "sleeping");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.RIDING, "ride", "riding", "ride_pig", "boat", "sit", "sitting");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.CREATIVE_FLYING, "fly", "creative_fly", "creative_flying");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.FLYING, "elytra", "elytra_fly", "elytra_flying", "fall_flying");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.DYING, "die", "death", "dying");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.JUMPING, "jump", "jumping");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.HURT, "hurt", "damage", "attacked");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.CLIMBING_ON_LADDER, "climb");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.ON_LADDER, "ladder", "climbing");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.CRAWLING, "crawl", "crawling");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.ON_FIRE, "fire", "on_fire");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.FREEZING, "freeze", "freezing");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.INVISIBLE, "invisible", "invisibility");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.EATING_RIGHT, "eat", "eating", "drink", "drinking");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.PUNCH_RIGHT, "punch", "attack", "attacking");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.BOW_RIGHT, "bow", "bow_and_arrow");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.BLOCKING_RIGHT, "block", "blocking");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.SPEAKING, "speak", "speaking");
+
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.RETRO_SWIMMING, "swim_stand", "swimstand", "retro_swim", "retro_swimming");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.FLYING, "elytra_fly", "elytra_flying", "fall_flying", "elytra");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.CREATIVE_FLYING, "creative_fly", "creative_flying");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.SNEAK_WALK, "sneak_walk", "sneakwalk");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.SNEAKING, "sneaking", "crouching", "crouch");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.ON_LADDER, "climbing", "ladder");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.CLIMBING_ON_LADDER, "climb");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.WALKING, "walking", "walk");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.RUNNING, "running", "sprinting", "sprint", "run");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.SWIMMING, "swimming", "swim");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.CREATIVE_FLYING, "fly");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.STANDING, "standing", "stand", "idle");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.FALLING, "falling", "fall");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.SLEEPING, "sleeping", "sleep");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.RIDING, "riding", "ride", "boat", "sitting", "sit");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.DYING, "dying", "death", "die");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.JUMPING, "jumping", "jump");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.HURT, "attacked", "damage", "hurt");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.CRAWLING, "crawling", "crawl");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.ON_FIRE, "on_fire", "fire");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.FREEZING, "freezing", "freeze");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.INVISIBLE, "invisibility", "invisible");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.EATING_RIGHT, "eating", "drinking", "eat", "drink");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.PUNCH_RIGHT, "attacking", "attack", "punch");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.BOW_RIGHT, "bow_and_arrow", "bow");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.BLOCKING_RIGHT, "blocking", "block");
+		putPose(PATTERN_NAME_TO_POSE, VanillaPose.SPEAKING, "speaking", "speak");
+	}
+
+	private static void putPose(Map<String, VanillaPose> map, VanillaPose pose, String... names) {
+		for (String name : names) {
+			map.put(normalizeBoneName(name), pose);
+		}
 	}
 
 	/** Stores timeline events extracted from an animation for logging/reference */
@@ -85,13 +132,15 @@ public class BedrockAnimationParser {
 	 * Parse all animations from a Bedrock animation JSON and create CPM EditorAnims.
 	 * @param source         source label for gesture grouping (e.g. "tac", "extra")
 	 * @param worldPositions pre-computed YSM absolute world positions for each bone
+	 * @param parentRotations CPM parent rest rotation for each imported bone after hierarchy flattening
 	 * @param boneIndex      bone name → BedrockBone lookup for computing parent-relative positions
 	 */
 	public static List<EditorAnim> parse(JsonObject animJson, Editor editor,
-	                                     Map<String, ModelElement> boneNameToElement,
+	                                     Map<String, List<AnimationTarget>> boneNameToElement,
 	                                     AnimationType defaultType,
 	                                     String source,
 	                                     Map<String, Vec3f> worldPositions,
+	                                     Map<String, Vec3f> parentRotations,
 	                                     Map<String, BedrockBone> boneIndex) {
 		List<EditorAnim> results = new ArrayList<>();
 		if (animJson == null) return results;
@@ -107,7 +156,7 @@ public class BedrockAnimationParser {
 				if (animData == null) continue;
 
 				EditorAnim anim = convertAnimation(animName, animData, editor, boneNameToElement,
-					defaultType, source, worldPositions, boneIndex, missingTargets);
+					defaultType, source, worldPositions, parentRotations, boneIndex, missingTargets);
 				if (anim != null) {
 					results.add(anim);
 				}
@@ -142,10 +191,11 @@ public class BedrockAnimationParser {
 	 * regardless of CPM re-parenting.
 	 */
 	private static EditorAnim convertAnimation(String animName, JsonObject animData, Editor editor,
-	                                           Map<String, ModelElement> boneNameToElement,
+	                                           Map<String, List<AnimationTarget>> boneNameToElement,
 	                                           AnimationType defaultType,
 	                                           String source,
 	                                           Map<String, Vec3f> worldPositions,
+	                                           Map<String, Vec3f> parentRotations,
 	                                           Map<String, BedrockBone> boneIndex,
 	                                           Map<String, Integer> missingTargets) {
 		// ---- Determine animation type and pose ----
@@ -163,18 +213,16 @@ public class BedrockAnimationParser {
 		}
 
 		// Try name-based pose mapping
-		String lookupName = animName.toLowerCase(Locale.ROOT);
-		for (Map.Entry<String, VanillaPose> entry : NAME_TO_POSE.entrySet()) {
-			if (lookupName.contains(entry.getKey())) {
-				pose = entry.getValue();
-				type = AnimationType.POSE;
-				filenamePrefix = "v_" + entry.getValue().name().toLowerCase(Locale.ROOT) + "_";
-				break;
-			}
+		VanillaPose mappedPose = resolveVanillaPose(animName);
+		if (mappedPose != null) {
+			pose = mappedPose;
+			type = AnimationType.POSE;
+			filenamePrefix = "v_" + mappedPose.name().toLowerCase(Locale.ROOT) + "_";
 		}
 
 		// Direct VanillaPose enum match
 		if (pose == null) {
+			String lookupName = animName.toLowerCase(Locale.ROOT);
 			for (VanillaPose vp : VanillaPose.VALUES) {
 				if (lookupName.equals(vp.name().toLowerCase(Locale.ROOT))) {
 					pose = vp;
@@ -284,8 +332,8 @@ public class BedrockAnimationParser {
 		// Populate each bone's channel data at uniform sample times
 		boolean normalizeClosedPositionTracks = shouldNormalizeClosedPositionTracks(type, pose, loop, mustFinish);
 		for (String boneName : bonesObj.keySet()) {
-			ModelElement target = findTarget(boneName, boneNameToElement);
-			if (target == null) {
+			List<AnimationTarget> targets = findTargets(boneName, boneNameToElement);
+			if (targets == null || targets.isEmpty()) {
 				int channelCount = 0;
 				JsonObject missingBoneData = bonesObj.getAsJsonObject(boneName);
 				if (missingBoneData.has("rotation")) channelCount++;
@@ -297,31 +345,59 @@ public class BedrockAnimationParser {
 
 			JsonObject boneData = bonesObj.getAsJsonObject(boneName);
 
-			if (boneData.has("rotation")) {
-				sampleChannel(boneData.get("rotation"), boneName, target, anim, frameCount,
-					animLength, loop, ChannelType.ROTATION, false, worldPositions, boneIndex);
-			}
-			if (boneData.has("position")) {
-				sampleChannel(boneData.get("position"), boneName, target, anim, frameCount,
-					animLength, loop, ChannelType.POSITION, normalizeClosedPositionTracks, worldPositions, boneIndex);
-			}
-			if (boneData.has("scale")) {
-				sampleChannel(boneData.get("scale"), boneName, target, anim, frameCount,
-					animLength, loop, ChannelType.SCALE, false, worldPositions, boneIndex);
+			for (AnimationTarget target : targets) {
+				if (boneData.has("rotation")) {
+					sampleChannel(boneData.get("rotation"), boneName, target, anim, frameCount,
+						animLength, loop, ChannelType.ROTATION, false, worldPositions, parentRotations, boneIndex);
+				}
+				if (boneData.has("position")) {
+					sampleChannel(boneData.get("position"), boneName, target, anim, frameCount,
+						animLength, loop, ChannelType.POSITION, normalizeClosedPositionTracks, worldPositions, parentRotations, boneIndex);
+				}
+				if (boneData.has("scale")) {
+					sampleChannel(boneData.get("scale"), boneName, target, anim, frameCount,
+						animLength, loop, ChannelType.SCALE, false, worldPositions, parentRotations, boneIndex);
+				}
 			}
 		}
 
 		return anim;
 	}
 
-	private static ModelElement findTarget(String boneName, Map<String, ModelElement> boneNameToElement) {
-		ModelElement target = boneNameToElement.get(boneName);
+	private static VanillaPose resolveVanillaPose(String animName) {
+		String normalized = normalizeBoneName(animName);
+		VanillaPose pose = EXACT_NAME_TO_POSE.get(normalized);
+		if (pose != null) return pose;
+
+		String baseName = baseAnimationName(animName);
+		if (!baseName.equals(animName)) {
+			pose = EXACT_NAME_TO_POSE.get(normalizeBoneName(baseName));
+			if (pose != null) return pose;
+		}
+
+		for (VanillaPose vanillaPose : VanillaPose.VALUES) {
+			if (normalized.equals(normalizeBoneName(vanillaPose.name()))) return vanillaPose;
+		}
+		for (Map.Entry<String, VanillaPose> entry : PATTERN_NAME_TO_POSE.entrySet()) {
+			if (normalized.contains(entry.getKey())) return entry.getValue();
+		}
+		return null;
+	}
+
+	private static String baseAnimationName(String animName) {
+		int dot = Math.max(animName.lastIndexOf('.'), Math.max(animName.lastIndexOf(':'),
+			Math.max(animName.lastIndexOf('/'), animName.lastIndexOf('\\'))));
+		return dot >= 0 && dot + 1 < animName.length() ? animName.substring(dot + 1) : animName;
+	}
+
+	private static List<AnimationTarget> findTargets(String boneName, Map<String, List<AnimationTarget>> boneNameToElement) {
+		List<AnimationTarget> target = boneNameToElement.get(boneName);
 		if (target != null) return target;
-		for (Map.Entry<String, ModelElement> e : boneNameToElement.entrySet()) {
+		for (Map.Entry<String, List<AnimationTarget>> e : boneNameToElement.entrySet()) {
 			if (e.getKey().equalsIgnoreCase(boneName)) return e.getValue();
 		}
 		String normalized = normalizeBoneName(boneName);
-		for (Map.Entry<String, ModelElement> e : boneNameToElement.entrySet()) {
+		for (Map.Entry<String, List<AnimationTarget>> e : boneNameToElement.entrySet()) {
 			if (normalizeBoneName(e.getKey()).equals(normalized)) return e.getValue();
 		}
 		return null;
@@ -354,11 +430,12 @@ public class BedrockAnimationParser {
 	 * For static (array) channels, the same value is applied to all frames.
 	 * For looping animations, the value wraps from last back to first keyframe.
 	 */
-	private static void sampleChannel(JsonElement channelData, String boneName, ModelElement target,
+	private static void sampleChannel(JsonElement channelData, String boneName, AnimationTarget target,
 	                                  EditorAnim anim, int frameCount, float animLength,
 	                                  boolean loop, ChannelType channelType,
 	                                  boolean normalizeClosedPositionTracks,
 	                                  Map<String, Vec3f> worldPositions,
+	                                  Map<String, Vec3f> parentRotations,
 	                                  Map<String, BedrockBone> boneIndex) {
 		if (channelData == null) return;
 
@@ -376,15 +453,16 @@ public class BedrockAnimationParser {
 					boolean absolutePosition = channelType == ChannelType.POSITION &&
 						looksLikeAbsolutePosition(rawSamples, worldPositions.get(boneName));
 					value = toCpmDelta(value, channelType, boneName,
-						worldPositions, boneIndex, absolutePosition, null);
+						worldPositions, parentRotations, boneIndex, absolutePosition, null);
 					for (AnimFrame frame : anim.getFrames()) {
-						setValue(frame.makeData(target), value, channelType);
+						applyValue(getOrMakeData(frame, target.element), value, channelType,
+							boneName, target, worldPositions);
 					}
 				} else if (arr.size() == 1) {
 					float val = arr.get(0).getAsFloat();
 					if (channelType == ChannelType.SCALE) {
 						for (AnimFrame frame : anim.getFrames()) {
-							frame.makeData(target).setScale(new Vec3f(val, val, val));
+							getOrMakeData(frame, target.element).setScale(new Vec3f(val, val, val));
 						}
 					}
 				}
@@ -420,7 +498,7 @@ public class BedrockAnimationParser {
 		for (float[] rawSample : rawSamples) {
 			Vec3f raw = sampleVec(rawSample);
 			Vec3f delta = toCpmDelta(raw, channelType, boneName,
-				worldPositions, boneIndex, absolutePosition, positionBaseline);
+				worldPositions, parentRotations, boneIndex, absolutePosition, positionBaseline);
 			samples.add(new float[]{rawSample[0], delta.x, delta.y, delta.z});
 		}
 
@@ -437,8 +515,64 @@ public class BedrockAnimationParser {
 			}
 
 			Vec3f interpolated = interpolateSamples(samples, sampleTime, animLength, loop);
-			setValue(anim.getFrames().get(fi).makeData(target), interpolated, channelType);
+			applyValue(getOrMakeData(anim.getFrames().get(fi), target.element), interpolated,
+				channelType, boneName, target, worldPositions);
 		}
+	}
+
+	private static void applyValue(FrameData data, Vec3f value, ChannelType type,
+			String sourceBoneName, AnimationTarget target, Map<String, Vec3f> worldPositions) {
+		boolean inherited = target.inherited && !matchesBoneName(sourceBoneName, target.boneName);
+		switch (type) {
+			case ROTATION:
+				setOrAddRotation(data, value, inherited || !isZero(data.getRotation()));
+				if (inherited) {
+					Vec3f posDelta = inheritedRotationPivotDelta(value, sourceBoneName,
+						target.boneName, worldPositions);
+					if (!isZero(posDelta)) data.setPos(data.getPosition().add(posDelta));
+				}
+				break;
+			case POSITION:
+				setOrAddPosition(data, value, inherited || !isZero(data.getPosition()));
+				break;
+			case SCALE:
+				data.setScale(new Vec3f(value));
+				break;
+		}
+	}
+
+	private static void setOrAddRotation(FrameData data, Vec3f value, boolean add) {
+		data.setRot(add ? data.getRotation().add(value) : new Vec3f(value));
+	}
+
+	private static void setOrAddPosition(FrameData data, Vec3f value, boolean add) {
+		data.setPos(add ? data.getPosition().add(value) : new Vec3f(value));
+	}
+
+	private static Vec3f inheritedRotationPivotDelta(Vec3f rotationDeg, String sourceBoneName,
+			String targetBoneName, Map<String, Vec3f> worldPositions) {
+		if (isZero(rotationDeg)) return new Vec3f();
+		Vec3f sourcePivot = worldPositions.get(sourceBoneName);
+		Vec3f targetPivot = worldPositions.get(targetBoneName);
+		if (sourcePivot == null || targetPivot == null) return new Vec3f();
+
+		Vec3f offset = ysmPivotToCpm(targetPivot).sub(ysmPivotToCpm(sourcePivot));
+		Vec3f rotated = new Vec3f(offset);
+		rotated.transform(new Mat3f(new Rotation(rotationDeg, true).asQ()));
+		return rotated.sub(offset);
+	}
+
+	private static Vec3f ysmPivotToCpm(Vec3f pivot) {
+		return new Vec3f(pivot.x, 24f - pivot.y, pivot.z);
+	}
+
+	private static boolean matchesBoneName(String a, String b) {
+		return a != null && b != null && normalizeBoneName(a).equals(normalizeBoneName(b));
+	}
+
+	private static FrameData getOrMakeData(AnimFrame frame, ModelElement target) {
+		FrameData data = frame.getComponents().get(target);
+		return data != null ? data : frame.makeData(target);
 	}
 
 	/**
@@ -516,7 +650,8 @@ public class BedrockAnimationParser {
 	 * the 0/360 boundary.
 	 */
 	private static Vec3f toCpmDelta(Vec3f ysmValue, ChannelType channelType, String boneName,
-			Map<String, Vec3f> worldPositions, Map<String, BedrockBone> boneIndex,
+			Map<String, Vec3f> worldPositions, Map<String, Vec3f> parentRotations,
+			Map<String, BedrockBone> boneIndex,
 			boolean absolutePosition, Vec3f positionBaseline) {
 		if (channelType == ChannelType.ROTATION) {
 			return new Vec3f(
@@ -530,12 +665,16 @@ public class BedrockAnimationParser {
 			if (absolutePosition) {
 				Vec3f rest = worldPositions.get(boneName);
 				if (rest != null) delta = delta.sub(rest);
-				BedrockBone bone = boneIndex.get(boneName);
-				if (bone != null && bone.parent != null) {
-					BedrockBone parent = boneIndex.get(bone.parent);
-					if (parent != null) {
-						delta = YsmCoordUtil.worldDeltaToParentLocal(delta, parent.rotation);
+				Vec3f parentRotation = parentRotations.get(boneName);
+				if (parentRotation == null) {
+					BedrockBone bone = boneIndex.get(boneName);
+					if (bone != null && bone.parent != null) {
+						BedrockBone parent = boneIndex.get(bone.parent);
+						if (parent != null) parentRotation = parent.rotation;
 					}
+				}
+				if (parentRotation != null) {
+					delta = YsmCoordUtil.worldDeltaToParentLocal(delta, parentRotation);
 				}
 			} else if (positionBaseline != null) {
 				delta = delta.sub(positionBaseline);

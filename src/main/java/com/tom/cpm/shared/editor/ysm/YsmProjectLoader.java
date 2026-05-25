@@ -214,6 +214,12 @@ public class YsmProjectLoader {
 				getBoolean(properties, "cpm_preserve_scale", false) ||
 				getBoolean(properties, "preserve_scale", false) ||
 				getBoolean(properties, "import_scale_to_cpm", false);
+			String flattenMode = getString(properties, "cpm_flatten_mode", "head_body");
+			data.flattenToAllPlayerParts =
+				getBoolean(properties, "cpm_flatten_all_parts", false) ||
+				getBoolean(properties, "cpm_flatten_limbs", false) ||
+				"all_parts".equalsIgnoreCase(flattenMode) ||
+				"player_parts".equalsIgnoreCase(flattenMode);
 			data.defaultTexture = getString(properties, "default_texture", null);
 
 			// Extra animation mappings (gesture name → animation name)

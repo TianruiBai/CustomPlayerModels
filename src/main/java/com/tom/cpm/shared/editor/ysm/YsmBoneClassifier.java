@@ -86,7 +86,7 @@ public class YsmBoneClassifier {
 	);
 
 	private static void put(String name, PlayerModelParts part) {
-		NAME_MAP.put(name, part);
+		NAME_MAP.put(normalizeName(name), part);
 	}
 
 	private YsmBoneClassifier() {}
@@ -161,7 +161,17 @@ public class YsmBoneClassifier {
 	public static PlayerModelParts matchByName(String boneName) {
 		if (boneName == null) return null;
 		if (isUtilityBone(boneName)) return null; // utility bones don't map independently
-		return NAME_MAP.get(boneName.toLowerCase());
+		return NAME_MAP.get(normalizeName(boneName));
+	}
+
+	private static String normalizeName(String name) {
+		StringBuilder sb = new StringBuilder();
+		String lower = name.toLowerCase();
+		for (int i = 0; i < lower.length(); i++) {
+			char c = lower.charAt(i);
+			if (Character.isLetterOrDigit(c)) sb.append(c);
+		}
+		return sb.toString();
 	}
 
 	/** Strategy 2: classify by child name consensus.

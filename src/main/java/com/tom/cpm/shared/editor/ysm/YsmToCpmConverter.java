@@ -3,6 +3,7 @@ package com.tom.cpm.shared.editor.ysm;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,6 +22,7 @@ import com.tom.cpm.shared.editor.elements.ElementType;
 import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.editor.ysm.BedrockModelParser.BedrockBone;
 import com.tom.cpm.shared.editor.ysm.BedrockModelParser.BedrockCube;
+import com.tom.cpm.shared.editor.ysm.BedrockAnimationParser.AnimationTarget;
 import com.tom.cpm.shared.model.PlayerModelParts;
 import com.tom.cpm.shared.model.SkinType;
 import com.tom.cpm.shared.model.TextureSheetType;
@@ -34,12 +36,13 @@ import com.tom.cpm.shared.util.Log;
  * <ol>
  *   <li>Parse Bedrock JSON using {@link BedrockModelParser}</li>
  *   <li>Build bone lookup and parent→children maps</li>
- *   <li>Place all content under the CPM HEAD root part</li>
- *   <li>Set the HEAD root pos using the first YSM root bone's pivot:
- *       {@code pos = [pivot.x, 24 - pivot.y, pivot.z]}</li>
- *   <li>Recursively build each YSM root bone's subtree:
+ *   <li>Classify YSM bones into CPM head/body anchors</li>
+ *   <li>Cut head subtrees away from body control bones and attach them to
+ *       the CPM head root; body, arm, and leg subtrees stay under body by default</li>
+ *   <li>Recursively build each flattened subtree:
  *       <ul>
  *         <li>Bone pos = {@code [dx, -dy, dz]} where d = childPivot - parentPivot</li>
+ *         <li>Cut subtree root pos = YSM pivot converted relative to the CPM part pivot</li>
  *         <li>Bone rotation = 1:1 copy (local rotation, coord transform via position)</li>
  *         <li>Cube offset = {@code [pivot.x-(origin.x+size.x), pivot.y-(origin.y+size.y), origin.z-pivot.z]}</li>
  *         <li>Cube with own pivot: offset uses cube pivot; pos = rel to bone</li>
@@ -62,15 +65,16 @@ public class YsmToCpmConverter {
 		Map<String, BedrockBone> boneIndex = new LinkedHashMap<>();
 		for (BedrockBone b : mainBones) { boneIndex.put(b.name, b); }
 
-		Map<String, ModelElement> built = convertModel(mainBones, boneIndex, editor);
-		convertAnimations(ysmData, editor, built, boneIndex, mainBones);
+		ModelConversionResult model = convertModel(mainBones, boneIndex, editor,
+			ysmData.flattenToAllPlayerParts);
+		convertAnimations(ysmData, editor, model.elements, model.animationParentRotations, boneIndex, mainBones);
 		setupGestures(ysmData, editor);
 		loadTextures(ysmData, editor);
 		stabilizeSkinType(editor);
 		applyModelScale(ysmData, editor);
 		setMetadata(ysmData, editor);
 
-		Log.info("[YSM Import] Done — " + built.size() + " elements, " +
+		Log.info("[YSM Import] Done — " + model.elements.size() + " elements, " +
 			editor.animations.size() + " animations");
 	}
 
@@ -78,8 +82,8 @@ public class YsmToCpmConverter {
 	// Model Conversion
 	// ========================================================================
 
-	private static Map<String, ModelElement> convertModel(List<BedrockBone> allBones,
-			Map<String, BedrockBone> boneIndex, Editor editor) {
+	private static ModelConversionResult convertModel(List<BedrockBone> allBones,
+			Map<String, BedrockBone> boneIndex, Editor editor, boolean flattenToAllPlayerParts) {
 		// Hide all vanilla CPM root parts
 		for (ModelElement rootElem : editor.elements) {
 			rootElem.hidden = true;
@@ -92,17 +96,22 @@ public class YsmToCpmConverter {
 			childrenMap.computeIfAbsent(parentKey, k -> new ArrayList<>()).add(b);
 		}
 
-		// Find the CPM HEAD root — matching BlockBench plugin behaviour
-		ModelElement rootPart = findRootElement(editor, PlayerModelParts.HEAD);
-		if (rootPart == null) {
-			rootPart = findRootElement(editor, PlayerModelParts.BODY);
+		Map<PlayerModelParts, ModelElement> rootParts = new EnumMap<>(PlayerModelParts.class);
+		for (PlayerModelParts part : PlayerModelParts.VALUES) {
+			if (part == PlayerModelParts.CUSTOM_PART) continue;
+			ModelElement root = findRootElement(editor, part);
+			if (root != null) {
+				root.pos = new Vec3f();
+				root.rotation = new Vec3f();
+				rootParts.put(part, root);
+			}
 		}
-		if (rootPart == null) {
-			Log.error("[YSM Import] No HEAD or BODY root found, aborting");
-			return new HashMap<>();
+		if (rootParts.isEmpty()) {
+			Log.error("[YSM Import] No player root parts found, aborting");
+			return new ModelConversionResult(new HashMap<>(), new HashMap<>());
 		}
-		// Root part stays hidden (show=false) so vanilla geometry doesn't render.
-		// Custom children render independently of the root part's hidden flag.
+		// Root parts stay hidden so vanilla geometry does not render. Custom
+		// children still render and inherit the native part transforms.
 
 		// Find YSM root bones (no parent, or parent not in bone list)
 		List<BedrockBone> ysmRoots = new ArrayList<>();
@@ -112,24 +121,34 @@ public class YsmToCpmConverter {
 			}
 		}
 
-		// Reference pivot — the anchor for coordinate conversion
+		// Reference pivot is logged for diagnostics; flattened roots use native
+		// CPM part pivots as anchors.
 		Vec3f refPivot = ysmRoots.isEmpty() ? Vec3f.ZERO : new Vec3f(ysmRoots.get(0).pivot);
-		Log.info("[YSM Import] Ref pivot: " + refPivot + ", YSM roots: " + ysmRoots.size());
+		Log.info("[YSM Import] Ref pivot: " + refPivot + ", YSM roots: " + ysmRoots.size() +
+			", flatten mode: " + (flattenToAllPlayerParts ? "all player parts" : "head/body"));
 
-		// Set root part position. CPM uses Y-down internally (like Blockbench).
-		// 24 is the standard Minecraft head-height reference.
-		rootPart.pos = new Vec3f(refPivot.x, 24f - refPivot.y, refPivot.z);
-
-		// Recursively build the entire tree
 		Map<String, ModelElement> allElements = new HashMap<>();
+		Map<String, Vec3f> animationParentRotations = new HashMap<>();
+		Map<PlayerModelParts, Integer> partCounts = new EnumMap<>(PlayerModelParts.class);
 		for (BedrockBone ysmRoot : ysmRoots) {
-			buildBoneTree(ysmRoot, rootPart, refPivot, boneIndex, childrenMap,
-				allElements, editor);
+			buildBoneTree(ysmRoot, null, null, null, rootParts, boneIndex, childrenMap,
+				allBones, allElements, animationParentRotations, partCounts, editor,
+				flattenToAllPlayerParts);
 		}
 
-		Log.info("[YSM Import] Built " + allElements.size() + " elements under " +
-			rootPart.typeData);
-		return allElements;
+		Log.info("[YSM Import] Built " + allElements.size() + " flattened elements: " + partCounts);
+		return new ModelConversionResult(allElements, animationParentRotations);
+	}
+
+	private static class ModelConversionResult {
+		final Map<String, ModelElement> elements;
+		final Map<String, Vec3f> animationParentRotations;
+
+		ModelConversionResult(Map<String, ModelElement> elements,
+				Map<String, Vec3f> animationParentRotations) {
+			this.elements = elements;
+			this.animationParentRotations = animationParentRotations;
+		}
 	}
 
 	/**
@@ -137,16 +156,37 @@ public class YsmToCpmConverter {
 	 * Bones with cubes get cube child elements. Pure container bones are kept
 	 * but hidden if they have no geometry.
 	 */
-	private static void buildBoneTree(BedrockBone bone, ModelElement cpmParent,
-			Vec3f refPivot, Map<String, BedrockBone> boneIndex,
+	private static void buildBoneTree(BedrockBone bone, ModelElement ysmParentElem,
+			BedrockBone ysmParentBone, PlayerModelParts parentPart,
+			Map<PlayerModelParts, ModelElement> rootParts,
+			Map<String, BedrockBone> boneIndex,
 			Map<String, List<BedrockBone>> childrenMap,
-			Map<String, ModelElement> allElements, Editor editor) {
+			List<BedrockBone> allBones,
+			Map<String, ModelElement> allElements,
+			Map<String, Vec3f> animationParentRotations,
+			Map<PlayerModelParts, Integer> partCounts,
+			Editor editor,
+			boolean flattenToAllPlayerParts) {
+
+		PlayerModelParts part = classifyBoneForFlattening(bone, parentPart, allBones, boneIndex,
+			flattenToAllPlayerParts);
+		ModelElement cpmParent;
+		boolean cutToRoot = ysmParentElem == null || part != parentPart;
+		if (cutToRoot) {
+			cpmParent = rootParts.get(part);
+			if (cpmParent == null) cpmParent = rootParts.get(PlayerModelParts.BODY);
+			if (cpmParent == null) cpmParent = rootParts.values().iterator().next();
+		} else {
+			cpmParent = ysmParentElem;
+		}
 
 		ModelElement elem = new ModelElement(editor);
 		elem.name = bone.name;
 		elem.parent = cpmParent;
 		cpmParent.children.add(elem);
 		allElements.put(bone.name, elem);
+		animationParentRotations.put(bone.name,
+			ysmParentBone == null ? new Vec3f() : new Vec3f(ysmParentBone.rotation));
 
 		// Bone elements are containers, not renderable cubes.
 		// ElementType.NORMAL defaults size to [1,1,1] — override to [0,0,0].
@@ -154,14 +194,11 @@ public class YsmToCpmConverter {
 		elem.texture = true;
 		elem.textureSize = 1;
 
-		// --- Position: [dx, -dy, dz] ---
-		if (bone.parent != null) {
-			BedrockBone parentBone = boneIndex.get(bone.parent);
-			Vec3f ref = parentBone != null ? parentBone.pivot : refPivot;
-			Vec3f d = bone.pivot.sub(ref);
-			elem.pos = new Vec3f(d.x, -d.y, d.z);
+		// --- Position ---
+		if (cutToRoot) {
+			elem.pos = positionRelativeToRootPart(bone.pivot, part);
 		} else {
-			Vec3f d = bone.pivot.sub(refPivot);
+			Vec3f d = bone.pivot.sub(ysmParentBone.pivot);
 			elem.pos = new Vec3f(d.x, -d.y, d.z);
 		}
 
@@ -205,10 +242,66 @@ public class YsmToCpmConverter {
 		// --- Recurse into children ---
 		if (children != null) {
 			for (BedrockBone child : children) {
-				buildBoneTree(child, elem, refPivot, boneIndex, childrenMap,
-					allElements, editor);
+				buildBoneTree(child, elem, bone, part, rootParts, boneIndex, childrenMap,
+					allBones, allElements, animationParentRotations, partCounts, editor,
+					flattenToAllPlayerParts);
 			}
 		}
+		partCounts.merge(part, 1, Integer::sum);
+	}
+
+	private static PlayerModelParts classifyBoneForFlattening(BedrockBone bone,
+			PlayerModelParts parentPart, List<BedrockBone> allBones,
+			Map<String, BedrockBone> boneIndex, boolean flattenToAllPlayerParts) {
+		PlayerModelParts part = classifyBoneToPlayerPart(bone, parentPart, allBones, boneIndex);
+		if (flattenToAllPlayerParts) return part;
+		if (hasExplicitHeadBone(boneIndex)) {
+			return isInExplicitHeadSubtree(bone, boneIndex) ? PlayerModelParts.HEAD : PlayerModelParts.BODY;
+		}
+		return part == PlayerModelParts.HEAD ? PlayerModelParts.HEAD : PlayerModelParts.BODY;
+	}
+
+	private static boolean hasExplicitHeadBone(Map<String, BedrockBone> boneIndex) {
+		for (String boneName : boneIndex.keySet()) {
+			if (isExplicitHeadBone(boneName)) return true;
+		}
+		return false;
+	}
+
+	private static boolean isInExplicitHeadSubtree(BedrockBone bone,
+			Map<String, BedrockBone> boneIndex) {
+		BedrockBone current = bone;
+		while (current != null) {
+			if (isExplicitHeadBone(current.name)) return true;
+			current = current.parent != null ? boneIndex.get(current.parent) : null;
+		}
+		return false;
+	}
+
+	private static boolean isExplicitHeadBone(String boneName) {
+		return "head".equals(normalizeBoneName(boneName));
+	}
+
+	private static PlayerModelParts classifyBoneToPlayerPart(BedrockBone bone,
+			PlayerModelParts parentPart, List<BedrockBone> allBones,
+			Map<String, BedrockBone> boneIndex) {
+		if (isNeckBone(bone.name)) return PlayerModelParts.BODY;
+		if (parentPart != null && YsmBoneClassifier.isUtilityBone(bone.name)) return parentPart;
+		if (parentPart == null && YsmBoneClassifier.isUtilityBone(bone.name)) return PlayerModelParts.BODY;
+		PlayerModelParts named = YsmBoneClassifier.matchByName(bone.name);
+		if (named != null) return named;
+		if (parentPart != null) return parentPart;
+		return YsmBoneClassifier.classifySubtree(bone, allBones, boneIndex);
+	}
+
+	private static boolean isNeckBone(String boneName) {
+		return normalizeBoneName(boneName).contains("neck");
+	}
+
+	private static Vec3f positionRelativeToRootPart(Vec3f ysmPivot, PlayerModelParts part) {
+		Vec3f cpmPivot = new Vec3f(ysmPivot.x, 24f - ysmPivot.y, ysmPivot.z);
+		Vec3f partPivot = YsmCoordUtil.getVanillaPartPosition(part);
+		return cpmPivot.sub(partPivot);
 	}
 
 	/**
@@ -376,9 +469,10 @@ public class YsmToCpmConverter {
 
 	private static void convertAnimations(YsmModelData ysmData, Editor editor,
 			Map<String, ModelElement> builtElements,
+			Map<String, Vec3f> animationParentRotations,
 			Map<String, BedrockBone> boneIndex,
 			List<BedrockBone> allBones) {
-		Map<String, ModelElement> animationTargets = buildAnimationTargetMap(builtElements, boneIndex);
+		Map<String, List<AnimationTarget>> animationTargets = buildAnimationTargetMap(builtElements, boneIndex);
 
 		Map<String, Vec3f> worldPositions = new LinkedHashMap<>();
 		for (BedrockBone b : allBones) {
@@ -387,11 +481,11 @@ public class YsmToCpmConverter {
 
 		int total = 0;
 		total += parseAnim(ysmData.mainAnimJson, editor, animationTargets,
-			AnimationType.POSE, worldPositions, boneIndex, "main");
+			AnimationType.POSE, worldPositions, animationParentRotations, boneIndex, "main");
 		total += parseAnim(ysmData.armAnimJson, editor, animationTargets,
-			AnimationType.POSE, worldPositions, boneIndex, "arm");
+			AnimationType.POSE, worldPositions, animationParentRotations, boneIndex, "arm");
 		total += parseAnim(ysmData.extraAnimJson, editor, animationTargets,
-			AnimationType.GESTURE, worldPositions, boneIndex, "extra");
+			AnimationType.GESTURE, worldPositions, animationParentRotations, boneIndex, "extra");
 
 		for (Map.Entry<String, String> e : ysmData.extraAnimFiles.entrySet()) {
 			try {
@@ -402,7 +496,7 @@ public class YsmToCpmConverter {
 				String fileName = path.substring(path.lastIndexOf('/') + 1);
 				String srcName = fileName.replace(".animation.json", "").replace(".json", "");
 				total += parseAnim(json, editor, animationTargets,
-					AnimationType.GESTURE, worldPositions, boneIndex, srcName);
+					AnimationType.GESTURE, worldPositions, animationParentRotations, boneIndex, srcName);
 			} catch (Exception ex) {
 				Log.warn("[YSM Import] Failed extra anim: " + e.getKey(), ex);
 			}
@@ -410,14 +504,14 @@ public class YsmToCpmConverter {
 		Log.info("[YSM Import] Total animations: " + total);
 	}
 
-	private static Map<String, ModelElement> buildAnimationTargetMap(
+	private static Map<String, List<AnimationTarget>> buildAnimationTargetMap(
 			Map<String, ModelElement> builtElements, Map<String, BedrockBone> boneIndex) {
-		Map<String, ModelElement> targets = new LinkedHashMap<>();
+		Map<String, List<AnimationTarget>> targets = new LinkedHashMap<>();
 		for (String boneName : boneIndex.keySet()) {
 			ModelElement elem = builtElements.get(boneName);
-			if (elem != null) targets.put(boneName, elem);
+			registerTarget(targets, boneName, elem);
 		}
-		builtElements.forEach(targets::putIfAbsent);
+		builtElements.forEach((name, elem) -> registerTarget(targets, name, elem));
 		int before = targets.size();
 
 		String rootName = findRootBoneName(boneIndex, builtElements);
@@ -475,6 +569,11 @@ public class YsmToCpmConverter {
 			firstBoneName(boneIndex, builtElements, "LongHair", "Hair", "hair")));
 		registerAlias(targets, "LongHead", elementForBone(builtElements,
 			firstBoneName(boneIndex, builtElements, "LongHead", "Head", "head")));
+		registerInheritedCutTargets(targets, builtElements, boneIndex);
+		registerInheritedBodyAliasesForCutTargets(targets, builtElements,
+			"Root", "root", "MAllBody", "AllBody", "Allbody", "Body", "body",
+			"MUpperBody", "UpperBody", "UpBody", "Arm", "DownBody", "LowerBody",
+			"Hips", "Pelvis", "Waist");
 
 		int aliases = targets.size() - before;
 		if (aliases > 0) {
@@ -483,8 +582,49 @@ public class YsmToCpmConverter {
 		return targets;
 	}
 
-	private static void registerAlias(Map<String, ModelElement> targets, String alias, ModelElement elem) {
-		if (alias != null && elem != null) targets.putIfAbsent(alias, elem);
+	private static void registerInheritedCutTargets(Map<String, List<AnimationTarget>> targets,
+			Map<String, ModelElement> builtElements, Map<String, BedrockBone> boneIndex) {
+		for (BedrockBone bone : boneIndex.values()) {
+			ModelElement elem = builtElements.get(bone.name);
+			if (elem == null || elem.parent == null || elem.parent.type != ElementType.ROOT_PART) continue;
+			String ancestor = bone.parent;
+			while (ancestor != null && boneIndex.containsKey(ancestor)) {
+				registerTarget(targets, ancestor, elem, true);
+				BedrockBone parent = boneIndex.get(ancestor);
+				ancestor = parent != null ? parent.parent : null;
+			}
+		}
+	}
+
+	private static void registerInheritedBodyAliasesForCutTargets(
+			Map<String, List<AnimationTarget>> targets,
+			Map<String, ModelElement> builtElements,
+			String... aliases) {
+		for (ModelElement elem : builtElements.values()) {
+			if (elem.parent == null || elem.parent.type != ElementType.ROOT_PART ||
+				elem.parent.typeData != PlayerModelParts.HEAD) continue;
+			for (String alias : aliases) {
+				registerTarget(targets, alias, elem, true);
+			}
+		}
+	}
+
+	private static void registerAlias(Map<String, List<AnimationTarget>> targets, String alias, ModelElement elem) {
+		registerTarget(targets, alias, elem);
+	}
+
+	private static void registerTarget(Map<String, List<AnimationTarget>> targets, String name, ModelElement elem) {
+		registerTarget(targets, name, elem, false);
+	}
+
+	private static void registerTarget(Map<String, List<AnimationTarget>> targets, String name,
+			ModelElement elem, boolean inherited) {
+		if (name == null || elem == null) return;
+		List<AnimationTarget> list = targets.computeIfAbsent(name, k -> new ArrayList<>());
+		for (AnimationTarget target : list) {
+			if (target.element == elem && target.inherited == inherited) return;
+		}
+		list.add(new AnimationTarget(elem, elem.name, inherited));
 	}
 
 	private static ModelElement elementForBone(Map<String, ModelElement> builtElements, String boneName) {
@@ -551,13 +691,14 @@ public class YsmToCpmConverter {
 	}
 
 	private static int parseAnim(com.google.gson.JsonObject json, Editor editor,
-			Map<String, ModelElement> builtElements, AnimationType type,
-			Map<String, Vec3f> worldPositions, Map<String, BedrockBone> boneIndex,
+			Map<String, List<AnimationTarget>> builtElements, AnimationType type,
+			Map<String, Vec3f> worldPositions, Map<String, Vec3f> animationParentRotations,
+			Map<String, BedrockBone> boneIndex,
 			String source) {
 		if (json == null) return 0;
 		try {
 			List<EditorAnim> anims = BedrockAnimationParser.parse(json, editor,
-				builtElements, type, source, worldPositions, boneIndex);
+				builtElements, type, source, worldPositions, animationParentRotations, boneIndex);
 			editor.animations.addAll(anims);
 			if (!anims.isEmpty()) {
 				Log.info("[YSM Import] " + source + ": " + anims.size() + " animations");
