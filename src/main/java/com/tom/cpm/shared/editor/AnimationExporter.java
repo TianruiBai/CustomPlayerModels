@@ -64,6 +64,7 @@ public class AnimationExporter {
 		SerializedTrigger tr = new SerializedTrigger();
 		if (a.pose instanceof VanillaPose) {
 			tr.pose = (VanillaPose) a.pose;
+			tr.looping = a.loop;
 			tr.mustFinish = a.mustFinish;
 		} else if(a.type == AnimationType.CUSTOM_POSE || a.type == AnimationType.GESTURE || a.type == AnimationType.TEXTURE || a.type.isLayer()) {
 			tr.looping = a.type == AnimationType.GESTURE ? a.loop : true;

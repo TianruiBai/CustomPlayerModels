@@ -726,8 +726,14 @@ public class ModelPartAnimation implements IModelPart, IResolvedModelPart {
 		parsedData.values().forEach(rd -> {
 			if(rd.pose instanceof VanillaPose) {
 				if(rd.hasItemTrigger()) {
+					boolean loop = rd.loop;
+					boolean mustFinish = rd.finish;
+					if ("use".equals(rd.triggerAction) && !((VanillaPose) rd.pose).hasStateGetter()) {
+						loop = false;
+						mustFinish = true;
+					}
 					reg.register(new ItemAnimationTrigger(reg, Collections.singleton(rd.pose), (VanillaPose) rd.pose,
-						Collections.singletonList(rd.anim), true, rd.finish, rd.triggerItem, rd.triggerHand,
+						Collections.singletonList(rd.anim), loop, mustFinish, rd.triggerItem, rd.triggerHand,
 						rd.triggerAction, rd.triggerUseAnimation));
 				} else {
 					state.addPose(rd.pose, rd.anim, rd.finish);

@@ -257,6 +257,9 @@ public class BedrockAnimationParser {
 				}
 			}
 		}
+		HandAnimationTiming handTiming = normalizeHandTiming(handSpec, mappedPose, loop, mustFinish);
+		loop = handTiming.loop;
+		mustFinish = handTiming.mustFinish;
 		float animLength = animData.has("animation_length") ? animData.get("animation_length").getAsFloat() : 1.0f;
 		JsonObject bonesObj = animData.getAsJsonObject("bones");
 		float keyedLength = findLastKeyframeTime(bonesObj);
@@ -536,6 +539,25 @@ public class BedrockAnimationParser {
 			this.action = action;
 			this.itemFilter = itemFilter;
 			this.useAnimation = useAnimation;
+		}
+	}
+
+	private static HandAnimationTiming normalizeHandTiming(HandAnimationSpec handSpec, VanillaPose pose,
+			boolean loop, boolean mustFinish) {
+		if (handSpec == null || pose == null) return new HandAnimationTiming(loop, mustFinish);
+		if ("use".equals(handSpec.action) && !pose.hasStateGetter()) {
+			return new HandAnimationTiming(false, true);
+		}
+		return new HandAnimationTiming(loop, mustFinish);
+	}
+
+	private static class HandAnimationTiming {
+		final boolean loop;
+		final boolean mustFinish;
+
+		HandAnimationTiming(boolean loop, boolean mustFinish) {
+			this.loop = loop;
+			this.mustFinish = mustFinish;
 		}
 	}
 
