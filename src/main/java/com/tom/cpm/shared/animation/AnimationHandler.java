@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import com.tom.cpm.shared.animation.AnimationEngine.AnimationMode;
 import com.tom.cpm.shared.definition.ModelDefinition;
@@ -57,7 +58,19 @@ public class AnimationHandler {
 	}
 
 	public void addAnimations(AnimationState state, List<AnimationTrigger> next, IPose pose) {
-		next.stream().filter(t -> t.canPlay(state, mode)).forEach(t -> {
+		List<AnimationTrigger> playable = next.stream().filter(t -> t.canPlay(state, mode)).collect(Collectors.toList());
+		int bestExclusiveScore = playable.stream()
+			.filter(AnimationTrigger::isExclusiveMatch)
+			.mapToInt(t -> t.getMatchScore(state, mode))
+			.max().orElse(-1);
+		if (bestExclusiveScore >= 0) {
+			AnimationTrigger best = playable.stream()
+				.filter(AnimationTrigger::isExclusiveMatch)
+				.filter(t -> t.getMatchScore(state, mode) == bestExclusiveScore)
+				.findFirst().orElse(null);
+			playable = best != null ? List.of(best) : List.of();
+		}
+		playable.forEach(t -> {
 			for (IAnimation a : t.animations) {
 				nextAnims.add(new NextAnim(a, t));
 			}

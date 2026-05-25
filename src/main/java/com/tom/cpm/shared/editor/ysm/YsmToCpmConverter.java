@@ -11,6 +11,7 @@ import java.util.Map;
 
 import com.tom.cpl.math.Vec2i;
 import com.tom.cpl.math.Vec3f;
+import com.tom.cpl.util.ItemSlot;
 import com.tom.cpl.util.Image;
 import com.tom.cpm.shared.editor.ETextures;
 import com.tom.cpm.shared.editor.Editor;
@@ -26,6 +27,7 @@ import com.tom.cpm.shared.editor.ysm.BedrockAnimationParser.AnimationTarget;
 import com.tom.cpm.shared.model.PlayerModelParts;
 import com.tom.cpm.shared.model.SkinType;
 import com.tom.cpm.shared.model.TextureSheetType;
+import com.tom.cpm.shared.model.render.ItemRenderer;
 import com.tom.cpm.shared.model.render.PerFaceUV;
 import com.tom.cpm.shared.util.Log;
 
@@ -138,8 +140,103 @@ public class YsmToCpmConverter {
 				flattenToAllPlayerParts);
 		}
 
+		attachItemRendererAnchors(allElements, boneIndex, editor);
+
 		Log.info("[YSM Import] Built " + allElements.size() + " flattened elements: " + partCounts);
 		return new ModelConversionResult(allElements, animationParentRotations);
+	}
+
+	private static void attachItemRendererAnchors(Map<String, ModelElement> allElements,
+			Map<String, BedrockBone> boneIndex, Editor editor) {
+		attachItemRendererAnchor(allElements, boneIndex, editor, ItemSlot.LEFT_HAND, PlayerModelParts.LEFT_ARM, true);
+		attachItemRendererAnchor(allElements, boneIndex, editor, ItemSlot.RIGHT_HAND, PlayerModelParts.RIGHT_ARM, false);
+	}
+
+	private static void attachItemRendererAnchor(Map<String, ModelElement> allElements,
+			Map<String, BedrockBone> boneIndex, Editor editor, ItemSlot slot,
+			PlayerModelParts fallbackPart, boolean left) {
+		if (hasItemRenderer(editor, slot)) return;
+		ModelElement parent = findBestItemAnchorParent(allElements, boneIndex, left);
+		if (parent == null) parent = findRootElement(editor, fallbackPart);
+		if (parent == null) return;
+
+		ModelElement anchor = new ModelElement(editor);
+		anchor.name = left ? "YSM Left Hand Item" : "YSM Right Hand Item";
+		anchor.parent = parent;
+		anchor.size = new Vec3f(0, 0, 0);
+		anchor.texture = false;
+		anchor.itemRenderer = new ItemRenderer(slot, 0);
+		parent.children.add(anchor);
+		Log.info("[YSM Import] Bound " + slot.name().toLowerCase() + " item transform to '" + parent.name + "'");
+	}
+
+	private static boolean hasItemRenderer(Editor editor, ItemSlot slot) {
+		final boolean[] found = new boolean[1];
+		Editor.walkElements(editor.elements, e -> {
+			if (e.itemRenderer != null && e.itemRenderer.slot == slot) found[0] = true;
+		});
+		return found[0];
+	}
+
+	private static ModelElement findBestItemAnchorParent(Map<String, ModelElement> allElements,
+			Map<String, BedrockBone> boneIndex, boolean left) {
+		ModelElement best = null;
+		int bestScore = Integer.MIN_VALUE;
+		for (Map.Entry<String, ModelElement> entry : allElements.entrySet()) {
+			String boneName = entry.getKey();
+			int score = handAnchorScore(boneName, boneIndex.get(boneName), boneIndex, left, entry.getValue());
+			if (score > bestScore) {
+				bestScore = score;
+				best = entry.getValue();
+			}
+		}
+		return bestScore > 0 ? best : null;
+	}
+
+	private static int handAnchorScore(String boneName, BedrockBone bone,
+			Map<String, BedrockBone> boneIndex, boolean left, ModelElement element) {
+		String normalized = normalizeBoneName(boneName);
+		if (!matchesHandSide(normalized, left)) return Integer.MIN_VALUE;
+		int score = 0;
+		PlayerModelParts namedPart = YsmBoneClassifier.matchByName(boneName);
+		if (namedPart == (left ? PlayerModelParts.LEFT_ARM : PlayerModelParts.RIGHT_ARM)) score += 40;
+		if (normalized.equals(left ? "lefthand" : "righthand") || normalized.equals(left ? "lhand" : "rhand")) score += 160;
+		if (normalized.contains("hand")) score += 120;
+		if (normalized.contains("item") || normalized.contains("weapon")) score += 110;
+		if (normalized.contains("wrist") || normalized.contains("palm")) score += 100;
+		if (normalized.contains("glove")) score += 80;
+		if (normalized.contains("forearm") || normalized.contains("lowerarm")) score += 40;
+		if (normalized.contains("arm")) score += 20;
+		if (bone != null) score += Math.min(30, boneDepth(bone, boneIndex) * 3);
+		if (element.hidden) score -= 80;
+		return score;
+	}
+
+	private static boolean matchesHandSide(String normalized, boolean left) {
+		if (left) {
+			return normalized.contains("left") || normalized.contains("lefthand") ||
+				normalized.contains("handleft") || normalized.contains("lhand") ||
+				((normalized.startsWith("l") || normalized.endsWith("l")) && containsHandAnchorToken(normalized));
+		}
+		return normalized.contains("right") || normalized.contains("righthand") ||
+			normalized.contains("handright") || normalized.contains("rhand") ||
+			((normalized.startsWith("r") || normalized.endsWith("r")) && containsHandAnchorToken(normalized));
+	}
+
+	private static boolean containsHandAnchorToken(String normalized) {
+		return normalized.contains("hand") || normalized.contains("arm") || normalized.contains("wrist") ||
+			normalized.contains("palm") || normalized.contains("glove") || normalized.contains("item") ||
+			normalized.contains("weapon");
+	}
+
+	private static int boneDepth(BedrockBone bone, Map<String, BedrockBone> boneIndex) {
+		int depth = 0;
+		BedrockBone current = bone;
+		while (current != null && current.parent != null && boneIndex.containsKey(current.parent)) {
+			depth++;
+			current = boneIndex.get(current.parent);
+		}
+		return depth;
 	}
 
 	private static class ModelConversionResult {

@@ -37,6 +37,14 @@ public class AnimationTrigger {
 		return true;
 	}
 
+	public int getMatchScore(AnimationState state, AnimationMode mode) {
+		return canPlay(state, mode) ? 0 : -1;
+	}
+
+	public boolean isExclusiveMatch() {
+		return false;
+	}
+
 	public static class ItemAnimationTrigger extends AnimationTrigger {
 		private final String itemFilter;
 		private final String hand;
@@ -54,15 +62,31 @@ public class AnimationTrigger {
 
 		@Override
 		public boolean canPlay(AnimationState state, AnimationMode mode) {
-			if (state == null) return false;
+			return getMatchScore(state, mode) >= 0;
+		}
+
+		@Override
+		public int getMatchScore(AnimationState state, AnimationMode mode) {
+			if (state == null) return -1;
 			Hand physicalHand = getPhysicalHand(state);
 			if ("use".equals(action)) {
-				if (state.usingAnimation == HandAnimation.NONE || state.activeHand != physicalHand) return false;
+				if (state.usingAnimation == HandAnimation.NONE || state.activeHand != physicalHand) return -1;
 			} else if ("swing".equals(action)) {
-				if (state.attackTime <= 0 || state.swingingHand != physicalHand) return false;
+				if (state.attackTime <= 0 || state.swingingHand != physicalHand) return -1;
 			}
-			if (useAnimation != null && state.usingAnimation != useAnimation) return false;
-			return matchesItem(getStack(state), itemFilter);
+			if (useAnimation != null && state.usingAnimation != useAnimation) return -1;
+			int itemScore = itemMatchScore(getStack(state), itemFilter);
+			if (itemScore < 0) return -1;
+			int score = 1 + itemScore;
+			if (hand != null) score += 10;
+			if (action != null) score += 20;
+			if (useAnimation != null) score += 50;
+			return score;
+		}
+
+		@Override
+		public boolean isExclusiveMatch() {
+			return true;
 		}
 
 		private static String clean(String value) {
@@ -103,43 +127,47 @@ public class AnimationTrigger {
 			}
 		}
 
-		private static boolean matchesItem(Stack stack, String filter) {
-			if (filter == null || filter.isEmpty()) return true;
+		private static int itemMatchScore(Stack stack, String filter) {
+			if (filter == null || filter.isEmpty()) return 0;
 			String normalizedFilter = filter.replace('$', ':').toLowerCase(Locale.ROOT);
 			String id = stack != null ? stack.getItemId().toLowerCase(Locale.ROOT) : "minecraft:air";
 			boolean empty = stack == null || stack.getCount() <= 0 || "minecraft:air".equals(id);
-			if ("empty".equals(normalizedFilter) || "air".equals(normalizedFilter) || "minecraft:air".equals(normalizedFilter)) return empty;
-			if (empty) return false;
-			if (normalizedFilter.indexOf(':') >= 0) return id.equals(normalizedFilter) || inNativeTag(stack, normalizedFilter);
-			if (id.equals("minecraft:" + normalizedFilter) || id.endsWith(":" + normalizedFilter)) return true;
+			if ("empty".equals(normalizedFilter) || "air".equals(normalizedFilter) || "minecraft:air".equals(normalizedFilter)) return empty ? 2000 : -1;
+			if (empty) return -1;
+			if (normalizedFilter.indexOf(':') >= 0) {
+				if (id.equals(normalizedFilter)) return 3000;
+				return inNativeTag(stack, normalizedFilter) ? 900 : -1;
+			}
+			if (id.equals("minecraft:" + normalizedFilter) || id.endsWith(":" + normalizedFilter)) return 2500;
 			switch (normalizedFilter) {
 			case "sword":
-				return id.endsWith("_sword") || inNativeTag(stack, "minecraft:swords");
+				return id.endsWith("_sword") || inNativeTag(stack, "minecraft:swords") ? 1200 : -1;
 			case "pickaxe":
-				return id.endsWith("_pickaxe") || inNativeTag(stack, "minecraft:pickaxes");
+				return id.endsWith("_pickaxe") || inNativeTag(stack, "minecraft:pickaxes") ? 1200 : -1;
 			case "axe":
-				return id.endsWith("_axe") || inNativeTag(stack, "minecraft:axes");
+				return id.endsWith("_axe") || inNativeTag(stack, "minecraft:axes") ? 1200 : -1;
 			case "shovel":
-				return id.endsWith("_shovel") || inNativeTag(stack, "minecraft:shovels");
+				return id.endsWith("_shovel") || inNativeTag(stack, "minecraft:shovels") ? 1200 : -1;
 			case "hoe":
-				return id.endsWith("_hoe") || inNativeTag(stack, "minecraft:hoes");
+				return id.endsWith("_hoe") || inNativeTag(stack, "minecraft:hoes") ? 1200 : -1;
 			case "fishing":
 			case "fishingrod":
 			case "fishing_rod":
-				return "minecraft:fishing_rod".equals(id);
+				return "minecraft:fishing_rod".equals(id) ? 2500 : -1;
 			case "spear":
 			case "trident":
-				return "minecraft:trident".equals(id);
+				return "minecraft:trident".equals(id) ? 2500 : -1;
 			case "potion":
 			case "throwablepotion":
 			case "throwable_potion":
-				return id.endsWith(":potion") || id.endsWith(":splash_potion") || id.endsWith(":lingering_potion");
+				return id.endsWith(":potion") || id.endsWith(":splash_potion") || id.endsWith(":lingering_potion") ? 1200 : -1;
 			case "goathorn":
 			case "goat_horn":
 			case "horn":
-				return "minecraft:goat_horn".equals(id);
+				return "minecraft:goat_horn".equals(id) ? 2500 : -1;
 			default:
-				return id.endsWith("_" + normalizedFilter) || inNativeTag(stack, "minecraft:" + normalizedFilter) || inNativeTag(stack, "minecraft:" + normalizedFilter + "s");
+				if (id.endsWith("_" + normalizedFilter)) return 700;
+				return inNativeTag(stack, "minecraft:" + normalizedFilter) || inNativeTag(stack, "minecraft:" + normalizedFilter + "s") ? 900 : -1;
 			}
 		}
 
