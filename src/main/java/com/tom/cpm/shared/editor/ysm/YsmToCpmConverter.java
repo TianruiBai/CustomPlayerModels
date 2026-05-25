@@ -378,18 +378,19 @@ public class YsmToCpmConverter {
 			Map<String, ModelElement> builtElements,
 			Map<String, BedrockBone> boneIndex,
 			List<BedrockBone> allBones) {
+		Map<String, ModelElement> animationTargets = buildAnimationTargetMap(builtElements, boneIndex);
 
 		Map<String, Vec3f> worldPositions = new LinkedHashMap<>();
 		for (BedrockBone b : allBones) {
-			worldPositions.put(b.name, new Vec3f(0, 0, 0));
+			worldPositions.put(b.name, YsmCoordUtil.computeYsmWorldPosition(b.name, boneIndex));
 		}
 
 		int total = 0;
-		total += parseAnim(ysmData.mainAnimJson, editor, builtElements,
+		total += parseAnim(ysmData.mainAnimJson, editor, animationTargets,
 			AnimationType.POSE, worldPositions, boneIndex, "main");
-		total += parseAnim(ysmData.armAnimJson, editor, builtElements,
+		total += parseAnim(ysmData.armAnimJson, editor, animationTargets,
 			AnimationType.POSE, worldPositions, boneIndex, "arm");
-		total += parseAnim(ysmData.extraAnimJson, editor, builtElements,
+		total += parseAnim(ysmData.extraAnimJson, editor, animationTargets,
 			AnimationType.GESTURE, worldPositions, boneIndex, "extra");
 
 		for (Map.Entry<String, String> e : ysmData.extraAnimFiles.entrySet()) {
@@ -400,13 +401,153 @@ public class YsmToCpmConverter {
 				String path = e.getKey();
 				String fileName = path.substring(path.lastIndexOf('/') + 1);
 				String srcName = fileName.replace(".animation.json", "").replace(".json", "");
-				total += parseAnim(json, editor, builtElements,
+				total += parseAnim(json, editor, animationTargets,
 					AnimationType.GESTURE, worldPositions, boneIndex, srcName);
 			} catch (Exception ex) {
 				Log.warn("[YSM Import] Failed extra anim: " + e.getKey(), ex);
 			}
 		}
 		Log.info("[YSM Import] Total animations: " + total);
+	}
+
+	private static Map<String, ModelElement> buildAnimationTargetMap(
+			Map<String, ModelElement> builtElements, Map<String, BedrockBone> boneIndex) {
+		Map<String, ModelElement> targets = new LinkedHashMap<>();
+		for (String boneName : boneIndex.keySet()) {
+			ModelElement elem = builtElements.get(boneName);
+			if (elem != null) targets.put(boneName, elem);
+		}
+		builtElements.forEach(targets::putIfAbsent);
+		int before = targets.size();
+
+		String rootName = findRootBoneName(boneIndex, builtElements);
+		ModelElement root = elementForBone(builtElements, rootName);
+		String bodyName = firstBoneName(boneIndex, builtElements,
+			"AllBody", "Allbody", "UpBody", "Body", "body", "MAllBody");
+		ModelElement body = elementForBone(builtElements, bodyName);
+		if (body == null) body = root;
+		String upperBodyName = firstBoneName(boneIndex, builtElements,
+			"MUpperBody", "UpperBody", "Chest", "Torso", "UpBody");
+		ModelElement upperBody = elementForBone(builtElements, upperBodyName);
+		if (upperBody == null) upperBody = body;
+		String lowerBodyName = firstBoneName(boneIndex, builtElements,
+			"DownBody", "LowerBody", "Hips", "Pelvis", "Waist");
+		ModelElement lowerBody = elementForBone(builtElements, lowerBodyName);
+		if (lowerBody == null) lowerBody = body;
+
+		String leftLegName = firstBoneName(boneIndex, builtElements,
+			"LeftLeg", "left_leg", "LLeg", "LeftThigh", "thigh");
+		String rightLegName = firstBoneName(boneIndex, builtElements,
+			"RightLeg", "right_leg", "RLeg", "RightThigh", "thigh2");
+		String leftLowerLegName = firstBoneName(boneIndex, builtElements,
+			"LeftLowerLeg", "LeftCalf", "LeftShin");
+		if (leftLowerLegName == null) {
+			leftLowerLegName = descendantBoneName(boneIndex, leftLegName, "lowerleg", "calf", "shin");
+		}
+		String rightLowerLegName = firstBoneName(boneIndex, builtElements,
+			"RightLowerLeg", "RightCalf", "RightShin");
+		if (rightLowerLegName == null) {
+			rightLowerLegName = descendantBoneName(boneIndex, rightLegName, "lowerleg", "calf", "shin");
+		}
+		String leftFootName = firstBoneName(boneIndex, builtElements, "LeftFoot");
+		if (leftFootName == null) leftFootName = descendantBoneName(boneIndex, leftLegName, "foot");
+		String rightFootName = firstBoneName(boneIndex, builtElements, "RightFoot");
+		if (rightFootName == null) rightFootName = descendantBoneName(boneIndex, rightLegName, "foot");
+
+		registerAlias(targets, "Root", root);
+		registerAlias(targets, "root", root);
+		registerAlias(targets, "MAllBody", root != null ? root : body);
+		registerAlias(targets, "AllBody", body);
+		registerAlias(targets, "Allbody", body);
+		registerAlias(targets, "Body", body);
+		registerAlias(targets, "body", body);
+		registerAlias(targets, "MUpperBody", upperBody);
+		registerAlias(targets, "UpperBody", upperBody);
+		registerAlias(targets, "Arm", upperBody);
+		registerAlias(targets, "DownBody", lowerBody);
+		registerAlias(targets, "LeftLeg", elementForBone(builtElements, leftLegName));
+		registerAlias(targets, "RightLeg", elementForBone(builtElements, rightLegName));
+		registerAlias(targets, "LeftLowerLeg", elementForBone(builtElements, leftLowerLegName));
+		registerAlias(targets, "RightLowerLeg", elementForBone(builtElements, rightLowerLegName));
+		registerAlias(targets, "LeftFoot", elementForBone(builtElements, leftFootName));
+		registerAlias(targets, "RightFoot", elementForBone(builtElements, rightFootName));
+		registerAlias(targets, "LongHair", elementForBone(builtElements,
+			firstBoneName(boneIndex, builtElements, "LongHair", "Hair", "hair")));
+		registerAlias(targets, "LongHead", elementForBone(builtElements,
+			firstBoneName(boneIndex, builtElements, "LongHead", "Head", "head")));
+
+		int aliases = targets.size() - before;
+		if (aliases > 0) {
+			Log.info("[YSM Import] Added " + aliases + " animation target aliases");
+		}
+		return targets;
+	}
+
+	private static void registerAlias(Map<String, ModelElement> targets, String alias, ModelElement elem) {
+		if (alias != null && elem != null) targets.putIfAbsent(alias, elem);
+	}
+
+	private static ModelElement elementForBone(Map<String, ModelElement> builtElements, String boneName) {
+		return boneName != null ? builtElements.get(boneName) : null;
+	}
+
+	private static String findRootBoneName(Map<String, BedrockBone> boneIndex,
+			Map<String, ModelElement> builtElements) {
+		for (BedrockBone bone : boneIndex.values()) {
+			if ((bone.parent == null || !boneIndex.containsKey(bone.parent)) &&
+				builtElements.containsKey(bone.name)) {
+				return bone.name;
+			}
+		}
+		return null;
+	}
+
+	private static String firstBoneName(Map<String, BedrockBone> boneIndex,
+			Map<String, ModelElement> builtElements, String... candidates) {
+		for (String candidate : candidates) {
+			for (String boneName : boneIndex.keySet()) {
+				if (matchesBoneName(boneName, candidate) && builtElements.containsKey(boneName)) {
+					return boneName;
+				}
+			}
+		}
+		return null;
+	}
+
+	private static String descendantBoneName(Map<String, BedrockBone> boneIndex,
+			String ancestorName, String... normalizedTokens) {
+		if (ancestorName == null) return null;
+		for (String boneName : boneIndex.keySet()) {
+			if (!isDescendantOf(boneIndex, boneName, ancestorName)) continue;
+			String normalized = normalizeBoneName(boneName);
+			for (String token : normalizedTokens) {
+				if (normalized.contains(token)) return boneName;
+			}
+		}
+		return null;
+	}
+
+	private static boolean isDescendantOf(Map<String, BedrockBone> boneIndex,
+			String boneName, String ancestorName) {
+		BedrockBone bone = boneIndex.get(boneName);
+		while (bone != null && bone.parent != null) {
+			if (bone.parent.equals(ancestorName)) return true;
+			bone = boneIndex.get(bone.parent);
+		}
+		return false;
+	}
+
+	private static boolean matchesBoneName(String a, String b) {
+		return a.equalsIgnoreCase(b) || normalizeBoneName(a).equals(normalizeBoneName(b));
+	}
+
+	private static String normalizeBoneName(String name) {
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < name.length(); i++) {
+			char c = name.charAt(i);
+			if (Character.isLetterOrDigit(c)) sb.append(Character.toLowerCase(c));
+		}
+		return sb.toString();
 	}
 
 	private static int parseAnim(com.google.gson.JsonObject json, Editor editor,

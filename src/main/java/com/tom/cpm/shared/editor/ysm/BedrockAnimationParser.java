@@ -99,19 +99,38 @@ public class BedrockAnimationParser {
 		JsonObject animations = animJson.getAsJsonObject("animations");
 		if (animations == null) return results;
 
+		Map<String, Integer> missingTargets = new LinkedHashMap<>();
+
 		for (String animName : animations.keySet()) {
 			try {
 				JsonObject animData = animations.getAsJsonObject(animName);
 				if (animData == null) continue;
 
 				EditorAnim anim = convertAnimation(animName, animData, editor, boneNameToElement,
-					defaultType, source, worldPositions, boneIndex);
+					defaultType, source, worldPositions, boneIndex, missingTargets);
 				if (anim != null) {
 					results.add(anim);
 				}
 			} catch (Exception e) {
 				Log.warn("[YSM Import] Failed to convert animation '" + animName + "': " + e.getMessage());
 			}
+		}
+		if (!missingTargets.isEmpty()) {
+			int skippedChannels = 0;
+			StringBuilder sample = new StringBuilder();
+			int shown = 0;
+			for (Map.Entry<String, Integer> e : missingTargets.entrySet()) {
+				skippedChannels += e.getValue();
+				if (shown < 12) {
+					if (sample.length() > 0) sample.append(", ");
+					sample.append(e.getKey());
+					shown++;
+				}
+			}
+			if (missingTargets.size() > shown) sample.append(", ...");
+			Log.info("[YSM Import] " + (source != null ? source : "animations") +
+				": skipped " + skippedChannels + " channels for " + missingTargets.size() +
+				" unmapped animation target bones (" + sample + ")");
 		}
 		return results;
 	}
@@ -127,7 +146,8 @@ public class BedrockAnimationParser {
 	                                           AnimationType defaultType,
 	                                           String source,
 	                                           Map<String, Vec3f> worldPositions,
-	                                           Map<String, BedrockBone> boneIndex) {
+	                                           Map<String, BedrockBone> boneIndex,
+	                                           Map<String, Integer> missingTargets) {
 		// ---- Determine animation type and pose ----
 		AnimationType type = defaultType;
 		IPose pose = null;
@@ -262,36 +282,66 @@ public class BedrockAnimationParser {
 		}
 
 		// Populate each bone's channel data at uniform sample times
+		boolean normalizeClosedPositionTracks = shouldNormalizeClosedPositionTracks(type, pose, loop, mustFinish);
 		for (String boneName : bonesObj.keySet()) {
-			ModelElement target = boneNameToElement.get(boneName);
+			ModelElement target = findTarget(boneName, boneNameToElement);
 			if (target == null) {
-				target = boneNameToElement.entrySet().stream()
-					.filter(e -> e.getKey().equalsIgnoreCase(boneName))
-					.map(Map.Entry::getValue)
-					.findFirst().orElse(null);
+				int channelCount = 0;
+				JsonObject missingBoneData = bonesObj.getAsJsonObject(boneName);
+				if (missingBoneData.has("rotation")) channelCount++;
+				if (missingBoneData.has("position")) channelCount++;
+				if (missingBoneData.has("scale")) channelCount++;
+				missingTargets.merge(boneName, Math.max(1, channelCount), Integer::sum);
+				continue;
 			}
-			if (target == null) continue;
 
 			JsonObject boneData = bonesObj.getAsJsonObject(boneName);
 
 			if (boneData.has("rotation")) {
-				sampleChannel(boneData.get("rotation"), target, anim, frameCount,
-					animLength, loop, ChannelType.ROTATION);
+				sampleChannel(boneData.get("rotation"), boneName, target, anim, frameCount,
+					animLength, loop, ChannelType.ROTATION, false, worldPositions, boneIndex);
 			}
 			if (boneData.has("position")) {
-				sampleChannel(boneData.get("position"), target, anim, frameCount,
-					animLength, loop, ChannelType.POSITION);
+				sampleChannel(boneData.get("position"), boneName, target, anim, frameCount,
+					animLength, loop, ChannelType.POSITION, normalizeClosedPositionTracks, worldPositions, boneIndex);
 			}
 			if (boneData.has("scale")) {
-				sampleChannel(boneData.get("scale"), target, anim, frameCount,
-					animLength, loop, ChannelType.SCALE);
+				sampleChannel(boneData.get("scale"), boneName, target, anim, frameCount,
+					animLength, loop, ChannelType.SCALE, false, worldPositions, boneIndex);
 			}
 		}
 
 		return anim;
 	}
 
+	private static ModelElement findTarget(String boneName, Map<String, ModelElement> boneNameToElement) {
+		ModelElement target = boneNameToElement.get(boneName);
+		if (target != null) return target;
+		for (Map.Entry<String, ModelElement> e : boneNameToElement.entrySet()) {
+			if (e.getKey().equalsIgnoreCase(boneName)) return e.getValue();
+		}
+		String normalized = normalizeBoneName(boneName);
+		for (Map.Entry<String, ModelElement> e : boneNameToElement.entrySet()) {
+			if (normalizeBoneName(e.getKey()).equals(normalized)) return e.getValue();
+		}
+		return null;
+	}
+
+	private static String normalizeBoneName(String name) {
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < name.length(); i++) {
+			char c = name.charAt(i);
+			if (Character.isLetterOrDigit(c)) sb.append(Character.toLowerCase(c));
+		}
+		return sb.toString();
+	}
+
 	private enum ChannelType { ROTATION, POSITION, SCALE }
+
+	private static boolean shouldNormalizeClosedPositionTracks(AnimationType type, IPose pose,
+			boolean loop, boolean mustFinish) {
+		return type == AnimationType.POSE && pose != null && !loop && !mustFinish;
+	}
 
 	/**
 	 * Sample a bone channel at uniform time intervals and store FrameData.
@@ -304,9 +354,12 @@ public class BedrockAnimationParser {
 	 * For static (array) channels, the same value is applied to all frames.
 	 * For looping animations, the value wraps from last back to first keyframe.
 	 */
-	private static void sampleChannel(JsonElement channelData, ModelElement target,
+	private static void sampleChannel(JsonElement channelData, String boneName, ModelElement target,
 	                                  EditorAnim anim, int frameCount, float animLength,
-	                                  boolean loop, ChannelType channelType) {
+	                                  boolean loop, ChannelType channelType,
+	                                  boolean normalizeClosedPositionTracks,
+	                                  Map<String, Vec3f> worldPositions,
+	                                  Map<String, BedrockBone> boneIndex) {
 		if (channelData == null) return;
 
 		// --- Handle static array channels (non-keyframed) ---
@@ -318,7 +371,12 @@ public class BedrockAnimationParser {
 
 				if (arr.size() >= 3) {
 					Vec3f value = new Vec3f(arr.get(0).getAsFloat(), arr.get(1).getAsFloat(), arr.get(2).getAsFloat());
-					value = toCpmDelta(value, channelType, target);
+					List<float[]> rawSamples = new ArrayList<>();
+					rawSamples.add(new float[]{0, value.x, value.y, value.z});
+					boolean absolutePosition = channelType == ChannelType.POSITION &&
+						looksLikeAbsolutePosition(rawSamples, worldPositions.get(boneName));
+					value = toCpmDelta(value, channelType, boneName,
+						worldPositions, boneIndex, absolutePosition, null);
 					for (AnimFrame frame : anim.getFrames()) {
 						setValue(frame.makeData(target), value, channelType);
 					}
@@ -336,20 +394,35 @@ public class BedrockAnimationParser {
 
 		// --- Keyframed channel: build sorted [time, value] list ---
 		JsonObject keyframes = channelData.getAsJsonObject();
-		List<float[]> samples = new ArrayList<>();
+		List<float[]> rawSamples = new ArrayList<>();
 		for (String timeKey : keyframes.keySet()) {
 			try {
 				float time = Float.parseFloat(timeKey);
 				Vec3f raw = extractPostValue(keyframes.get(timeKey));
 				if (raw == null) continue;
-				Vec3f delta = toCpmDelta(raw, channelType, target);
-				samples.add(new float[]{time, delta.x, delta.y, delta.z});
+				rawSamples.add(new float[]{time, raw.x, raw.y, raw.z});
 			} catch (NumberFormatException ignored) {}
 		}
-		if (samples.isEmpty()) return;
+		if (rawSamples.isEmpty()) return;
 
 		// Sort by time
-		samples.sort((a, b) -> Float.compare(a[0], b[0]));
+		rawSamples.sort((a, b) -> Float.compare(a[0], b[0]));
+
+		boolean absolutePosition = channelType == ChannelType.POSITION &&
+			looksLikeAbsolutePosition(rawSamples, worldPositions.get(boneName));
+		Vec3f positionBaseline = null;
+		if (channelType == ChannelType.POSITION && !absolutePosition && normalizeClosedPositionTracks &&
+				isClosedPositionTrack(rawSamples)) {
+			positionBaseline = sampleVec(rawSamples.get(0));
+		}
+
+		List<float[]> samples = new ArrayList<>();
+		for (float[] rawSample : rawSamples) {
+			Vec3f raw = sampleVec(rawSample);
+			Vec3f delta = toCpmDelta(raw, channelType, boneName,
+				worldPositions, boneIndex, absolutePosition, positionBaseline);
+			samples.add(new float[]{rawSample[0], delta.x, delta.y, delta.z});
+		}
 
 		// --- Sample at each uniform frame time ---
 		for (int fi = 0; fi < frameCount; fi++) {
@@ -428,33 +501,85 @@ public class BedrockAnimationParser {
 	/**
 	 * Convert a Bedrock animation value to a CPM additive delta.
 	 * <p>
-	 * YSM rotation keyframes store ABSOLUTE rotations, but CPM additive
-	 * animations store DELTAS from the element's default. So we must
-	 * subtract the element's current default rotation.
+	 * YSM rotation keyframes are additive offsets from the bone's initial
+	 * rotation. The CPM model importer stores YSM bone rest rotations in the same
+	 * rotation basis, so keep animation rotations as raw additive deltas too.
 	 * <p>
-	 * YSM position keyframes are already offsets from the default pose,
-	 * so we only flip Y (Y-up → Y-down) to match model conventions.
+	 * YSM position keyframes are usually offsets from the default pose, but some
+	 * Bedrock exports store absolute pivot positions. Absolute-looking tracks are
+	 * converted back to additive deltas from the source rest pivot; closed transient
+	 * pose tracks can also subtract their repeated first/last offset.
 	 * <p>
 	 * Rotation deltas are kept as raw values (NOT wrapped to 0-360)
-	 * to preserve correct interpolation direction — wrapping causes
+	 * to preserve correct interpolation direction; wrapping causes
 	 * the interpolator to take the long way around when values cross
 	 * the 0/360 boundary.
 	 */
-	private static Vec3f toCpmDelta(Vec3f ysmValue, ChannelType channelType, ModelElement target) {
+	private static Vec3f toCpmDelta(Vec3f ysmValue, ChannelType channelType, String boneName,
+			Map<String, Vec3f> worldPositions, Map<String, BedrockBone> boneIndex,
+			boolean absolutePosition, Vec3f positionBaseline) {
 		if (channelType == ChannelType.ROTATION) {
-			// Absolute Bedrock rotation → CPM additive delta (raw, not wrapped)
 			return new Vec3f(
-				ysmValue.x - target.rotation.x,
-				ysmValue.y - target.rotation.y,
-				ysmValue.z - target.rotation.z
+				ysmValue.x,
+				ysmValue.y,
+				ysmValue.z
 			);
 		}
 		if (channelType == ChannelType.POSITION) {
-			// Bedrock position offset → CPM (Y-flip only)
-			return new Vec3f(ysmValue.x, -ysmValue.y, ysmValue.z);
+			Vec3f delta = new Vec3f(ysmValue);
+			if (absolutePosition) {
+				Vec3f rest = worldPositions.get(boneName);
+				if (rest != null) delta = delta.sub(rest);
+				BedrockBone bone = boneIndex.get(boneName);
+				if (bone != null && bone.parent != null) {
+					BedrockBone parent = boneIndex.get(bone.parent);
+					if (parent != null) {
+						delta = YsmCoordUtil.worldDeltaToParentLocal(delta, parent.rotation);
+					}
+				}
+			} else if (positionBaseline != null) {
+				delta = delta.sub(positionBaseline);
+			}
+			return new Vec3f(delta.x, -delta.y, delta.z);
 		}
 		// Scale: 1:1
 		return ysmValue;
+	}
+
+	private static boolean looksLikeAbsolutePosition(List<float[]> rawSamples, Vec3f defaultWorldPos) {
+		if (defaultWorldPos == null || isZero(defaultWorldPos) || rawSamples.isEmpty()) return false;
+		float tolerance = Math.max(1.0f, magnitude(defaultWorldPos) * 0.08f);
+		int close = 0;
+		for (float[] sample : rawSamples) {
+			if (distance(sampleVec(sample), defaultWorldPos) <= tolerance) close++;
+		}
+		return close > 0 && close * 2 >= rawSamples.size();
+	}
+
+	private static boolean isClosedPositionTrack(List<float[]> rawSamples) {
+		if (rawSamples.size() < 2) return false;
+		Vec3f first = sampleVec(rawSamples.get(0));
+		Vec3f last = sampleVec(rawSamples.get(rawSamples.size() - 1));
+		return !isZero(first) && distance(first, last) <= 0.01f;
+	}
+
+	private static Vec3f sampleVec(float[] sample) {
+		return new Vec3f(sample[1], sample[2], sample[3]);
+	}
+
+	private static float magnitude(Vec3f v) {
+		return (float) Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+	}
+
+	private static float distance(Vec3f a, Vec3f b) {
+		float dx = a.x - b.x;
+		float dy = a.y - b.y;
+		float dz = a.z - b.z;
+		return (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+	}
+
+	private static boolean isZero(Vec3f v) {
+		return Math.abs(v.x) <= 0.001f && Math.abs(v.y) <= 0.001f && Math.abs(v.z) <= 0.001f;
 	}
 
 	private static Vec3f extractPostValue(JsonElement keyframeData) {

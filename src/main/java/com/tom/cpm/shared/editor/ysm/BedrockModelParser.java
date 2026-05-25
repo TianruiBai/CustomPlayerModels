@@ -17,6 +17,7 @@ import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.model.PlayerModelParts;
 import com.tom.cpm.shared.model.render.PerFaceUV;
 import com.tom.cpm.shared.model.render.PerFaceUV.Face;
+import com.tom.cpm.shared.model.render.PerFaceUV.Rot;
 import com.tom.cpm.shared.util.Log;
 
 /**
@@ -161,17 +162,17 @@ public class BedrockModelParser {
 								JsonElement innerUvElem = faceUV.get("uv");
 								if (innerUvElem != null && innerUvElem.isJsonArray()) {
 									JsonArray uvArr = innerUvElem.getAsJsonArray();
-									fuv.u = scaleUv(uvArr.get(0).getAsInt(), uvScale);
-									fuv.v = scaleUv(uvArr.get(1).getAsInt(), uvScale);
+									fuv.u = scaleUv(uvArr.get(0).getAsFloat(), uvScale);
+									fuv.v = scaleUv(uvArr.get(1).getAsFloat(), uvScale);
 								}
 								JsonElement uvSizeElem = faceUV.get("uv_size");
 								if (uvSizeElem != null && uvSizeElem.isJsonArray()) {
 									JsonArray uvSizeArr = uvSizeElem.getAsJsonArray();
-									fuv.uvWidth = scaleUv(uvSizeArr.get(0).getAsInt(), uvScale);
-									fuv.uvHeight = scaleUv(uvSizeArr.get(1).getAsInt(), uvScale);
+									fuv.uvWidth = scaleUv(uvSizeArr.get(0).getAsFloat(), uvScale);
+									fuv.uvHeight = scaleUv(uvSizeArr.get(1).getAsFloat(), uvScale);
 								} else {
-									fuv.uvWidth = scaleUv((int) cube.size.x, uvScale);
-									fuv.uvHeight = scaleUv((int) cube.size.y, uvScale);
+									fuv.uvWidth = scaleUv(cube.size.x, uvScale);
+									fuv.uvHeight = scaleUv(cube.size.y, uvScale);
 								}
 								cube.faces.put(faceName.toLowerCase(), fuv);
 							}
@@ -179,7 +180,7 @@ public class BedrockModelParser {
 					} else if (uvElem != null && uvElem.isJsonArray()) {
 						// Bedrock box UV. Preserve as plain u/v so CPM can use its normal box layout.
 						JsonArray uvArr = uvElem.getAsJsonArray();
-						cube.simpleUV = new Vec2i(scaleUv(uvArr.get(0).getAsInt(), uvScale), scaleUv(uvArr.get(1).getAsInt(), uvScale));
+						cube.simpleUV = new Vec2i(scaleUv(uvArr.get(0).getAsFloat(), uvScale), scaleUv(uvArr.get(1).getAsFloat(), uvScale));
 					}
 					bone.cubes.add(cube);
 				}
@@ -277,18 +278,23 @@ public class BedrockModelParser {
 			if (dir == null) continue;
 			BedrockFaceUV fuv = entry.getValue();
 
-			// Skip faces with zero-size UV region (degenerate faces)
-			if (fuv.uvWidth == 0 || fuv.uvHeight == 0) continue;
-
 			Face face = new Face();
 
 			// Use signed uvWidth/uvHeight directly — negative values encode
 			// texture flipping (sx > ex = horizontal flip, sy > ey = vertical flip).
 			// CPM's renderer interprets inverted start/end as flipped UV.
-			face.sx = fuv.u;
-			face.sy = fuv.v;
-			face.ex = fuv.u + fuv.uvWidth;
-			face.ey = fuv.v + fuv.uvHeight;
+			if (dir == Direction.UP || dir == Direction.DOWN) {
+				face.sx = fuv.u + fuv.uvWidth;
+				face.sy = fuv.v + fuv.uvHeight;
+				face.ex = fuv.u;
+				face.ey = fuv.v;
+				face.rotation = Rot.ROT_180;
+			} else {
+				face.sx = fuv.u;
+				face.sy = fuv.v;
+				face.ex = fuv.u + fuv.uvWidth;
+				face.ey = fuv.v + fuv.uvHeight;
+			}
 
 			face.autoUV = false;
 			pfUV.faces.put(dir, face);
@@ -349,7 +355,7 @@ public class BedrockModelParser {
 		return e != null && !e.isJsonNull() ? e.getAsBoolean() : def;
 	}
 
-	private static int scaleUv(int value, int uvScale) {
-		return value * Math.max(1, uvScale);
+	private static int scaleUv(float value, int uvScale) {
+		return Math.round(value * Math.max(1, uvScale));
 	}
 }
