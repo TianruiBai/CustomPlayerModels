@@ -62,7 +62,7 @@ public class CommonApi extends SharedApi implements ICommonAPI {
 	public <P> void resetPlayerModel(Class<P> playerClass, P player) {
 		if(checkClass(playerClass, Clazz.PLAYER))return;
 		NetHandler<?, P, ?> h = (NetHandler<?, P, ?>) MinecraftServerAccess.get().getNetHandler();
-		h.setSkin(player, null, false, true);
+		h.setSkin(player, (String) null, false, true);
 	}
 
 	@SuppressWarnings("unchecked")

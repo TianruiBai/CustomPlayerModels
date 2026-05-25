@@ -380,7 +380,6 @@ public class MyModelsPopup extends PopupPanel {
 				tag.setLong("mid", modelId);
 				MinecraftClientAccess.get().getNetHandler().sendPacketToServer(new ModelDeleteReqC2S(tag));
 				serverEntries.remove(entry);
-				refreshServerModels();
 			}, null));
 	}
 

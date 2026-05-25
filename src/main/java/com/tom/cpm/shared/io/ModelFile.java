@@ -64,6 +64,14 @@ public class ModelFile {
 		}
 	}
 
+	public Link getOverflowLink() {
+		return link;
+	}
+
+	public byte[] getOverflowLocal() {
+		return overflowLocal;
+	}
+
 	public String getName() {
 		return name;
 	}

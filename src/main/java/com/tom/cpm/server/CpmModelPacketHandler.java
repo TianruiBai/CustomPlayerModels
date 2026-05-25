@@ -1,5 +1,6 @@
 package com.tom.cpm.server;
 
+import java.util.Arrays;
 import java.util.UUID;
 
 import com.tom.cpl.nbt.NBTTagCompound;
@@ -12,6 +13,7 @@ import com.tom.cpm.server.transfer.ChunkedReceiver;
 import com.tom.cpm.server.transfer.ChunkedReceiver.CompleteResult;
 import com.tom.cpm.server.transfer.ChunkedReceiver.InitResult;
 import com.tom.cpm.server.transfer.TransferResumeManager;
+import com.tom.cpm.shared.config.PlayerData;
 import com.tom.cpm.shared.network.IModelServerHandler;
 import com.tom.cpm.shared.network.NetH.ServerNetH;
 import com.tom.cpm.shared.network.NetHandler;
@@ -278,10 +280,9 @@ public class CpmModelPacketHandler implements IModelServerHandler {
             if (blob != null) {
                 byte[] modelData = blob.getDecrypted();
                 try {
-                    // Set the model as active skin via the existing SetSkin pipeline
-                    handler.setSkin((P) player, modelData, true);
-                    // Also save to PlayerData so it persists
-                    handler.getSNetH((P) player).cpm$getEncodedModelData().setModel(modelData, true, true);
+                    // Set active server models as a normal saved selection. Admin force is
+                    // represented by the model row's is_forced flag, not by Set Active.
+                    handler.setSkin((P) player, modelData, false, true);
                     Log.info("Active model set: player=" + uuid + " modelId=" + modelId + " size=" + modelData.length);
                 } finally {
                     com.tom.cpm.server.crypto.MemoryProtector.wipe(modelData);
@@ -318,12 +319,20 @@ public class CpmModelPacketHandler implements IModelServerHandler {
         NBTTagCompound resp = new NBTTagCompound();
         resp.setLong("mid", modelId);
 
+        byte[] deletedModelData = null;
         try {
+            com.tom.cpm.server.crypto.EncryptedModelBlob blob = modelService.getRepo().loadModelBlob(modelId);
+            if (blob != null) deletedModelData = blob.getDecrypted();
             boolean ok = modelService.getRepo().deleteModel(modelId, uuid.toString(), false);
             resp.setBoolean("ok", ok);
             resp.setString("status", ok ? "OK" : "NOT_FOUND");
 
             if (ok) {
+                PlayerData playerData = handler.getSNetH((P) player).cpm$getEncodedModelData();
+                if (deletedModelData != null && Arrays.equals(playerData.data, deletedModelData)) {
+                    handler.setSkin((P) player, (byte[]) null, false, true);
+                    Log.info("Cleared active model after delete: modelId=" + modelId + " player=" + uuid);
+                }
                 modelService.getRepo().logAction(uuid.toString(), "DELETE", uuid.toString(),
                     modelId, "Deleted by owner", null);
                 Log.info("Model deleted: modelId=" + modelId + " player=" + uuid);
@@ -333,6 +342,8 @@ public class CpmModelPacketHandler implements IModelServerHandler {
             resp.setBoolean("ok", false);
             resp.setString("status", "ERROR");
             resp.setString("msg", e.getMessage());
+        } finally {
+            if (deletedModelData != null) com.tom.cpm.server.crypto.MemoryProtector.wipe(deletedModelData);
         }
         handler.sendPacketTo(net, new ModelDeleteResultS2C(resp));
     }

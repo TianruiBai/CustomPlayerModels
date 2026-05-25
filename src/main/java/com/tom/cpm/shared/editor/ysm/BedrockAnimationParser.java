@@ -422,6 +422,9 @@ public class BedrockAnimationParser {
 		if ("horn".equals(item) || "goathorn".equals(item) || "toothorn".equals(item)) {
 			return left ? VanillaPose.TOOT_HORN_LEFT : VanillaPose.TOOT_HORN_RIGHT;
 		}
+		if (action.startsWith("hold") || action.startsWith("use")) {
+			return left ? VanillaPose.HOLDING_LEFT : VanillaPose.HOLDING_RIGHT;
+		}
 		return null;
 	}
 

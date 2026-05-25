@@ -6,7 +6,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import com.tom.cpm.shared.MinecraftClientAccess;
+import com.tom.cpm.shared.definition.Link;
+
 public final class LocalModelFiles {
+	public static final String LOCAL_OVERFLOW_LOADER = "cpmdb_overflow";
+
 	private LocalModelFiles() {
 	}
 
@@ -39,6 +44,21 @@ public final class LocalModelFiles {
 		collectModels(modelsDir, models);
 		models.sort((a, b) -> a.getPath().compareToIgnoreCase(b.getPath()));
 		return models;
+	}
+
+	public static byte[] loadLocalOverflowResource(String path) throws IOException {
+		File modelsDir = new File(MinecraftClientAccess.get().getGameDir(), "player_models");
+		Link target = new Link(LOCAL_OVERFLOW_LOADER, path);
+		for (File file : listModelsRecursive(modelsDir)) {
+			try {
+				ModelFile modelFile = ModelFile.load(file);
+				if (target.equals(modelFile.getOverflowLink()) && modelFile.getOverflowLocal() != null) {
+					return modelFile.getOverflowLocal().clone();
+				}
+			} catch (IOException ignored) {
+			}
+		}
+		throw new IOException("Local model overflow not found: " + target);
 	}
 
 	private static void collectModels(File dir, List<File> models) {

@@ -365,8 +365,12 @@ public class NetHandler<RL, P, NET> {
 	}
 
 	public void setSkin(P pl, byte[] skin, boolean force) {
+		setSkin(pl, skin, force, false);
+	}
+
+	public void setSkin(P pl, byte[] skin, boolean force, boolean save) {
 		PlayerData pd = getSNetH(pl).cpm$getEncodedModelData();
-		pd.setModel(skin, force, false);
+		pd.setModel(skin, force, save);
 		sendPacketToTracking(pl, NetworkUtil.writeSkinData(this, pd, pl));
 		pd.save(getID(pl));
 	}

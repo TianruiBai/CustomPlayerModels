@@ -10,6 +10,7 @@ import java.util.Map;
 import com.tom.cpl.math.Vec3f;
 import com.tom.cpm.shared.editor.actions.ActionBuilder;
 import com.tom.cpm.shared.io.IOHelper;
+import com.tom.cpm.shared.util.Log;
 
 public class Cube {
 	public static final int HAS_MESH    = 1 << 0;
@@ -220,6 +221,11 @@ public class Cube {
 			if(c.parentId < 10)continue;
 			RenderedCube cube = r.get(c.id);
 			RenderedCube parent = r.get(c.parentId);
+			if (parent == null) {
+				Log.warn("Missing cube parent " + c.parentId + " for cube " + c.id + ", attaching to custom root");
+				c.parentId = PlayerModelParts.CUSTOM_PART.ordinal();
+				continue;
+			}
 			cube.setParent(parent);
 			parent.addChild(cube);
 		}
@@ -239,6 +245,11 @@ public class Cube {
 			if(c.parentId < 10)continue;
 			RenderedCube cube = r.get(c.id);
 			RenderedCube parent = r.get(c.parentId);
+			if (parent == null) {
+				Log.warn("Missing cube parent " + c.parentId + " for cube " + c.id + ", attaching to custom root");
+				c.parentId = PlayerModelParts.CUSTOM_PART.ordinal();
+				continue;
+			}
 			cube.setParent(parent);
 			parent.addChild(cube);
 		}

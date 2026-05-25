@@ -45,6 +45,7 @@ import com.tom.cpm.shared.definition.SafetyException.BlockReason;
 import com.tom.cpm.shared.io.ChecksumInputStream;
 import com.tom.cpm.shared.io.ChecksumOutputStream;
 import com.tom.cpm.shared.io.IOHelper;
+import com.tom.cpm.shared.io.LocalModelFiles;
 import com.tom.cpm.shared.io.SkinDataInputStream;
 import com.tom.cpm.shared.loaders.GistResourceLoader;
 import com.tom.cpm.shared.loaders.GithubRepoResourceLoader;
@@ -151,6 +152,8 @@ public class ModelDefinitionLoader<GP> {
 		LOADERS.put("pb", new PastebinResourceLoader());
 		LOADERS.put("ms", new ModelsCDNResourceLoader());
 		LOADERS.put("cpmdb", new CpmDbResourceLoader());
+		LOADERS.put(LocalModelFiles.LOCAL_OVERFLOW_LOADER,
+			(path, enc, def) -> LocalModelFiles.loadLocalOverflowResource(path));
 		LOADERS.put("local", new ResourceLoader() {
 
 			@Override
