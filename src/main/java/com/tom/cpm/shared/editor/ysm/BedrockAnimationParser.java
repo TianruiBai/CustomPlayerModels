@@ -82,6 +82,7 @@ public class BedrockAnimationParser {
 		putPose(EXACT_NAME_TO_POSE, VanillaPose.BOW_RIGHT, "bow", "bow_and_arrow");
 		putPose(EXACT_NAME_TO_POSE, VanillaPose.BLOCKING_RIGHT, "block", "blocking");
 		putPose(EXACT_NAME_TO_POSE, VanillaPose.SPEAKING, "speak", "speaking");
+		putPose(EXACT_NAME_TO_POSE, VanillaPose.FIRST_PERSON_HAND, "first_person_hand", "firstpersonhand", "first_person", "firstperson", "fp_hand");
 
 		putPose(PATTERN_NAME_TO_POSE, VanillaPose.RETRO_SWIMMING, "swim_stand", "swimstand", "retro_swim", "retro_swimming");
 		putPose(PATTERN_NAME_TO_POSE, VanillaPose.FLYING, "elytra_fly", "elytra_flying", "fall_flying", "elytra");
@@ -213,24 +214,11 @@ public class BedrockAnimationParser {
 		}
 
 		// Try name-based pose mapping
-		VanillaPose mappedPose = resolveVanillaPose(animName);
+		VanillaPose mappedPose = resolveVanillaPose(animName, source);
 		if (mappedPose != null) {
 			pose = mappedPose;
 			type = AnimationType.POSE;
 			filenamePrefix = "v_" + mappedPose.name().toLowerCase(Locale.ROOT) + "_";
-		}
-
-		// Direct VanillaPose enum match
-		if (pose == null) {
-			String lookupName = animName.toLowerCase(Locale.ROOT);
-			for (VanillaPose vp : VanillaPose.VALUES) {
-				if (lookupName.equals(vp.name().toLowerCase(Locale.ROOT))) {
-					pose = vp;
-					type = AnimationType.POSE;
-					filenamePrefix = "v_" + vp.name().toLowerCase(Locale.ROOT) + "_";
-					break;
-				}
-			}
 		}
 
 		// For unrecognized animations, use gesture type
@@ -364,7 +352,14 @@ public class BedrockAnimationParser {
 		return anim;
 	}
 
-	private static VanillaPose resolveVanillaPose(String animName) {
+	private static VanillaPose resolveVanillaPose(String animName, String source) {
+		boolean vanillaSource = isVanillaAnimationSource(source);
+		if (!vanillaSource && !hasVanillaNamespace(animName)) return null;
+
+		VanillaPose handPose = resolveHandPose(animName);
+		if (handPose != null) return handPose;
+		if (hasNonVanillaNamespace(animName)) return null;
+
 		String normalized = normalizeBoneName(animName);
 		VanillaPose pose = EXACT_NAME_TO_POSE.get(normalized);
 		if (pose != null) return pose;
@@ -378,10 +373,118 @@ public class BedrockAnimationParser {
 		for (VanillaPose vanillaPose : VanillaPose.VALUES) {
 			if (normalized.equals(normalizeBoneName(vanillaPose.name()))) return vanillaPose;
 		}
-		for (Map.Entry<String, VanillaPose> entry : PATTERN_NAME_TO_POSE.entrySet()) {
-			if (normalized.contains(entry.getKey())) return entry.getValue();
+		if (vanillaSource) {
+			for (Map.Entry<String, VanillaPose> entry : PATTERN_NAME_TO_POSE.entrySet()) {
+				if (isDelimitedNameMatch(animName, entry.getKey())) return entry.getValue();
+			}
 		}
 		return null;
+	}
+
+	private static VanillaPose resolveHandPose(String animName) {
+		int colon = animName.indexOf(':');
+		if (colon < 0) return null;
+		String action = animName.substring(0, colon).toLowerCase(Locale.ROOT);
+		String item = normalizeBoneName(animName.substring(colon + 1));
+		boolean left = action.contains("offhand") || action.contains("left");
+		boolean right = action.contains("mainhand") || action.contains("right") || action.equals("swing");
+		if (!left && !right) return null;
+
+		if (action.startsWith("swing")) return left ? VanillaPose.PUNCH_LEFT : VanillaPose.PUNCH_RIGHT;
+		if ("empty".equals(item) && action.startsWith("hold")) return VanillaPose.FIRST_PERSON_HAND;
+		if ("eat".equals(item) || "eating".equals(item) || "drink".equals(item) || "drinking".equals(item)) {
+			return left ? VanillaPose.EATING_LEFT : VanillaPose.EATING_RIGHT;
+		}
+		if ("bow".equals(item) || "bowandarrow".equals(item)) {
+			return left ? VanillaPose.BOW_LEFT : VanillaPose.BOW_RIGHT;
+		}
+		if ("crossbow".equals(item)) {
+			return left ? VanillaPose.CROSSBOW_LEFT : VanillaPose.CROSSBOW_RIGHT;
+		}
+		if ("crossbowcharge".equals(item) || "chargingcrossbow".equals(item)) {
+			return left ? VanillaPose.CROSSBOW_CH_LEFT : VanillaPose.CROSSBOW_CH_RIGHT;
+		}
+		if ("spyglass".equals(item)) {
+			return left ? VanillaPose.SPYGLASS_LEFT : VanillaPose.SPYGLASS_RIGHT;
+		}
+		if ("shield".equals(item) || "block".equals(item) || "blocking".equals(item)) {
+			return left ? VanillaPose.BLOCKING_LEFT : VanillaPose.BLOCKING_RIGHT;
+		}
+		if ("trident".equals(item)) {
+			return left ? VanillaPose.TRIDENT_LEFT : VanillaPose.TRIDENT_RIGHT;
+		}
+		if ("spear".equals(item)) {
+			return left ? VanillaPose.SPEAR_LEFT : VanillaPose.SPEAR_RIGHT;
+		}
+		if ("brush".equals(item) || "brushing".equals(item)) {
+			return left ? VanillaPose.BRUSH_LEFT : VanillaPose.BRUSH_RIGHT;
+		}
+		if ("horn".equals(item) || "goathorn".equals(item) || "toothorn".equals(item)) {
+			return left ? VanillaPose.TOOT_HORN_LEFT : VanillaPose.TOOT_HORN_RIGHT;
+		}
+		return null;
+	}
+
+	private static boolean isVanillaAnimationSource(String source) {
+		return source == null || "main".equalsIgnoreCase(source) || "arm".equalsIgnoreCase(source);
+	}
+
+	private static boolean hasVanillaNamespace(String animName) {
+		int colon = animName.indexOf(':');
+		if (colon <= 0) return false;
+		return isVanillaNamespace(animName.substring(0, colon));
+	}
+
+	private static boolean hasNonVanillaNamespace(String animName) {
+		int colon = animName.indexOf(':');
+		if (colon <= 0) return false;
+		String namespace = animName.substring(0, colon);
+		return !isVanillaNamespace(namespace) && !namespace.toLowerCase(Locale.ROOT).contains("mainhand") &&
+			!namespace.toLowerCase(Locale.ROOT).contains("offhand");
+	}
+
+	private static boolean isVanillaNamespace(String namespace) {
+		String normalized = normalizeBoneName(namespace);
+		return "minecraft".equals(normalized) || "vanilla".equals(normalized) || "player".equals(normalized);
+	}
+
+	private static boolean isDelimitedNameMatch(String animName, String normalizedAlias) {
+		List<String> tokens = animationNameTokens(animName);
+		for (int start = 0; start < tokens.size(); start++) {
+			StringBuilder joined = new StringBuilder();
+			for (int end = start; end < tokens.size(); end++) {
+				joined.append(tokens.get(end));
+				if (joined.length() > normalizedAlias.length()) break;
+				if (joined.toString().equals(normalizedAlias) &&
+					isAllowedVanillaContext(tokens, 0, start) &&
+					isAllowedVanillaContext(tokens, end + 1, tokens.size())) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private static List<String> animationNameTokens(String animName) {
+		List<String> tokens = new ArrayList<>();
+		for (String token : animName.toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
+			if (!token.isEmpty()) tokens.add(token);
+		}
+		return tokens;
+	}
+
+	private static boolean isAllowedVanillaContext(List<String> tokens, int from, int to) {
+		for (int i = from; i < to; i++) {
+			String token = tokens.get(i);
+			if (!"animation".equals(token) && !"animations".equals(token) && !"anim".equals(token) &&
+				!"player".equals(token) && !"vanilla".equals(token) && !"default".equals(token) &&
+				!"base".equals(token) && !"main".equals(token) && !"normal".equals(token) &&
+				!"ysm".equals(token) && !"pose".equals(token) && !"state".equals(token) &&
+				!"loop".equals(token)) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private static String baseAnimationName(String animName) {

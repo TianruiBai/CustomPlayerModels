@@ -25,9 +25,9 @@ import com.tom.cpm.shared.config.ModConfig;
 import com.tom.cpm.shared.config.Player;
 import com.tom.cpm.shared.definition.ModelDefinition;
 import com.tom.cpm.shared.definition.ModelDefinitionLoader;
-import com.tom.cpm.shared.editor.TestIngameManager;
 import com.tom.cpm.shared.gui.SettingsGui;
 import com.tom.cpm.shared.gui.SocialGui;
+import com.tom.cpm.shared.io.LocalModelFiles;
 
 public class CommandCPMClient {
 
@@ -93,10 +93,11 @@ public class CommandCPMClient {
 	}
 
 	private static void walkDirs(File d, String path, List<String> l) {
-		File[] fs = d.listFiles((f, n) -> n.endsWith(".cpmmodel") || new File(f, n).isDirectory());
+		File[] fs = d.listFiles((f, n) -> LocalModelFiles.isModelFileName(n) || new File(f, n).isDirectory());
+		if (fs == null) return;
 		for (int i = 0; i < fs.length; i++) {
 			File f = fs[i];
-			if(f.getName().equals(TestIngameManager.TEST_MODEL_NAME) || f.getName().equals("autosaves"))continue;
+			if(f.getName().equals("autosaves"))continue;
 			String p = path != null ? path + "/" + f.getName() : f.getName();
 			if(f.isDirectory()) {
 				walkDirs(f, p, l);

@@ -36,13 +36,13 @@ import com.tom.cpm.shared.config.Player;
 import com.tom.cpm.shared.definition.ModelDefinition;
 import com.tom.cpm.shared.definition.ModelDefinition.ModelLoadingState;
 import com.tom.cpm.shared.editor.Exporter;
-import com.tom.cpm.shared.editor.TestIngameManager;
 import com.tom.cpm.shared.gui.SelectSkinPopup;
 import com.tom.cpm.shared.gui.SkinUploadPopup;
 import com.tom.cpm.shared.gui.ViewportCamera;
 import com.tom.cpm.shared.gui.panel.ModelDisplayPanel.IModelDisplayPanel;
 import com.tom.cpm.shared.io.IOHelper;
 import com.tom.cpm.shared.io.IOHelper.ImageBlock;
+import com.tom.cpm.shared.io.LocalModelFiles;
 import com.tom.cpm.shared.io.ModelFile;
 import com.tom.cpm.shared.model.SkinType;
 import com.tom.cpm.shared.skin.TextureProvider;
@@ -120,7 +120,7 @@ public class ModelsPanel extends Panel implements IModelDisplayPanel {
 		Panel panel = new Panel(gui);
 
 		File modelsDir = new File(MinecraftClientAccess.get().getGameDir(), "player_models/" + selectedFolder);
-		File[] fs = modelsDir.exists() ? modelsDir.listFiles((f, n) -> n.endsWith(".cpmmodel") || new File(f, n).isDirectory()) : null;
+		File[] fs = modelsDir.exists() ? modelsDir.listFiles((f, n) -> LocalModelFiles.isModelFileName(n) || new File(f, n).isDirectory()) : null;
 		String model = ModConfig.getCommonConfig().getString(ConfigKeys.SELECTED_MODEL, null);
 
 		if(!selectedFolder.isEmpty()) {
@@ -157,7 +157,7 @@ public class ModelsPanel extends Panel implements IModelDisplayPanel {
 			MinecraftClientAccess.get().getDefinitionLoader().execute(() -> {
 				int y = 20;
 				for (int i = 0; i < fs.length; i++) {
-					if(fs[i].getName().equals(TestIngameManager.TEST_MODEL_NAME) || fs[i].getName().equals("autosaves"))continue;
+					if(fs[i].getName().equals("autosaves"))continue;
 					try {
 						ListPanel p;
 						if(fs[i].isDirectory()) {
@@ -399,9 +399,10 @@ public class ModelsPanel extends Panel implements IModelDisplayPanel {
 	private void uploadSelected() {
 		if(selected != null) {
 			File modelsDir = new File(MinecraftClientAccess.get().getGameDir(), "player_models");
-			File modelF = new File(modelsDir, selected);
+			File modelF;
 			ModelFile file;
 			try {
+				modelF = LocalModelFiles.resolveModelFile(modelsDir, selected);
 				file = ModelFile.load(modelF);
 			} catch (IOException e) {
 				e.printStackTrace();
@@ -447,7 +448,7 @@ public class ModelsPanel extends Panel implements IModelDisplayPanel {
 		modelsDir.mkdirs();
 		for (int i = 0; i < files.size(); i++) {
 			File model = files.get(i);
-			if(model.getName().endsWith(".cpmmodel")) {
+			if(LocalModelFiles.isModelFileName(model.getName())) {
 				File m = new File(modelsDir, model.getName());
 				Random r = new Random();
 				String name = model.getName();

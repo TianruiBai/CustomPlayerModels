@@ -2,6 +2,7 @@ package com.tom.cpm.shared.gui;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -32,6 +33,7 @@ import com.tom.cpm.shared.config.ConfigKeys;
 import com.tom.cpm.shared.config.ModConfig;
 import com.tom.cpm.shared.network.NetHandler;
 import com.tom.cpm.shared.network.packet.ModelDeleteReqC2S;
+import com.tom.cpm.shared.io.LocalModelFiles;
 import com.tom.cpm.shared.skin.TextureProvider;
 import com.tom.cpm.shared.util.Log;
 import com.tom.cpm.shared.network.packet.ModelListReqC2S;
@@ -167,8 +169,8 @@ public class MyModelsPopup extends PopupPanel {
 
 	private void loadLocalModels() {
 		File modelsDir = new File(MinecraftClientAccess.get().getGameDir(), "player_models");
-		File[] files = modelsDir.exists() ? modelsDir.listFiles((f, n) -> n.endsWith(".cpmmodel")) : null;
-		if (files == null || files.length == 0) {
+		List<File> files = LocalModelFiles.listModelsRecursive(modelsDir);
+		if (files.isEmpty()) {
 			Label lbl = new Label(gui, gui.i18nFormat("label.cpm.myModels.noLocal"));
 			lbl.setBounds(new Box(5, 10, 0, 0));
 			localPanel.addElement(lbl);
@@ -178,10 +180,17 @@ public class MyModelsPopup extends PopupPanel {
 
 		int y = 0;
 		for (File f : files) {
-			ModelEntry entry = new ModelEntry(f.getName(), f.length(), 0, f.lastModified(), "local", null);
+			String relativePath;
+			try {
+				relativePath = LocalModelFiles.toRelativeModelPath(modelsDir, f);
+			} catch (Exception e) {
+				Log.warn("Skipping local model outside player_models: " + f.getPath());
+				continue;
+			}
+			ModelEntry entry = new ModelEntry(relativePath, f.length(), 0, f.lastModified(), "local", null);
 			localEntries.add(entry);
 
-			Label nameLbl = new Label(gui, f.getName());
+			Label nameLbl = new Label(gui, relativePath);
 			nameLbl.setBounds(new Box(5, y, 250, 10));
 			localPanel.addElement(nameLbl);
 
@@ -189,12 +198,12 @@ public class MyModelsPopup extends PopupPanel {
 			metaLbl.setBounds(new Box(5, y + 12, 250, 10));
 			localPanel.addElement(metaLbl);
 
-			Button setBtn = new Button(gui, gui.i18nFormat("button.cpm.setActive"), () -> setLocalActive(f));
+			Button setBtn = new Button(gui, gui.i18nFormat("button.cpm.setActive"), () -> setLocalActive(modelsDir, f));
 			setBtn.setBounds(new Box(255, y, 70, 20));
 			localPanel.addElement(setBtn);
 
 			Button editBtn = new Button(gui, gui.i18nFormat("button.cpm.openInEditor"), () -> {
-				setLocalActive(f);
+				setLocalActive(modelsDir, f);
 				MinecraftClientAccess.get().openGui(EditorGui::new);
 			});
 			editBtn.setBounds(new Box(330, y, 40, 20));
@@ -209,11 +218,18 @@ public class MyModelsPopup extends PopupPanel {
 		localPanel.setBounds(new Box(0, 0, 410, Math.max(28, y)));
 	}
 
-	private void setLocalActive(File f) {
-		ModConfig.getCommonConfig().setString(ConfigKeys.SELECTED_MODEL, f.getName());
+	private void setLocalActive(File modelsDir, File f) {
+		String selected;
+		try {
+			selected = LocalModelFiles.toRelativeModelPath(modelsDir, f);
+		} catch (IOException e) {
+			frame.openPopup(new MessagePopup(frame, gui.i18nFormat("label.cpm.error"), e.getMessage()));
+			return;
+		}
+		ModConfig.getCommonConfig().setString(ConfigKeys.SELECTED_MODEL, selected);
 		MinecraftClientAccess.get().getNetHandler().sendSkinData();
 		frame.openPopup(new MessagePopup(frame, gui.i18nFormat("label.cpm.export_success"),
-			gui.i18nFormat("label.cpm.modelSetActive", f.getName())));
+			gui.i18nFormat("label.cpm.modelSetActive", selected)));
 	}
 
 	private void deleteLocal(File f, ModelEntry entry) {

@@ -96,13 +96,15 @@ public class YsmToCpmConverter {
 			childrenMap.computeIfAbsent(parentKey, k -> new ArrayList<>()).add(b);
 		}
 
+		Map<PlayerModelParts, Vec3f> rootOffsets = buildRootOffsets(boneIndex, childrenMap, flattenToAllPlayerParts);
 		Map<PlayerModelParts, ModelElement> rootParts = new EnumMap<>(PlayerModelParts.class);
 		for (PlayerModelParts part : PlayerModelParts.VALUES) {
 			if (part == PlayerModelParts.CUSTOM_PART) continue;
 			ModelElement root = findRootElement(editor, part);
 			if (root != null) {
-				root.pos = new Vec3f();
+				root.pos = new Vec3f(rootOffsets.getOrDefault(part, Vec3f.ZERO));
 				root.rotation = new Vec3f();
+				root.disableVanillaAnim = shouldDisableVanillaRootAnimation(part);
 				rootParts.put(part, root);
 			}
 		}
@@ -125,13 +127,13 @@ public class YsmToCpmConverter {
 		// CPM part pivots as anchors.
 		Vec3f refPivot = ysmRoots.isEmpty() ? Vec3f.ZERO : new Vec3f(ysmRoots.get(0).pivot);
 		Log.info("[YSM Import] Ref pivot: " + refPivot + ", YSM roots: " + ysmRoots.size() +
-			", flatten mode: " + (flattenToAllPlayerParts ? "all player parts" : "head/body"));
+			", flatten mode: " + (flattenToAllPlayerParts ? "all player parts" : "hybrid player roots"));
 
 		Map<String, ModelElement> allElements = new HashMap<>();
 		Map<String, Vec3f> animationParentRotations = new HashMap<>();
 		Map<PlayerModelParts, Integer> partCounts = new EnumMap<>(PlayerModelParts.class);
 		for (BedrockBone ysmRoot : ysmRoots) {
-			buildBoneTree(ysmRoot, null, null, null, rootParts, boneIndex, childrenMap,
+			buildBoneTree(ysmRoot, null, null, null, rootParts, rootOffsets, boneIndex, childrenMap,
 				allBones, allElements, animationParentRotations, partCounts, editor,
 				flattenToAllPlayerParts);
 		}
@@ -159,6 +161,7 @@ public class YsmToCpmConverter {
 	private static void buildBoneTree(BedrockBone bone, ModelElement ysmParentElem,
 			BedrockBone ysmParentBone, PlayerModelParts parentPart,
 			Map<PlayerModelParts, ModelElement> rootParts,
+			Map<PlayerModelParts, Vec3f> rootOffsets,
 			Map<String, BedrockBone> boneIndex,
 			Map<String, List<BedrockBone>> childrenMap,
 			List<BedrockBone> allBones,
@@ -196,7 +199,7 @@ public class YsmToCpmConverter {
 
 		// --- Position ---
 		if (cutToRoot) {
-			elem.pos = positionRelativeToRootPart(bone.pivot, part);
+			elem.pos = positionRelativeToRootPart(bone.pivot, part, rootOffsets);
 		} else {
 			Vec3f d = bone.pivot.sub(ysmParentBone.pivot);
 			elem.pos = new Vec3f(d.x, -d.y, d.z);
@@ -242,7 +245,7 @@ public class YsmToCpmConverter {
 		// --- Recurse into children ---
 		if (children != null) {
 			for (BedrockBone child : children) {
-				buildBoneTree(child, elem, bone, part, rootParts, boneIndex, childrenMap,
+				buildBoneTree(child, elem, bone, part, rootParts, rootOffsets, boneIndex, childrenMap,
 					allBones, allElements, animationParentRotations, partCounts, editor,
 					flattenToAllPlayerParts);
 			}
@@ -256,9 +259,20 @@ public class YsmToCpmConverter {
 		PlayerModelParts part = classifyBoneToPlayerPart(bone, parentPart, allBones, boneIndex);
 		if (flattenToAllPlayerParts) return part;
 		if (hasExplicitHeadBone(boneIndex)) {
-			return isInExplicitHeadSubtree(bone, boneIndex) ? PlayerModelParts.HEAD : PlayerModelParts.BODY;
+			if (isInExplicitHeadSubtree(bone, boneIndex)) return PlayerModelParts.HEAD;
+			if (isLimbPart(part)) return part;
+			return PlayerModelParts.BODY;
 		}
-		return part == PlayerModelParts.HEAD ? PlayerModelParts.HEAD : PlayerModelParts.BODY;
+		return part == PlayerModelParts.HEAD || isLimbPart(part) ? part : PlayerModelParts.BODY;
+	}
+
+	private static boolean isLimbPart(PlayerModelParts part) {
+		return part == PlayerModelParts.LEFT_ARM || part == PlayerModelParts.RIGHT_ARM ||
+			part == PlayerModelParts.LEFT_LEG || part == PlayerModelParts.RIGHT_LEG;
+	}
+
+	private static boolean shouldDisableVanillaRootAnimation(PlayerModelParts part) {
+		return isLimbPart(part);
 	}
 
 	private static boolean hasExplicitHeadBone(Map<String, BedrockBone> boneIndex) {
@@ -298,7 +312,134 @@ public class YsmToCpmConverter {
 		return normalizeBoneName(boneName).contains("neck");
 	}
 
-	private static Vec3f positionRelativeToRootPart(Vec3f ysmPivot, PlayerModelParts part) {
+	private static Map<PlayerModelParts, Vec3f> buildRootOffsets(
+			Map<String, BedrockBone> boneIndex,
+			Map<String, List<BedrockBone>> childrenMap,
+			boolean flattenToAllPlayerParts) {
+		Map<PlayerModelParts, Vec3f> rootOffsets = new EnumMap<>(PlayerModelParts.class);
+		if (!flattenToAllPlayerParts) {
+			HeadPivotSelection headPivot = findHeadPivotSelection(boneIndex, childrenMap);
+			if (headPivot != null) {
+				Vec3f offset = positionRelativeToVanillaPart(headPivot.pivot, PlayerModelParts.HEAD);
+				if (isNonZero(offset)) {
+					rootOffsets.put(PlayerModelParts.HEAD, offset);
+					Log.info("[YSM Import] Head look pivot moved to '" + headPivot.boneName +
+						"' (" + headPivot.reason + "): " + offset);
+				}
+			}
+		}
+		return rootOffsets;
+	}
+
+	private static HeadPivotSelection findHeadPivotSelection(Map<String, BedrockBone> boneIndex,
+			Map<String, List<BedrockBone>> childrenMap) {
+		BedrockBone head = findExplicitHeadBone(boneIndex);
+		if (head == null || head.parent == null) return null;
+
+		List<BedrockBone> ancestors = new ArrayList<>();
+		String parentName = head.parent;
+		while (parentName != null) {
+			BedrockBone parent = boneIndex.get(parentName);
+			if (parent == null) break;
+			ancestors.add(parent);
+			parentName = parent.parent;
+		}
+
+		for (BedrockBone ancestor : ancestors) {
+			if (!isNeckBone(ancestor.name)) continue;
+			Vec3f pivot = computeNonHeadSubtreeTopCenter(ancestor, childrenMap, true);
+			if (pivot != null) return new HeadPivotSelection(ancestor.name, pivot, "neck top center");
+		}
+
+		for (BedrockBone ancestor : ancestors) {
+			Vec3f pivot = computeNonHeadSubtreeTopCenter(ancestor, childrenMap, false);
+			if (pivot != null) return new HeadPivotSelection(ancestor.name, pivot, "nearest neck geometry top center");
+		}
+
+		return !ancestors.isEmpty() ? new HeadPivotSelection(ancestors.get(0).name,
+			ancestors.get(0).pivot, "head parent pivot") : null;
+	}
+
+	private static Vec3f computeNonHeadSubtreeTopCenter(BedrockBone root,
+			Map<String, List<BedrockBone>> childrenMap, boolean neckOnly) {
+		BoundsAccumulator bounds = new BoundsAccumulator();
+		collectNonHeadBounds(root, childrenMap, bounds, neckOnly, true);
+		return bounds.hasBounds() ? bounds.topCenter() : null;
+	}
+
+	private static void collectNonHeadBounds(BedrockBone bone,
+			Map<String, List<BedrockBone>> childrenMap,
+			BoundsAccumulator bounds, boolean neckOnly, boolean rootBone) {
+		if (!rootBone && isExplicitHeadBone(bone.name)) return;
+		if (!neckOnly || rootBone || isNeckBone(bone.name)) {
+			for (BedrockCube cube : bone.cubes) {
+				bounds.include(cube);
+			}
+		}
+		List<BedrockBone> children = childrenMap.get(bone.name);
+		if (children != null) {
+			for (BedrockBone child : children) {
+				collectNonHeadBounds(child, childrenMap, bounds, neckOnly, false);
+			}
+		}
+	}
+
+	private static class BoundsAccumulator {
+		private float minX = Float.POSITIVE_INFINITY;
+		private float minY = Float.POSITIVE_INFINITY;
+		private float minZ = Float.POSITIVE_INFINITY;
+		private float maxX = Float.NEGATIVE_INFINITY;
+		private float maxY = Float.NEGATIVE_INFINITY;
+		private float maxZ = Float.NEGATIVE_INFINITY;
+
+		void include(BedrockCube cube) {
+			Vec3f origin = cube.origin;
+			Vec3f size = cube.size;
+			float inflate = cube.inflate;
+			minX = Math.min(minX, origin.x - inflate);
+			minY = Math.min(minY, origin.y - inflate);
+			minZ = Math.min(minZ, origin.z - inflate);
+			maxX = Math.max(maxX, origin.x + size.x + inflate);
+			maxY = Math.max(maxY, origin.y + size.y + inflate);
+			maxZ = Math.max(maxZ, origin.z + size.z + inflate);
+		}
+
+		boolean hasBounds() {
+			return minX != Float.POSITIVE_INFINITY;
+		}
+
+		Vec3f topCenter() {
+			return new Vec3f((minX + maxX) * 0.5f, maxY, (minZ + maxZ) * 0.5f);
+		}
+	}
+
+	private static BedrockBone findExplicitHeadBone(Map<String, BedrockBone> boneIndex) {
+		for (BedrockBone bone : boneIndex.values()) {
+			if (isExplicitHeadBone(bone.name)) return bone;
+		}
+		return null;
+	}
+
+	private static class HeadPivotSelection {
+		final String boneName;
+		final Vec3f pivot;
+		final String reason;
+
+		HeadPivotSelection(String boneName, Vec3f pivot, String reason) {
+			this.boneName = boneName;
+			this.pivot = pivot;
+			this.reason = reason;
+		}
+	}
+
+	private static Vec3f positionRelativeToRootPart(Vec3f ysmPivot, PlayerModelParts part,
+			Map<PlayerModelParts, Vec3f> rootOffsets) {
+		Vec3f pos = positionRelativeToVanillaPart(ysmPivot, part);
+		Vec3f rootOffset = rootOffsets.get(part);
+		return rootOffset != null ? pos.sub(rootOffset) : pos;
+	}
+
+	private static Vec3f positionRelativeToVanillaPart(Vec3f ysmPivot, PlayerModelParts part) {
 		Vec3f cpmPivot = new Vec3f(ysmPivot.x, 24f - ysmPivot.y, ysmPivot.z);
 		Vec3f partPivot = YsmCoordUtil.getVanillaPartPosition(part);
 		return cpmPivot.sub(partPivot);
@@ -602,7 +743,7 @@ public class YsmToCpmConverter {
 			String... aliases) {
 		for (ModelElement elem : builtElements.values()) {
 			if (elem.parent == null || elem.parent.type != ElementType.ROOT_PART ||
-				elem.parent.typeData != PlayerModelParts.HEAD) continue;
+				elem.parent.typeData == PlayerModelParts.BODY) continue;
 			for (String alias : aliases) {
 				registerTarget(targets, alias, elem, true);
 			}
