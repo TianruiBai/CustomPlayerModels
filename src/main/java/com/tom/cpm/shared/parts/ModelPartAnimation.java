@@ -17,6 +17,7 @@ import com.tom.cpl.math.Vec3f;
 import com.tom.cpl.text.FormatText;
 import com.tom.cpm.shared.animation.Animation;
 import com.tom.cpm.shared.animation.AnimationRegistry;
+import com.tom.cpm.shared.animation.AnimationTrigger.ItemAnimationTrigger;
 import com.tom.cpm.shared.animation.AnimationType;
 import com.tom.cpm.shared.animation.CustomPose;
 import com.tom.cpm.shared.animation.IAnimation;
@@ -280,6 +281,18 @@ public class ModelPartAnimation implements IModelPart, IResolvedModelPart {
 			}
 			break;
 
+			case ANIMATION_TRIGGER_ITEM:
+			{
+				int id = block.read();
+				ResolvedData rd = parsedData.get(id);
+				if(rd == null)continue;
+				rd.triggerItem = readNullableUTF(block);
+				rd.triggerHand = readNullableUTF(block);
+				rd.triggerAction = readNullableUTF(block);
+				rd.triggerUseAnimation = readNullableUTF(block);
+			}
+			break;
+
 			default:
 				break;
 			}
@@ -367,6 +380,10 @@ public class ModelPartAnimation implements IModelPart, IResolvedModelPart {
 			if(ea.type == AnimationType.LAYER && ea.group != null && !ea.group.isEmpty() && !ea.command)rd.group = ea.group;
 			rd.it = ea.intType;
 			rd.finish = ea.mustFinish;
+			rd.triggerItem = ea.triggerItem;
+			rd.triggerHand = ea.triggerHand;
+			rd.triggerAction = ea.triggerAction;
+			rd.triggerUseAnimation = ea.triggerUseAnimation;
 			for (int i = 0; i < cs; i++) {
 				ModelElement elem = elems.get(i);
 				if(!allElems.contains(elem))continue;
@@ -426,6 +443,15 @@ public class ModelPartAnimation implements IModelPart, IResolvedModelPart {
 				else array[i] = func.apply(elem);
 			} else array[i] = func.apply(dt);
 		}
+	}
+
+	private static String readNullableUTF(IOHelper block) throws IOException {
+		String value = block.readUTF();
+		return value.isEmpty() ? null : value;
+	}
+
+	private static void writeNullableUTF(IOHelper block, String value) throws IOException {
+		block.writeUTF(value != null ? value : "");
 	}
 
 	@Override
@@ -608,6 +634,16 @@ public class ModelPartAnimation implements IModelPart, IResolvedModelPart {
 					d.write(id);
 				}
 			}
+			if(dt.hasItemTrigger()) {
+				dout.writeEnum(Type.ANIMATION_TRIGGER_ITEM);
+				try(IOHelper d = dout.writeNextBlock()) {
+					d.write(id);
+					writeNullableUTF(d, dt.triggerItem);
+					writeNullableUTF(d, dt.triggerHand);
+					writeNullableUTF(d, dt.triggerAction);
+					writeNullableUTF(d, dt.triggerUseAnimation);
+				}
+			}
 		}
 		dout.writeEnum(Type.CTRL_IDS);
 		try(IOHelper d = dout.writeNextBlock()) {
@@ -689,7 +725,13 @@ public class ModelPartAnimation implements IModelPart, IResolvedModelPart {
 		LegacyAnimationParser state = reg.getLegacyParser(def);
 		parsedData.values().forEach(rd -> {
 			if(rd.pose instanceof VanillaPose) {
-				state.addPose(rd.pose, rd.anim, rd.finish);
+				if(rd.hasItemTrigger()) {
+					reg.register(new ItemAnimationTrigger(reg, Collections.singleton(rd.pose), (VanillaPose) rd.pose,
+						Collections.singletonList(rd.anim), true, rd.finish, rd.triggerItem, rd.triggerHand,
+						rd.triggerAction, rd.triggerUseAnimation));
+				} else {
+					state.addPose(rd.pose, rd.anim, rd.finish);
+				}
 			} else if(rd.name != null) {
 				state.gestures.computeIfAbsent(rd.name, k -> {
 					List<IAnimation> l = new ArrayList<>();
@@ -759,6 +801,7 @@ public class ModelPartAnimation implements IModelPart, IResolvedModelPart {
 		ANIMATION_MUST_FINISH,
 		ANIMATION_SLIDER_OPT,
 		ANIMATION_BUTTON_HIDDEN,
+		ANIMATION_TRIGGER_ITEM,
 		;
 		public static final Type[] VALUES = values();
 	}
@@ -789,6 +832,17 @@ public class ModelPartAnimation implements IModelPart, IResolvedModelPart {
 		private byte maxValue;
 		private boolean interpolateVal;
 		private boolean buttonHidden;
+		private String triggerItem;
+		private String triggerHand;
+		private String triggerAction;
+		private String triggerUseAnimation;
+
+		public boolean hasItemTrigger() {
+			return (triggerItem != null && !triggerItem.isEmpty()) ||
+				(triggerHand != null && !triggerHand.isEmpty()) ||
+				(triggerAction != null && !triggerAction.isEmpty()) ||
+				(triggerUseAnimation != null && !triggerUseAnimation.isEmpty());
+		}
 
 		public ResolvedData(VanillaPose pose, boolean add) {
 			this.pose = pose;

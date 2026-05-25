@@ -60,9 +60,21 @@ public class YsmModelData {
 	/** Animation name → display description from extra_animation_classify */
 	public Map<String, String> gestureDescriptions = new HashMap<>();
 
+	/** YSM extra_animation_buttons control id → imported control metadata. */
+	public Map<String, ExtraAnimationControl> extraAnimationControls = new HashMap<>();
+
 	/** P5: Extra model files beyond main/arm, keyed by model key name (e.g. "arrow", "extra_01"). */
 	public Map<String, JsonObject> extraModelJsons = new LinkedHashMap<>();
 
 	/** Sound files from the YSM archive: filename (e.g. "sound.ogg") → raw bytes. */
 	public Map<String, byte[]> sounds = new HashMap<>();
+
+	public static class ExtraAnimationControl {
+		public String id;
+		public String name;
+		public String type;
+		public String value;
+		public int min;
+		public int max = 1;
+	}
 }

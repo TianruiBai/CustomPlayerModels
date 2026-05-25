@@ -103,6 +103,10 @@ public class AnimationsLoaderV1 implements ProjectPartLoader {
 		e.interpolateValue = data.getBoolean("interpolateVal", true);
 		e.mustFinish = data.getBoolean("mustFinish", false);
 		e.hidden = data.getBoolean("hidden", false);
+		e.triggerItem = data.getString("triggerItem", null);
+		e.triggerHand = data.getString("triggerHand", null);
+		e.triggerAction = data.getString("triggerAction", null);
+		e.triggerUseAnimation = data.getString("triggerUseAnimation", null);
 		JsonList frames = data.getList("frames");
 		frames.forEachMap(d -> initFrame(e, d));
 	}
@@ -135,6 +139,10 @@ public class AnimationsLoaderV1 implements ProjectPartLoader {
 		data.put("interpolateVal", e.interpolateValue);
 		data.put("mustFinish", e.mustFinish);
 		data.put("hidden", e.hidden);
+		if(e.triggerItem != null && !e.triggerItem.isEmpty())data.put("triggerItem", e.triggerItem);
+		if(e.triggerHand != null && !e.triggerHand.isEmpty())data.put("triggerHand", e.triggerHand);
+		if(e.triggerAction != null && !e.triggerAction.isEmpty())data.put("triggerAction", e.triggerAction);
+		if(e.triggerUseAnimation != null && !e.triggerUseAnimation.isEmpty())data.put("triggerUseAnimation", e.triggerUseAnimation);
 		data.put("frames", writeFrames(e));
 	}
 

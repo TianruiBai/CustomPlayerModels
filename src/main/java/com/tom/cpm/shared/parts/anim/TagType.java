@@ -21,6 +21,7 @@ public enum TagType {
 	GESTURE_BUTTON(AbstractGestureButtonData::parse),
 	PARAMETERS(ParameterDetails::parse),
 	INIT_STAGED_ANIM(StagedAnimInfo::parse),
+	INIT_ITEM_TRIGGER(SerializedTrigger::initItemTrigger),
 	;
 	public static final TagType[] VALUES = values();
 	private final Handler handler;

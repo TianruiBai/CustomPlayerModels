@@ -855,19 +855,27 @@ public class YsmToCpmConverter {
 		if (editor.animEnc == null) {
 			editor.animEnc = new AnimationEncodingData();
 		}
-		for (Map.Entry<String, String> entry : ysmData.extraAnimations.entrySet()) {
-			EditorAnim target = editor.animations.stream()
-				.filter(a -> a.displayName != null && a.displayName.equals(entry.getValue()))
-				.findFirst().orElse(null);
-			if (target != null && target.type != AnimationType.GESTURE
-				&& target.type != AnimationType.CUSTOM_POSE) {
-				target.type = AnimationType.GESTURE;
-			}
-		}
 		if (ysmData.controllerJson != null) {
 			Map<String, String> ctrlGestures = BedrockControllerParser
 				.extractGestureMappings(ysmData.controllerJson);
 			ctrlGestures.forEach((k, v) -> ysmData.extraAnimations.putIfAbsent(k, v));
+		}
+		for (Map.Entry<String, String> entry : ysmData.extraAnimations.entrySet()) {
+			EditorAnim target = findYsmAnimation(editor, entry.getKey());
+			if (target == null && entry.getValue() != null && !entry.getValue().startsWith("#")) {
+				target = findYsmAnimation(editor, entry.getValue());
+			}
+			if (target == null) continue;
+			String mapping = entry.getValue();
+			if (mapping != null && mapping.startsWith("#")) {
+				YsmModelData.ExtraAnimationControl control = ysmData.extraAnimationControls.get(mapping.substring(1));
+				applyExtraAnimationControl(target, control, mapping.substring(1));
+			} else if (target.type != AnimationType.CUSTOM_POSE) {
+				target.type = AnimationType.GESTURE;
+				target.pose = null;
+				target.layerControlled = false;
+				if (mapping != null && !mapping.isEmpty()) target.displayName = mapping;
+			}
 		}
 
 		// CPM encodes custom animation IDs into skin layers using bit encoding.
@@ -882,6 +890,43 @@ public class YsmToCpmConverter {
 			}
 			Log.info("[YSM Import] Initialized " + editor.animEnc.freeLayers.size() +
 				" encoding layers for " + editor.animations.size() + " animations");
+		}
+	}
+
+	private static EditorAnim findYsmAnimation(Editor editor, String ysmName) {
+		if (ysmName == null || ysmName.isEmpty()) return null;
+		return editor.animations.stream()
+			.filter(a -> a.displayName != null && matchesYsmAnimationName(a.displayName, ysmName))
+			.findFirst().orElse(null);
+	}
+
+	private static boolean matchesYsmAnimationName(String displayName, String ysmName) {
+		if (displayName.equals(ysmName)) return true;
+		int sourceEnd = displayName.indexOf("] ");
+		return sourceEnd >= 0 && sourceEnd + 2 < displayName.length() &&
+			displayName.substring(sourceEnd + 2).equals(ysmName);
+	}
+
+	private static void applyExtraAnimationControl(EditorAnim target, YsmModelData.ExtraAnimationControl control, String fallbackName) {
+		target.pose = null;
+		target.loop = true;
+		target.layerControlled = true;
+		String displayName = control != null && control.name != null && !control.name.isEmpty() ? control.name : fallbackName;
+		if (displayName != null && !displayName.isEmpty()) target.displayName = displayName;
+		String type = control != null && control.type != null ? control.type : "checkbox";
+		if ("range".equalsIgnoreCase(type)) {
+			target.type = AnimationType.VALUE_LAYER;
+			int min = control != null ? control.min : 0;
+			int max = control != null ? control.max : 1;
+			target.maxValue = Math.max(1, max - min);
+			target.interpolateValue = true;
+		} else if ("radio".equalsIgnoreCase(type)) {
+			target.type = AnimationType.LAYER;
+			target.group = displayName;
+			target.layerDefault = 0;
+		} else {
+			target.type = AnimationType.LAYER;
+			target.layerDefault = 0;
 		}
 	}
 

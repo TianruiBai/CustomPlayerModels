@@ -103,6 +103,10 @@ public class AnimationExporter {
 			tr.stage = a.type == AnimationType.SETUP ? StageType.SETUP : StageType.FINISH;
 			tr.stagingID = st.id;
 		}
+		tr.triggerItem = a.triggerItem;
+		tr.triggerHand = a.triggerHand;
+		tr.triggerAction = a.triggerAction;
+		tr.triggerUseAnimation = a.triggerUseAnimation;
 		int id = triggers.computeIfAbsent(tr, an::newTrigger);
 		animTriggers.put(a, id);
 		SerializedAnimation anim = new SerializedAnimation();

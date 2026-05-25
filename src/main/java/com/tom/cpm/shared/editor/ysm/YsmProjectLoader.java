@@ -83,14 +83,17 @@ public class YsmProjectLoader {
 						data.armAnimJson = readJsonEntry(zip, getString(animFiles, "arm", "animations/arm.animation.json"));
 						data.extraAnimJson = readJsonEntry(zip, getString(animFiles, "extra", "animations/extra.animation.json"));
 
-						// Check for additional animation files (tac, carryon, parcool, swem, slashblade, tlm)
-						String[] extraAnimKeys = {"tac", "carryon", "parcool", "swem", "slashblade", "tlm"};
-						for (String key : extraAnimKeys) {
-							String path = getString(animFiles, key, null);
+						// Read every additional declared animation file, including mod/plugin files
+						// such as tac, carryon, parcool, fp_arm, and future custom keys.
+						for (Map.Entry<String, JsonElement> animEntry : animFiles.entrySet()) {
+							String key = animEntry.getKey();
+							if ("main".equals(key) || "arm".equals(key) || "extra".equals(key)) continue;
+							String path = animEntry.getValue().getAsString();
 							if (path != null) {
 								JsonObject animObj = readJsonEntry(zip, path);
 								if (animObj != null) {
 									data.extraAnimFiles.put(path, animObj.toString());
+									Log.info("[YSM Import] Extra animation '" + key + "' → " + path);
 								}
 							}
 						}
@@ -222,7 +225,7 @@ public class YsmProjectLoader {
 				"player_parts".equalsIgnoreCase(flattenMode);
 			data.defaultTexture = getString(properties, "default_texture", null);
 
-			// Extra animation mappings (gesture name → animation name)
+			// Extra animation mappings (animation id → display label or #button group)
 			JsonObject extraAnim = properties.getAsJsonObject("extra_animation");
 			if (extraAnim != null) {
 				for (Map.Entry<String, JsonElement> entry : extraAnim.entrySet()) {
@@ -231,11 +234,13 @@ public class YsmProjectLoader {
 					if (gestureName.startsWith("#")) continue;
 
 					String animName = entry.getValue().getAsString();
-					if (animName != null && !animName.isEmpty() && !animName.startsWith("#")) {
+					if (animName != null && !animName.isEmpty()) {
 						data.extraAnimations.put(gestureName, animName);
 					}
 				}
 			}
+
+			parseExtraAnimationButtons(properties, data);
 
 			// Extra animation classify (nested gesture groups)
 			JsonArray classifyArray = properties.getAsJsonArray("extra_animation_classify");
@@ -250,7 +255,7 @@ public class YsmProjectLoader {
 								String gestureName = entry.getKey();
 								if (gestureName.startsWith("#")) continue;
 								String animName = entry.getValue().getAsString();
-								if (animName != null && !animName.isEmpty() && !animName.startsWith("#")) {
+								if (animName != null && !animName.isEmpty()) {
 									data.extraAnimations.put(gestureName, animName);
 									if (classifyId != null && !classifyId.isEmpty()) {
 										data.gestureDescriptions.put(gestureName, classifyId);
@@ -262,6 +267,61 @@ public class YsmProjectLoader {
 				}
 			}
 		}
+	}
+
+	private static void parseExtraAnimationButtons(JsonObject properties, YsmModelData data) {
+		JsonElement buttonsElem = properties.get("extra_animation_buttons");
+		if (buttonsElem == null || buttonsElem.isJsonNull()) return;
+		if (buttonsElem.isJsonArray()) {
+			for (JsonElement elem : buttonsElem.getAsJsonArray()) {
+				if (elem.isJsonObject()) parseExtraAnimationButton(null, elem.getAsJsonObject(), data);
+			}
+		} else if (buttonsElem.isJsonObject()) {
+			JsonObject buttonsObj = buttonsElem.getAsJsonObject();
+			for (Map.Entry<String, JsonElement> entry : buttonsObj.entrySet()) {
+				if (entry.getValue().isJsonObject()) parseExtraAnimationButton(entry.getKey(), entry.getValue().getAsJsonObject(), data);
+			}
+		}
+	}
+
+	private static void parseExtraAnimationButton(String fallbackId, JsonObject buttonObj, YsmModelData data) {
+		String id = getString(buttonObj, "id", fallbackId);
+		if (id == null || id.isEmpty()) return;
+		YsmModelData.ExtraAnimationControl selected = null;
+		JsonArray forms = buttonObj.getAsJsonArray("config_forms");
+		if (forms != null) {
+			for (JsonElement formElem : forms) {
+				if (!formElem.isJsonObject()) continue;
+				JsonObject form = formElem.getAsJsonObject();
+				YsmModelData.ExtraAnimationControl candidate = new YsmModelData.ExtraAnimationControl();
+				candidate.id = id;
+				candidate.name = getString(buttonObj, "name", id);
+				candidate.type = getString(form, "type", "checkbox");
+				candidate.value = getString(form, "value", null);
+				candidate.min = getInt(form, "min", 0);
+				candidate.max = getInt(form, "max", candidate.max);
+				if (selected == null || controlPriority(candidate.type) > controlPriority(selected.type)) {
+					selected = candidate;
+				}
+			}
+		}
+		if (selected == null) {
+			selected = new YsmModelData.ExtraAnimationControl();
+			selected.id = id;
+			selected.name = getString(buttonObj, "name", id);
+			selected.type = getString(buttonObj, "type", "checkbox");
+			selected.value = getString(buttonObj, "value", null);
+			selected.min = getInt(buttonObj, "min", 0);
+			selected.max = getInt(buttonObj, "max", selected.max);
+		}
+		data.extraAnimationControls.put(id, selected);
+	}
+
+	private static int controlPriority(String type) {
+		if ("range".equalsIgnoreCase(type)) return 3;
+		if ("radio".equalsIgnoreCase(type)) return 2;
+		if ("checkbox".equalsIgnoreCase(type)) return 1;
+		return 0;
 	}
 
 	private static void captureTextureGrid(YsmModelData data) {

@@ -9,6 +9,7 @@ import java.util.Map;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.tom.cpl.util.HandAnimation;
 import com.tom.cpl.math.Mat3f;
 import com.tom.cpl.math.Rotation;
 import com.tom.cpl.math.Vec3f;
@@ -203,9 +204,12 @@ public class BedrockAnimationParser {
 		AnimationType type = defaultType;
 		IPose pose = null;
 		String filenamePrefix = "ysm_";
+		HandAnimationSpec handSpec = resolveHandAnimation(animName);
 
 		// Check for arm/hand animation naming: "hold_mainhand:item" or "use_mainhand:eat"
-		if (animName.contains(":")) {
+		if (handSpec != null) {
+			type = AnimationType.POSE;
+		} else if (animName.contains(":")) {
 			String[] parts = animName.split(":", 2);
 			String prefix = parts[0].toLowerCase(Locale.ROOT);
 			if (prefix.contains("mainhand") || prefix.contains("offhand")) {
@@ -214,7 +218,7 @@ public class BedrockAnimationParser {
 		}
 
 		// Try name-based pose mapping
-		VanillaPose mappedPose = resolveVanillaPose(animName, source);
+		VanillaPose mappedPose = handSpec != null ? handSpec.pose : resolveVanillaPose(animName, source);
 		if (mappedPose != null) {
 			pose = mappedPose;
 			type = AnimationType.POSE;
@@ -267,6 +271,12 @@ public class BedrockAnimationParser {
 		anim.mustFinish = mustFinish;
 		anim.duration = Math.max(50, (int)(animLength * 1000));
 		anim.add = true;
+		if (handSpec != null) {
+			anim.triggerItem = handSpec.itemFilter;
+			anim.triggerHand = handSpec.hand;
+			anim.triggerAction = handSpec.action;
+			anim.triggerUseAnimation = handSpec.useAnimation;
+		}
 		// YSM models can have dozens of gestures; CPM's layer-encoding only
 		// supports 62 unique slots via 6 skin layers. Disable layer encoding
 		// so all gestures can be registered without hitting the limit.
@@ -382,50 +392,113 @@ public class BedrockAnimationParser {
 	}
 
 	private static VanillaPose resolveHandPose(String animName) {
-		int colon = animName.indexOf(':');
-		if (colon < 0) return null;
-		String action = animName.substring(0, colon).toLowerCase(Locale.ROOT);
-		String item = normalizeBoneName(animName.substring(colon + 1));
-		boolean left = action.contains("offhand") || action.contains("left");
-		boolean right = action.contains("mainhand") || action.contains("right") || action.equals("swing");
-		if (!left && !right) return null;
+		HandAnimationSpec spec = resolveHandAnimation(animName);
+		return spec != null ? spec.pose : null;
+	}
 
-		if (action.startsWith("swing")) return left ? VanillaPose.PUNCH_LEFT : VanillaPose.PUNCH_RIGHT;
-		if ("empty".equals(item) && action.startsWith("hold")) return VanillaPose.FIRST_PERSON_HAND;
-		if ("eat".equals(item) || "eating".equals(item) || "drink".equals(item) || "drinking".equals(item)) {
-			return left ? VanillaPose.EATING_LEFT : VanillaPose.EATING_RIGHT;
+	private static HandAnimationSpec resolveHandAnimation(String animName) {
+		String lower = animName.toLowerCase(Locale.ROOT);
+		String[] prefixes = {
+			"hold_mainhand", "hold_offhand", "hold_righthand", "hold_lefthand",
+			"use_mainhand", "use_offhand", "use_righthand", "use_lefthand",
+			"swing_mainhand", "swing_offhand", "swing_righthand", "swing_lefthand", "swing"
+		};
+		String prefix = null;
+		for (String candidate : prefixes) {
+			if (lower.equals(candidate) || lower.startsWith(candidate + ":") || lower.startsWith(candidate + "$")) {
+				prefix = candidate;
+				break;
+			}
 		}
-		if ("bow".equals(item) || "bowandarrow".equals(item)) {
-			return left ? VanillaPose.BOW_LEFT : VanillaPose.BOW_RIGHT;
+		if (prefix == null) return null;
+
+		String item = null;
+		if (lower.length() > prefix.length()) {
+			item = animName.substring(prefix.length() + 1).replace('$', ':').toLowerCase(Locale.ROOT);
 		}
-		if ("crossbow".equals(item)) {
-			return left ? VanillaPose.CROSSBOW_LEFT : VanillaPose.CROSSBOW_RIGHT;
+		String action = prefix.startsWith("use") ? "use" : prefix.startsWith("swing") ? "swing" : "hold";
+		String hand = prefix.contains("offhand") ? "offhand" : prefix.contains("lefthand") ? "left" :
+			prefix.contains("righthand") ? "right" : "mainhand";
+		boolean left = "offhand".equals(hand) || "left".equals(hand);
+		String normalizedItem = item != null ? normalizeBoneName(item) : "";
+		VanillaPose pose;
+		String itemFilter = item;
+		String useAnimation = null;
+
+		if ("swing".equals(action)) {
+			pose = left ? VanillaPose.PUNCH_LEFT : VanillaPose.PUNCH_RIGHT;
+		} else if ("empty".equals(normalizedItem) && "hold".equals(action)) {
+			pose = VanillaPose.FIRST_PERSON_HAND;
+		} else if ("eat".equals(normalizedItem) || "eating".equals(normalizedItem)) {
+			pose = left ? VanillaPose.EATING_LEFT : VanillaPose.EATING_RIGHT;
+			itemFilter = null;
+			useAnimation = HandAnimation.EAT.name();
+		} else if ("drink".equals(normalizedItem) || "drinking".equals(normalizedItem)) {
+			pose = left ? VanillaPose.EATING_LEFT : VanillaPose.EATING_RIGHT;
+			itemFilter = null;
+			useAnimation = HandAnimation.DRINK.name();
+		} else if ("bow".equals(normalizedItem) || "bowandarrow".equals(normalizedItem)) {
+			pose = left ? VanillaPose.BOW_LEFT : VanillaPose.BOW_RIGHT;
+			itemFilter = "bow";
+			useAnimation = "use".equals(action) ? HandAnimation.BOW.name() : null;
+		} else if ("chargedcrossbow".equals(normalizedItem)) {
+			pose = left ? VanillaPose.CROSSBOW_LEFT : VanillaPose.CROSSBOW_RIGHT;
+			itemFilter = "crossbow";
+		} else if ("crossbowcharge".equals(normalizedItem) || "chargingcrossbow".equals(normalizedItem) ||
+				("crossbow".equals(normalizedItem) && "use".equals(action))) {
+			pose = left ? VanillaPose.CROSSBOW_CH_LEFT : VanillaPose.CROSSBOW_CH_RIGHT;
+			itemFilter = "crossbow";
+			useAnimation = HandAnimation.CROSSBOW.name();
+		} else if ("crossbow".equals(normalizedItem)) {
+			pose = left ? VanillaPose.CROSSBOW_LEFT : VanillaPose.CROSSBOW_RIGHT;
+			itemFilter = "crossbow";
+		} else if ("spyglass".equals(normalizedItem)) {
+			pose = left ? VanillaPose.SPYGLASS_LEFT : VanillaPose.SPYGLASS_RIGHT;
+			itemFilter = "spyglass";
+			useAnimation = "use".equals(action) ? HandAnimation.SPYGLASS.name() : null;
+		} else if ("shield".equals(normalizedItem) || "block".equals(normalizedItem) || "blocking".equals(normalizedItem)) {
+			pose = left ? VanillaPose.BLOCKING_LEFT : VanillaPose.BLOCKING_RIGHT;
+			itemFilter = "shield";
+			useAnimation = "use".equals(action) ? HandAnimation.BLOCK.name() : null;
+		} else if ("trident".equals(normalizedItem)) {
+			pose = left ? VanillaPose.TRIDENT_LEFT : VanillaPose.TRIDENT_RIGHT;
+			itemFilter = "trident";
+			useAnimation = "use".equals(action) ? HandAnimation.TRIDENT.name() : null;
+		} else if ("spear".equals(normalizedItem)) {
+			pose = left ? VanillaPose.SPEAR_LEFT : VanillaPose.SPEAR_RIGHT;
+			itemFilter = "spear";
+			useAnimation = "use".equals(action) ? HandAnimation.TRIDENT.name() : null;
+		} else if ("brush".equals(normalizedItem) || "brushing".equals(normalizedItem)) {
+			pose = left ? VanillaPose.BRUSH_LEFT : VanillaPose.BRUSH_RIGHT;
+			itemFilter = "brush";
+			useAnimation = "use".equals(action) ? HandAnimation.BRUSH.name() : null;
+		} else if ("horn".equals(normalizedItem) || "goathorn".equals(normalizedItem) || "toothorn".equals(normalizedItem)) {
+			pose = left ? VanillaPose.TOOT_HORN_LEFT : VanillaPose.TOOT_HORN_RIGHT;
+			itemFilter = "goat_horn";
+			useAnimation = "use".equals(action) ? HandAnimation.TOOT_HORN.name() : null;
+		} else if ("hold".equals(action) || "use".equals(action)) {
+			pose = left ? VanillaPose.HOLDING_LEFT : VanillaPose.HOLDING_RIGHT;
+		} else {
+			return null;
 		}
-		if ("crossbowcharge".equals(item) || "chargingcrossbow".equals(item)) {
-			return left ? VanillaPose.CROSSBOW_CH_LEFT : VanillaPose.CROSSBOW_CH_RIGHT;
+
+		return new HandAnimationSpec(pose, hand, action, itemFilter, useAnimation);
+	}
+
+	private static class HandAnimationSpec {
+		final VanillaPose pose;
+		final String hand;
+		final String action;
+		final String itemFilter;
+		final String useAnimation;
+
+		HandAnimationSpec(VanillaPose pose, String hand, String action, String itemFilter, String useAnimation) {
+			this.pose = pose;
+			this.hand = hand;
+			this.action = action;
+			this.itemFilter = itemFilter;
+			this.useAnimation = useAnimation;
 		}
-		if ("spyglass".equals(item)) {
-			return left ? VanillaPose.SPYGLASS_LEFT : VanillaPose.SPYGLASS_RIGHT;
-		}
-		if ("shield".equals(item) || "block".equals(item) || "blocking".equals(item)) {
-			return left ? VanillaPose.BLOCKING_LEFT : VanillaPose.BLOCKING_RIGHT;
-		}
-		if ("trident".equals(item)) {
-			return left ? VanillaPose.TRIDENT_LEFT : VanillaPose.TRIDENT_RIGHT;
-		}
-		if ("spear".equals(item)) {
-			return left ? VanillaPose.SPEAR_LEFT : VanillaPose.SPEAR_RIGHT;
-		}
-		if ("brush".equals(item) || "brushing".equals(item)) {
-			return left ? VanillaPose.BRUSH_LEFT : VanillaPose.BRUSH_RIGHT;
-		}
-		if ("horn".equals(item) || "goathorn".equals(item) || "toothorn".equals(item)) {
-			return left ? VanillaPose.TOOT_HORN_LEFT : VanillaPose.TOOT_HORN_RIGHT;
-		}
-		if (action.startsWith("hold") || action.startsWith("use")) {
-			return left ? VanillaPose.HOLDING_LEFT : VanillaPose.HOLDING_RIGHT;
-		}
-		return null;
 	}
 
 	private static boolean isVanillaAnimationSource(String source) {
