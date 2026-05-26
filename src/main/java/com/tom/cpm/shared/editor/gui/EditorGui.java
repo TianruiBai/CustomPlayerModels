@@ -355,6 +355,10 @@ public class EditorGui extends Frame {
 	}
 
 	private void initAnimPanel(int width, int height) {
+		int fullH = height - 20;
+		int timelineH = AnimTimelinePanel.PANEL_H;
+		int contentH = fullH - timelineH;
+
 		Panel mainPanel = new Panel(gui);
 		mainPanel.setBounds(new Box(0, 0, width, height - 20));
 
@@ -366,25 +370,25 @@ public class EditorGui extends Frame {
 		TabbedPanelManager animPanelTabs = new TabbedPanelManager(gui);
 
 		ScrollPanel spSetup = new ScrollPanel(gui);
-		spSetup.setBounds(new Box(0, 0, 170, height - 40));
+		spSetup.setBounds(new Box(0, 0, 170, contentH - 20));
 		spSetup.setDisplay(new AnimPanel(gui, this));
 		spSetup.setScrollBarSide(true);
 
 		ScrollPanel spTest = new ScrollPanel(gui);
-		spTest.setBounds(new Box(0, 0, 170, height - 40));
+		spTest.setBounds(new Box(0, 0, 170, contentH - 20));
 		spTest.setDisplay(new AnimTestPanel(gui, this));
 		spTest.setScrollBarSide(true);
 
 		buttons.add(animPanelTabs.createTab(gui.i18nFormat("tab.cpm.animation.setup"), spSetup));
 		buttons.add(animPanelTabs.createTab(gui.i18nFormat("tab.cpm.animation.test"), spTest));
 
-		animPanelTabs.setBounds(new Box(0, 20, 170, height - 40));
+		animPanelTabs.setBounds(new Box(0, 20, 170, contentH - 20));
 		mainPanel.addElement(animPanelTabs);
 		mainPanel.addElement(buttonsPanel);
 
 		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.animation"), mainPanel, () -> viewType = ViewType.ANIMATION));
 
-		mainPanel.addElement(new TreePanel(gui, this, width, height - 20, false) {
+		TreePanel treePanel = new TreePanel(gui, this, width, fullH, false) {
 
 			@Override
 			public void draw(MouseEvent event, float partialTicks) {
@@ -392,14 +396,36 @@ public class EditorGui extends Frame {
 				super.draw(event, partialTicks);
 				editor.applyAnim = false;
 			}
-		});
+		};
+		treePanel.setBounds(new Box(width - 150, 0, 150, contentH));
+		mainPanel.addElement(treePanel);
 
 		ViewportPanelAnim view = new ViewportPanelAnim(this, editor);
-		view.setBounds(new Box(170, 0, width - 170 - 150, height - 20));
+		view.setBounds(new Box(170, 0, width - 170 - 150, contentH));
 		mainPanel.addElement(view);
 		editor.displayViewport.add(view::setEnabled);
 
-		mainPanel.addElement(initQuickPanel(Math.max(width - 350, 170), height - 20, Math.min(200, width - 320)));
+		mainPanel.addElement(initQuickPanel(Math.max(width - 350, 170), contentH, Math.min(200, width - 320)));
+
+		// Timeline panel
+		AnimTimelinePanel timelinePanel = new AnimTimelinePanel(gui, editor, width);
+		timelinePanel.setBounds(new Box(0, contentH, width, timelineH));
+		mainPanel.addElement(timelinePanel);
+
+		Runnable updateAnimLayout = () -> {
+			int th = editor.showTimeline.get() ? timelinePanel.getPreferredHeight() : 0;
+			int ch = fullH - th;
+			spSetup.setBounds(new Box(0, 0, 170, ch - 20));
+			spTest.setBounds(new Box(0, 0, 170, ch - 20));
+			animPanelTabs.setBounds(new Box(0, 20, 170, ch - 20));
+			treePanel.setBounds(new Box(width - 150, 0, 150, ch));
+			view.setBounds(new Box(170, 0, width - 170 - 150, ch));
+			timelinePanel.setBounds(new Box(0, ch, width, th));
+			timelinePanel.setVisible(editor.showTimeline.get());
+		};
+		timelinePanel.setLayoutListener(updateAnimLayout);
+		editor.showTimeline.add(v -> updateAnimLayout.run());
+		updateAnimLayout.run();
 	}
 
 	private void newModel(SkinType type) {
@@ -827,6 +853,18 @@ public class EditorGui extends Frame {
 			if(viewType == ViewType.ANIMATION) {
 				Checkbox chxbxShowPreviousFrame = editor.showPreviousFrame.makeCheckbox(pp, gui.i18nFormat("label.cpm.display.showPreviousFrame"));
 				chxbxShowPreviousFrame.setTooltip(new Tooltip(this, gui.i18nFormat("tooltip.cpm.display.showPreviousFrame")));
+
+				Checkbox chxbxShowTimeline = editor.showTimeline.makeCheckbox(pp, gui.i18nFormat("label.cpm.display.showTimeline"));
+				chxbxShowTimeline.setTooltip(new Tooltip(this, gui.i18nFormat("tooltip.cpm.display.showTimeline")));
+
+				Checkbox chxbxShowMovementTrack = editor.showMovementTrack.makeCheckbox(pp, gui.i18nFormat("label.cpm.display.showMovementTrack"));
+				chxbxShowMovementTrack.setTooltip(new Tooltip(this, gui.i18nFormat("tooltip.cpm.display.showMovementTrack")));
+
+				Checkbox chxbxShowPastMovementTrack = editor.showPastMovementTrack.makeCheckbox(pp, gui.i18nFormat("label.cpm.display.showPastMovementTrack"));
+				chxbxShowPastMovementTrack.setTooltip(new Tooltip(this, gui.i18nFormat("tooltip.cpm.display.showPastMovementTrack")));
+
+				Checkbox chxbxHighContrastMovementTrack = editor.highContrastMovementTrack.makeCheckbox(pp, gui.i18nFormat("label.cpm.display.highContrastMovementTrack"));
+				chxbxHighContrastMovementTrack.setTooltip(new Tooltip(this, gui.i18nFormat("tooltip.cpm.display.highContrastMovementTrack")));
 			}
 
 			if(viewType != ViewType.ANIMATION || editor.forceHeldItemInAnim.get()) {
