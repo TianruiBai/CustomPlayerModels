@@ -1,5 +1,6 @@
 package com.tom.cpm.shared.editor.gui;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -10,17 +11,19 @@ import com.tom.cpl.gui.MouseEvent;
 import com.tom.cpl.math.MathHelper;
 import com.tom.cpl.math.MatrixStack;
 import com.tom.cpl.math.Vec3f;
+import com.tom.cpl.math.Vec4f;
 import com.tom.cpl.render.VBuffers;
+import com.tom.cpl.render.VertexBuffer;
 import com.tom.cpl.util.Hand;
 import com.tom.cpl.util.ItemSlot;
 import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.animation.VanillaPose;
 import com.tom.cpm.shared.editor.DisplayItem;
 import com.tom.cpm.shared.editor.Editor;
+import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.editor.anim.AnimationDisplayData;
 import com.tom.cpm.shared.editor.anim.AnimationDisplayData.Type;
 import com.tom.cpm.shared.editor.anim.AnimFrame;
-import com.tom.cpm.shared.editor.anim.IElem;
 import com.tom.cpm.shared.editor.tree.VecType;
 import com.tom.cpm.shared.editor.util.FilterBuffers;
 import com.tom.cpm.shared.gui.Keybinds;
@@ -71,59 +74,6 @@ public class ViewportPanelAnim extends ViewportPanel {
 				for (int i = 0;i<10;i++) {
 					int sy = MathHelper.clamp(val - i * 2, 0, 2);
 					gui.drawTexture(bounds.x + i * 9 + 1, bounds.y + bounds.h - 10, 9, 9, spr * 9, sy * 9 + 64, "editor");
-				}
-			}
-		}
-
-		// Movement track overlay
-		if (editor.showMovementTrack.get() && editor.selectedAnim != null) {
-			AnimFrame curFrame = editor.selectedAnim.getSelectedFrame();
-			int idx = editor.selectedAnim.getSelectedFrameIndex();
-			if (curFrame != null && idx > 0 && editor.getSelectedElement() != null) {
-				AnimFrame prevFrame = editor.selectedAnim.getFrames().get(idx - 1);
-				IElem curData = curFrame.getData(editor.getSelectedElement());
-				IElem prevData = prevFrame.getData(editor.getSelectedElement());
-				if (curData != null && prevData != null) {
-					Vec3f dPos = new Vec3f(
-							curData.getPosition().x - prevData.getPosition().x,
-							curData.getPosition().y - prevData.getPosition().y,
-							curData.getPosition().z - prevData.getPosition().z
-					);
-					float dx = dPos.x;
-					float dy = dPos.y;
-					float dz = dPos.z;
-
-					String dirText = String.format("dX:%+.1f dY:%+.1f dZ:%+.1f", dx, dy, dz);
-					int textColor = 0xffffd740;
-					gui.drawText(bounds.x + 5, bounds.y + bounds.h - 22, dirText, textColor);
-
-					// Draw a simple direction arrow
-					int cx = bounds.x + bounds.w - 50;
-					int cy = bounds.y + 55;
-					int arrowLen = 20;
-					float largest = Math.max(Math.abs(dx), Math.max(Math.abs(dy), Math.abs(dz)));
-					if (largest > 0.001f) {
-						int ax = (int) (dx / largest * arrowLen);
-						int ay = (int) (-dy / largest * arrowLen); // invert Y for screen
-						int arrowColor = 0x88ffd740;
-						// Line from center in movement direction
-						gui.drawBox(cx, cy, 1, 1, 0xffffffff); // center dot
-						if (Math.abs(ax) > 0 || Math.abs(ay) > 0) {
-							int len = Math.max(Math.abs(ax), Math.abs(ay));
-							int steps = Math.max(len, 1);
-							for (int i = 0; i < steps; i += 2) {
-								int sx = cx + ax * i / steps;
-								int sy = cy + ay * i / steps;
-								int ex = cx + ax * (i + 1) / steps;
-								int ey = cy + ay * (i + 1) / steps;
-								int lx = Math.min(sx, ex);
-								int ly = Math.min(sy, ey);
-								int lw = Math.max(Math.abs(ex - sx), 1);
-								int lh = Math.max(Math.abs(ey - sy), 1);
-								gui.drawBox(lx, ly, lw, lh, arrowColor);
-							}
-						}
-					}
 				}
 			}
 		}
@@ -297,18 +247,94 @@ public class ViewportPanelAnim extends ViewportPanel {
 					filter(d -> d.type == Type.LAYERS || d.type == Type.HAND || d.type == Type.PROGRESS).collect(Collectors.toList());
 		}
 		editor.applyAnim = true;
-		if(editor.showPreviousFrame.get() && editor.selectedAnim != null && editor.selectedElement != null && editor.selectedAnim.getFrames().size() > 1) {
-			editor.selectedAnim.prevFrame();
+		ModelElement trackElement = editor.getSelectedElement();
+		List<Vec3f> movementTrack = null;
+		int selectedFrame = -1;
+		boolean renderPreviousFrame = editor.showPreviousFrame.get() && editor.selectedAnim != null && editor.selectedElement != null && editor.selectedAnim.getFrames().size() > 1;
+		boolean captureMovementTrack = editor.showMovementTrack.get() && editor.selectedAnim != null && trackElement != null && editor.selectedAnim.getFrames().size() > 1;
+		if((renderPreviousFrame || captureMovementTrack) && editor.selectedAnim != null) {
+			List<AnimFrame> frames = editor.selectedAnim.getFrames();
+			AnimFrame originalFrame = editor.selectedAnim.getSelectedFrame();
+			selectedFrame = editor.selectedAnim.getSelectedFrameIndex();
+			int previousFrame = (selectedFrame - 1 + frames.size()) % frames.size();
+			movementTrack = captureMovementTrack ? new ArrayList<>() : null;
 			editor.definition.renderingPanel = this;
 			editor.definition.outlineOnly = true;
-			renderModel(stack, filter.filter(buf), partialTicks);
+			VBuffers nullBuffer = new VBuffers(rt -> VertexBuffer.NULL);
+			for(int i = 0; i < frames.size(); i++) {
+				boolean drawPrevious = renderPreviousFrame && i == previousFrame;
+				if(!drawPrevious && !captureMovementTrack)continue;
+				editor.selectedAnim.setSelectedFrame(frames.get(i));
+				renderModel(stack, drawPrevious ? filter.filter(buf) : nullBuffer, partialTicks);
+				if(captureMovementTrack)movementTrack.add(getElementPosition(trackElement));
+			}
+			editor.selectedAnim.setSelectedFrame(originalFrame);
 			editor.definition.renderingPanel = null;
 			editor.definition.outlineOnly = false;
-			editor.selectedAnim.nextFrame();
 		}
 		super.render(stack, buf, partialTicks);
+		if(movementTrack != null) {
+			VertexBuffer buffer = buf.getBuffer(types, RenderMode.OUTLINE);
+			drawMovementTracks(buffer, movementTrack, selectedFrame);
+		}
 		editor.applyAnim = false;
 		anims = null;
+	}
+
+	private Vec3f getElementPosition(ModelElement element) {
+		if(element == null || element.matrixPosition == null)return null;
+		Vec4f pos = new Vec4f(0, 0, 1, 1);
+		pos.transform(element.matrixPosition);
+		return new Vec3f(pos.x, pos.y, pos.z);
+	}
+
+	private void drawMovementTracks(VertexBuffer buffer, List<Vec3f> positions, int selectedFrame) {
+		if(positions.size() < 2)return;
+		for(int i = 1; i < positions.size(); i++) {
+			if(positions.get(i - 1) == null || positions.get(i) == null)continue;
+			drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), 0.15f, 0.75f, 1, 0.35f);
+		}
+		if(editor.showPastMovementTrack.get()) {
+			for(int i = 1; i < selectedFrame; i++) {
+				if(positions.get(i - 1) == null || positions.get(i) == null)continue;
+				drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), 0.85f, 0.85f, 0.85f, 0.55f);
+				drawPoint(buffer, positions.get(i - 1), 0.65f, 0.65f, 0.65f, 0.55f, 0.025f);
+			}
+		}
+		if(selectedFrame > 0 && selectedFrame < positions.size() && positions.get(selectedFrame - 1) != null && positions.get(selectedFrame) != null) {
+			drawMovementSegment(buffer, positions.get(selectedFrame - 1), positions.get(selectedFrame), 1, 0.7f, 0.15f, 1);
+			drawPoint(buffer, positions.get(selectedFrame - 1), 0.85f, 0.85f, 0.85f, 0.8f, 0.03f);
+			drawPoint(buffer, positions.get(selectedFrame), 1, 0.84f, 0.1f, 1, 0.04f);
+		}
+	}
+
+	private void drawMovementSegment(VertexBuffer buffer, Vec3f from, Vec3f to, float r, float g, float b, float a) {
+		float dx = to.x - from.x;
+		float dy = to.y - from.y;
+		float dz = to.z - from.z;
+		float dist = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+		if(dist < 0.0001f)return;
+		int steps = Math.max(6, Math.min(36, (int) (dist * 24)));
+		for(int i = 0; i < steps; i += 2) {
+			float s0 = i / (float) steps;
+			float s1 = Math.min(i + 1, steps) / (float) steps;
+			addLine(buffer, lerp(from, to, s0), lerp(from, to, s1), r, g, b, a);
+		}
+	}
+
+	private Vec3f lerp(Vec3f a, Vec3f b, float t) {
+		return new Vec3f(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+	}
+
+	private void drawPoint(VertexBuffer buffer, Vec3f p, float r, float g, float b, float a, float s) {
+		addLine(buffer, new Vec3f(p.x - s, p.y, p.z), new Vec3f(p.x + s, p.y, p.z), r, g, b, a);
+		addLine(buffer, new Vec3f(p.x, p.y - s, p.z), new Vec3f(p.x, p.y + s, p.z), r, g, b, a);
+		addLine(buffer, new Vec3f(p.x, p.y, p.z - s), new Vec3f(p.x, p.y, p.z + s), r, g, b, a);
+	}
+
+	private void addLine(VertexBuffer buffer, Vec3f from, Vec3f to, float r, float g, float b, float a) {
+		buffer.pos(from.x, from.y, from.z).color(r, g, b, a).normal(0, 1, 0).endVertex();
+		buffer.pos(to.x, to.y, to.z).color(r, g, b, a).normal(0, 1, 0).endVertex();
 	}
 
 	@Override

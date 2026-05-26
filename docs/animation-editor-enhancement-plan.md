@@ -3,6 +3,18 @@
 
 ---
 
+## Implemented Scope
+
+- Bottom animation timeline is integrated into the animation tab layout and can be collapsed.
+- Timeline is split into Position, Rotation, and Scale rows, with keyed frames shown per transform channel.
+- Timeline header supports previous frame, play/stop, next frame, zoom out, zoom in, frame info, and duration display.
+- Timeline height is adjustable by dragging the top edge of the panel.
+- Double-clicking a transform row label toggles curve display for that channel, showing X/Y/Z curves in red/green/blue.
+- Selected-part movement guides in the viewport now render a full movement path, highlighted current segment, and optional dashed past segments.
+- Animation panel and display menu include a toggle for dashed past movement segments.
+
+---
+
 ## Current Architecture Summary
 
 ```
@@ -17,7 +29,7 @@ EditorGui (Animation Tab)
 ├─ Center: ViewportPanelAnim (3D preview)
 │   └─ Already renders previous frame as outline (showPreviousFrame)
 ├─ Right (150px): TreePanel (part hierarchy) + Quick actions
-└─ (No bottom panel)
+└─ Bottom: AnimTimelinePanel (foldable timeline)
 ```
 
 **Key data model:**
@@ -60,6 +72,9 @@ A foldable bottom panel (like the UV panel in the texture editor) that visualize
 ### State (in `Editor.java`):
 ```java
 public BooleanUpdater showTimeline = updaterReg.createBool(true);
+public float animTimelineZoom = 1;
+public int animTimelineHeight = 86;
+public int animTimelineCurveTrack = -1;
 ```
 
 ### Integration (in `EditorGui.initAnimPanel()`):
@@ -106,6 +121,7 @@ Show a fading trail of the last N keyframe positions as a polyline:
 ### State (in `Editor.java`):
 ```java
 public BooleanUpdater showMovementTrack = updaterReg.createBool(true);
+public BooleanUpdater showPastMovementTrack = updaterReg.createBool(true);
 ```
 
 ---

@@ -180,6 +180,10 @@ public class Editor {
 	public BooleanUpdater showPreviousFrame = updaterReg.createBool(true);
 	public BooleanUpdater showTimeline = updaterReg.createBool(true);
 	public BooleanUpdater showMovementTrack = updaterReg.createBool(true);
+	public BooleanUpdater showPastMovementTrack = updaterReg.createBool(true);
+	public float animTimelineZoom = 1;
+	public int animTimelineHeight = 86;
+	public int animTimelineCurveTrack = -1;
 
 	public UI ui;
 	private boolean initialized;

@@ -223,6 +223,13 @@ public class AnimPanel extends Panel {
 		editor.setAnimPlayEn.add(playBtn::setEnabled);
 		editor.setAnimPlay.add(v -> playBtn.setU(v ? 80 : 64));
 
+		Checkbox showPastMovement = new Checkbox(gui, gui.i18nFormat("label.cpm.display.showPastMovementTrack"));
+		showPastMovement.setBounds(new Box(5, 0, 150, 20));
+		showPastMovement.setAction(editor.showPastMovementTrack::toggle);
+		showPastMovement.setTooltip(new Tooltip(e, gui.i18nFormat("tooltip.cpm.display.showPastMovementTrack")));
+		editor.showPastMovementTrack.add(showPastMovement::setSelected);
+		addElement(showPastMovement);
+
 		p = new Panel(gui);
 		p.setBounds(new Box(0, 0, bounds.w, 30));
 		addElement(p);
