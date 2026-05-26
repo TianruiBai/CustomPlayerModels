@@ -341,34 +341,61 @@ public class ViewportPanelAnim extends ViewportPanel {
 		return new Vec3f((float) posInterpolators[0].applyAsDouble(time), (float) posInterpolators[1].applyAsDouble(time), (float) posInterpolators[2].applyAsDouble(time));
 	}
 
-	// Layer order matters for readability: dashed full-path base, previous-segment context, then
-	// the active segment on top so creators can still read the whole motion while editing.
+	// Three-layer movement guide like Blockbench/Maya:
+	//   Layer 1 – solid trace of the full animation path (whole movement)
+	//   Layer 2 – brighter past-path when showPastMovementTrack is on
+	//   Layer 3 – warm amber current-keyframe segment with endpoint markers
 	private void drawMovementTracks(VertexBuffer buffer, List<Vec3f> positions, int selectedFrame, int frameCount) {
 		if(positions.size() < 2)return;
 		boolean highContrast = editor.highContrastMovementTrack.get();
+
+		// Layer 1: full sampled animation path, solid low-opacity cyan guide
 		for(int i = 1; i < positions.size(); i++) {
-			if(positions.get(i - 1) == null || positions.get(i) == null)continue;
-			drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), highContrast ? 0.18f : 0.22f, highContrast ? 0.92f : 0.72f, highContrast ? 1f : 0.96f, highContrast ? 0.92f : 0.48f, true);
+			Vec3f from = positions.get(i - 1);
+			Vec3f to   = positions.get(i);
+			if(from == null || to == null)continue;
+			float dx = to.x - from.x;
+			float dy = to.y - from.y;
+			float dz = to.z - from.z;
+			if(dx*dx + dy*dy + dz*dz < 0.000001f)continue;
+			if(highContrast)addLine(buffer, new Vec3f(from.x, from.y + 0.006f, from.z), new Vec3f(to.x, to.y + 0.006f, to.z), 0, 0, 0, 0.95f);
+			addLine(buffer, from, to, highContrast ? 0.05f : 0.10f, highContrast ? 0.65f : 0.55f, highContrast ? 1f : 0.95f, highContrast ? 0.95f : 0.68f);
 		}
-		int prevFrame = selectedFrame - 1;
-		if(prevFrame < 0 && editor.selectedAnim.loop)prevFrame = frameCount - 1;
-		int prevPrevFrame = prevFrame - 1;
-		if(prevPrevFrame < 0 && editor.selectedAnim.loop)prevPrevFrame = frameCount - 1;
-		if(editor.showPastMovementTrack.get() && prevPrevFrame >= 0 && prevFrame >= 0) {
-			int pastStart = frameToTrackIndex(prevPrevFrame, positions.size(), frameCount);
-			int pastEnd = frameToTrackIndex(prevFrame, positions.size(), frameCount);
-			if(pastStart >= 0 && pastEnd > pastStart && positions.get(pastStart) != null && positions.get(pastEnd) != null) {
-				drawMovementSegment(buffer, positions.get(pastStart), positions.get(pastEnd), highContrast ? 0.88f : 0.72f, highContrast ? 0.96f : 0.78f, highContrast ? 1f : 0.96f, highContrast ? 0.98f : 0.82f, false);
-				drawPoint(buffer, positions.get(pastEnd), highContrast ? 0.94f : 0.82f, highContrast ? 0.98f : 0.86f, highContrast ? 1f : 1f, highContrast ? 1f : 0.9f, highContrast ? 0.04f : 0.03f);
+
+		int currentFrame = Math.max(0, Math.min(frameCount - 1, selectedFrame));
+		int currentEndIdx = frameToTrackIndex(currentFrame, positions.size(), frameCount);
+
+		// Layer 2: past-path overlay – all segments before the current frame
+		if(editor.showPastMovementTrack.get() && currentEndIdx > 0) {
+			for(int i = 1; i <= currentEndIdx; i++) {
+				Vec3f from = positions.get(i - 1);
+				Vec3f to   = positions.get(i);
+				if(from == null || to == null)continue;
+				float dx = to.x - from.x;
+				float dy = to.y - from.y;
+				float dz = to.z - from.z;
+				if(dx*dx + dy*dy + dz*dz < 0.000001f)continue;
+				if(highContrast)addLine(buffer, new Vec3f(from.x, from.y + 0.006f, from.z), new Vec3f(to.x, to.y + 0.006f, to.z), 0, 0, 0, 0.95f);
+				addLine(buffer, from, to, highContrast ? 0.85f : 0.68f, highContrast ? 0.92f : 0.78f, highContrast ? 1f : 0.96f, highContrast ? 0.90f : 0.70f);
 			}
+			if(positions.get(currentEndIdx) != null)
+				drawPoint(buffer, positions.get(currentEndIdx), highContrast ? 0.9f : 0.75f, highContrast ? 0.95f : 0.82f, highContrast ? 1f : 1f, highContrast ? 1f : 0.85f, highContrast ? 0.04f : 0.03f);
 		}
+
+		// Layer 3: current keyframe transition – brightest warm orange
+		int prevFrame = currentFrame - 1;
+		if(prevFrame < 0 && editor.selectedAnim.loop)prevFrame = frameCount - 1;
 		if(prevFrame >= 0) {
-			int currentStart = frameToTrackIndex(prevFrame, positions.size(), frameCount);
-			int currentEnd = frameToTrackIndex(selectedFrame == 0 && editor.selectedAnim.loop ? frameCount : selectedFrame, positions.size(), frameCount);
-			if(currentStart >= 0 && currentEnd > currentStart && positions.get(currentStart) != null && positions.get(currentEnd) != null) {
-				drawMovementSegment(buffer, positions.get(currentStart), positions.get(currentEnd), 1f, highContrast ? 0.72f : 0.62f, highContrast ? 0.12f : 0.18f, 1f, false);
-				drawPoint(buffer, positions.get(currentStart), 1f, highContrast ? 0.82f : 0.74f, highContrast ? 0.28f : 0.34f, highContrast ? 1f : 0.88f, highContrast ? 0.04f : 0.03f);
-				drawPoint(buffer, positions.get(currentEnd), 1f, highContrast ? 0.74f : 0.64f, highContrast ? 0.08f : 0.12f, 1f, highContrast ? 0.055f : 0.04f);
+			int segStart = frameToTrackIndex(prevFrame, positions.size(), frameCount);
+			int segEnd   = frameToTrackIndex(currentFrame, positions.size(), frameCount);
+			if(segStart >= 0 && segEnd > segStart && positions.get(segStart) != null && positions.get(segEnd) != null) {
+				if(highContrast) {
+					addLine(buffer, new Vec3f(positions.get(segStart).x, positions.get(segStart).y + 0.006f, positions.get(segStart).z), new Vec3f(positions.get(segEnd).x, positions.get(segEnd).y + 0.006f, positions.get(segEnd).z), 0, 0, 0, 0.95f);
+					addLine(buffer, new Vec3f(positions.get(segStart).x, positions.get(segStart).y - 0.006f, positions.get(segStart).z), new Vec3f(positions.get(segEnd).x, positions.get(segEnd).y - 0.006f, positions.get(segEnd).z), 0, 0, 0, 0.95f);
+				}
+				addLine(buffer, positions.get(segStart), positions.get(segEnd), 1f, highContrast ? 0.70f : 0.60f, highContrast ? 0.10f : 0.15f, 1f);
+				drawPoint(buffer, positions.get(segStart), 1f, highContrast ? 0.80f : 0.72f, highContrast ? 0.25f : 0.30f, highContrast ? 1f : 0.88f, highContrast ? 0.04f : 0.03f);
+				drawPoint(buffer, positions.get(segEnd),   1f, highContrast ? 0.72f : 0.62f, highContrast ? 0.06f : 0.10f, 1f, highContrast ? 0.055f : 0.04f);
 			}
 		}
 	}
@@ -376,28 +403,6 @@ public class ViewportPanelAnim extends ViewportPanel {
 	private int frameToTrackIndex(int frame, int pointCount, int frameCount) {
 		if(frameCount <= 0 || pointCount <= 0)return -1;
 		return Math.max(0, Math.min(pointCount - 1, Math.round(frame / (float) frameCount * (pointCount - 1))));
-	}
-
-	private void drawMovementSegment(VertexBuffer buffer, Vec3f from, Vec3f to, float r, float g, float b, float a, boolean dashed) {
-		float dx = to.x - from.x;
-		float dy = to.y - from.y;
-		float dz = to.z - from.z;
-		float dist = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
-		if(dist < 0.0001f)return;
-		if(!dashed) {
-			if(editor.highContrastMovementTrack.get())addLine(buffer, new Vec3f(from.x, from.y + 0.006f, from.z), new Vec3f(to.x, to.y + 0.006f, to.z), 0, 0, 0, 0.95f);
-			addLine(buffer, from, to, r, g, b, a);
-			return;
-		}
-		int steps = Math.max(6, Math.min(36, (int) (dist * 24)));
-		for(int i = 0; i < steps; i += 2) {
-			float s0 = i / (float) steps;
-			float s1 = Math.min(i + 1, steps) / (float) steps;
-			Vec3f start = lerp(from, to, s0);
-			Vec3f end = lerp(from, to, s1);
-			if(editor.highContrastMovementTrack.get())addLine(buffer, new Vec3f(start.x, start.y + 0.006f, start.z), new Vec3f(end.x, end.y + 0.006f, end.z), 0, 0, 0, 0.95f);
-			addLine(buffer, start, end, r, g, b, a);
-		}
 	}
 
 	private Vec3f lerp(Vec3f a, Vec3f b, float t) {
