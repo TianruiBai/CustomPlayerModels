@@ -17,7 +17,9 @@ import com.tom.cpl.render.VertexBuffer;
 import com.tom.cpl.util.Hand;
 import com.tom.cpl.util.ItemSlot;
 import com.tom.cpm.shared.MinecraftClientAccess;
+import com.tom.cpm.shared.animation.InterpolatorChannel;
 import com.tom.cpm.shared.animation.VanillaPose;
+import com.tom.cpm.shared.animation.interpolator.Interpolator;
 import com.tom.cpm.shared.editor.DisplayItem;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.editor.elements.ModelElement;
@@ -268,9 +270,10 @@ public class ViewportPanelAnim extends ViewportPanel {
 		if(drawMovementTrack) {
 			Vec3f currentTrackPos = getElementPosition(trackElement);
 			int displayFrame = getDisplayedFrameIndex();
-			List<Vec3f> movementTrack = currentTrackPos != null ? buildMovementTrack(trackElement, currentTrackPos, displayFrame) : null;
+			float displayTime = getDisplayedTrackTime();
+			List<Vec3f> movementTrack = currentTrackPos != null ? buildMovementTrack(trackElement, currentTrackPos, displayTime) : null;
 			VertexBuffer buffer = buf.getBuffer(types, RenderMode.OUTLINE);
-			if(movementTrack != null)drawMovementTracks(buffer, movementTrack, displayFrame);
+			if(movementTrack != null)drawMovementTracks(buffer, movementTrack, displayFrame, editor.selectedAnim.getFrames().size());
 		}
 		editor.applyAnim = false;
 		anims = null;
@@ -296,15 +299,45 @@ public class ViewportPanelAnim extends ViewportPanel {
 		return Math.max(0, Math.min(frameCount - 1, editor.selectedAnim.getSelectedFrameIndex()));
 	}
 
-	private List<Vec3f> buildMovementTrack(ModelElement element, Vec3f currentWorldPos, int currentFrame) {
-		List<AnimFrame> frames = editor.selectedAnim.getFrames();
-		Vec3f currentLocal = getFramePosition(frames.get(Math.max(0, Math.min(frames.size() - 1, currentFrame))), element);
-		List<Vec3f> positions = new ArrayList<>(frames.size());
-		for(AnimFrame frame : frames) {
-			Vec3f local = getFramePosition(frame, element);
+	private float getDisplayedTrackTime() {
+		if(editor.selectedAnim == null)return 0;
+		int frameCount = editor.selectedAnim.getFrames().size();
+		if(frameCount <= 1)return 0;
+		if(editor.playFullAnim) {
+			long playTime = MinecraftClientAccess.get().getPlayerRenderManager().getAnimationEngine().getTime();
+			long duration = Math.max(1, editor.selectedAnim.duration);
+			return Math.floorMod(playTime - editor.playStartTime, duration) / (float) duration * frameCount;
+		}
+		return editor.selectedAnim.getSelectedFrameIndex();
+	}
+
+	private List<Vec3f> buildMovementTrack(ModelElement element, Vec3f currentWorldPos, float currentTime) {
+		int frameCount = editor.selectedAnim.getFrames().size();
+		Interpolator[] posInterpolators = createPositionInterpolators(element);
+		Vec3f currentLocal = sampleTrackPosition(posInterpolators, currentTime);
+		int samples = Math.max(frameCount * 8, 16);
+		List<Vec3f> positions = new ArrayList<>(samples + 1);
+		for(int i = 0; i <= samples; i++) {
+			float sampleTime = i / (float) samples * frameCount;
+			Vec3f local = sampleTrackPosition(posInterpolators, sampleTime);
 			positions.add(new Vec3f(currentWorldPos.x + (local.x - currentLocal.x) / 16f, currentWorldPos.y + (local.y - currentLocal.y) / 16f, currentWorldPos.z + (local.z - currentLocal.z) / 16f));
 		}
 		return positions;
+	}
+
+	private Interpolator[] createPositionInterpolators(ModelElement element) {
+		Interpolator[] posInterpolators = new Interpolator[3];
+		InterpolatorChannel[] channels = {InterpolatorChannel.POS_X, InterpolatorChannel.POS_Y, InterpolatorChannel.POS_Z};
+		for(int i = 0; i < channels.length; i++) {
+			Interpolator interpolator = editor.selectedAnim.intType.create();
+			interpolator.init(AnimFrame.toArray(editor.selectedAnim, element, channels[i]), channels[i].createInterpolatorSetup());
+			posInterpolators[i] = interpolator;
+		}
+		return posInterpolators;
+	}
+
+	private Vec3f sampleTrackPosition(Interpolator[] posInterpolators, float time) {
+		return new Vec3f((float) posInterpolators[0].applyAsDouble(time), (float) posInterpolators[1].applyAsDouble(time), (float) posInterpolators[2].applyAsDouble(time));
 	}
 
 	private Vec3f getFramePosition(AnimFrame frame, ModelElement element) {
@@ -314,33 +347,52 @@ public class ViewportPanelAnim extends ViewportPanel {
 		return new Vec3f(element.pos);
 	}
 
-	private void drawMovementTracks(VertexBuffer buffer, List<Vec3f> positions, int selectedFrame) {
+	private void drawMovementTracks(VertexBuffer buffer, List<Vec3f> positions, int selectedFrame, int frameCount) {
 		if(positions.size() < 2)return;
 		boolean highContrast = editor.highContrastMovementTrack.get();
 		for(int i = 1; i < positions.size(); i++) {
 			if(positions.get(i - 1) == null || positions.get(i) == null)continue;
-			drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), highContrast ? 0.05f : 0.15f, highContrast ? 0.95f : 0.75f, 1, highContrast ? 0.75f : 0.35f);
+			drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), highContrast ? 0.15f : 0.25f, highContrast ? 0.95f : 0.75f, 1, highContrast ? 0.85f : 0.55f, true);
 		}
-		if(editor.showPastMovementTrack.get()) {
-			for(int i = 1; i < selectedFrame; i++) {
-				if(positions.get(i - 1) == null || positions.get(i) == null)continue;
-				drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), 1, 1, 1, highContrast ? 0.9f : 0.55f);
-				drawPoint(buffer, positions.get(i - 1), highContrast ? 1 : 0.65f, highContrast ? 1 : 0.65f, highContrast ? 1 : 0.65f, highContrast ? 0.9f : 0.55f, highContrast ? 0.035f : 0.025f);
+		int prevFrame = selectedFrame - 1;
+		if(prevFrame < 0 && editor.selectedAnim.loop)prevFrame = frameCount - 1;
+		int prevPrevFrame = prevFrame - 1;
+		if(prevPrevFrame < 0 && editor.selectedAnim.loop)prevPrevFrame = frameCount - 1;
+		if(editor.showPastMovementTrack.get() && prevPrevFrame >= 0 && prevFrame >= 0) {
+			int pastStart = frameToTrackIndex(prevPrevFrame, positions.size(), frameCount);
+			int pastEnd = frameToTrackIndex(prevFrame, positions.size(), frameCount);
+			if(pastStart >= 0 && pastEnd > pastStart && positions.get(pastStart) != null && positions.get(pastEnd) != null) {
+				drawMovementSegment(buffer, positions.get(pastStart), positions.get(pastEnd), highContrast ? 1 : 0.92f, highContrast ? 1 : 0.92f, highContrast ? 1 : 0.92f, highContrast ? 0.95f : 0.75f, false);
+				drawPoint(buffer, positions.get(pastEnd), highContrast ? 1 : 0.9f, highContrast ? 1 : 0.9f, highContrast ? 1 : 0.9f, highContrast ? 1 : 0.85f, highContrast ? 0.04f : 0.03f);
 			}
 		}
-		if(selectedFrame > 0 && selectedFrame < positions.size() && positions.get(selectedFrame - 1) != null && positions.get(selectedFrame) != null) {
-			drawMovementSegment(buffer, positions.get(selectedFrame - 1), positions.get(selectedFrame), 1, highContrast ? 0.95f : 0.7f, highContrast ? 0.05f : 0.15f, 1);
-			drawPoint(buffer, positions.get(selectedFrame - 1), highContrast ? 1 : 0.85f, highContrast ? 1 : 0.85f, highContrast ? 1 : 0.85f, highContrast ? 1 : 0.8f, highContrast ? 0.04f : 0.03f);
-			drawPoint(buffer, positions.get(selectedFrame), 1, highContrast ? 0.95f : 0.84f, 0.1f, 1, highContrast ? 0.055f : 0.04f);
+		if(prevFrame >= 0) {
+			int currentStart = frameToTrackIndex(prevFrame, positions.size(), frameCount);
+			int currentEnd = frameToTrackIndex(selectedFrame == 0 && editor.selectedAnim.loop ? frameCount : selectedFrame, positions.size(), frameCount);
+			if(currentStart >= 0 && currentEnd > currentStart && positions.get(currentStart) != null && positions.get(currentEnd) != null) {
+				drawMovementSegment(buffer, positions.get(currentStart), positions.get(currentEnd), 1, highContrast ? 0.9f : 0.78f, 0.1f, 1, false);
+				drawPoint(buffer, positions.get(currentStart), highContrast ? 1 : 0.85f, highContrast ? 1 : 0.85f, highContrast ? 1 : 0.85f, highContrast ? 1 : 0.8f, highContrast ? 0.04f : 0.03f);
+				drawPoint(buffer, positions.get(currentEnd), 1, highContrast ? 0.95f : 0.84f, 0.1f, 1, highContrast ? 0.055f : 0.04f);
+			}
 		}
 	}
 
-	private void drawMovementSegment(VertexBuffer buffer, Vec3f from, Vec3f to, float r, float g, float b, float a) {
+	private int frameToTrackIndex(int frame, int pointCount, int frameCount) {
+		if(frameCount <= 0 || pointCount <= 0)return -1;
+		return Math.max(0, Math.min(pointCount - 1, Math.round(frame / (float) frameCount * (pointCount - 1))));
+	}
+
+	private void drawMovementSegment(VertexBuffer buffer, Vec3f from, Vec3f to, float r, float g, float b, float a, boolean dashed) {
 		float dx = to.x - from.x;
 		float dy = to.y - from.y;
 		float dz = to.z - from.z;
 		float dist = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
 		if(dist < 0.0001f)return;
+		if(!dashed) {
+			if(editor.highContrastMovementTrack.get())addLine(buffer, new Vec3f(from.x, from.y + 0.006f, from.z), new Vec3f(to.x, to.y + 0.006f, to.z), 0, 0, 0, 0.95f);
+			addLine(buffer, from, to, r, g, b, a);
+			return;
+		}
 		int steps = Math.max(6, Math.min(36, (int) (dist * 24)));
 		for(int i = 0; i < steps; i += 2) {
 			float s0 = i / (float) steps;
