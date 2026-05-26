@@ -235,18 +235,3 @@ public class AnimTimelinePanel extends Panel {
 		}
 	}
 }
-		if (numFrames <= 1) return trackW / 2;
-		return (int) (frameIdx / (float) (numFrames - 1) * trackW);
-	}
-
-	private void drawMarker(int x, int y, int color, boolean selected) {
-		int size = selected ? 5 : 4;
-		// Diamond shape using small boxes
-		for (int dy = -size; dy <= size; dy++) {
-			int halfW = size - Math.abs(dy);
-			if (halfW >= 0) {
-				gui.drawBox(x - halfW, y + dy, halfW * 2 + 1, 1, color);
-			}
-		}
-	}
-}
