@@ -201,6 +201,7 @@ public class GestureGui extends Frame implements IGestureButtonContainer {
 
 				Runnable rebuild = () -> {
 					content.getElements().clear();
+					buttons.clear();
 					int cy = 0;
 					String filter = searchField.getText().toLowerCase().trim();
 

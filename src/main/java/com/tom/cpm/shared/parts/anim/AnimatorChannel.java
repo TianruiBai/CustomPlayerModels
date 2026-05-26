@@ -4,9 +4,11 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.BiConsumer;
 
+import com.tom.cpl.function.FloatUnaryOperator;
 import com.tom.cpm.shared.animation.AnimationNew;
 import com.tom.cpm.shared.animation.AnimationNew.AnimationDriver;
 import com.tom.cpm.shared.animation.AnimationNew.PartAnimationDriver;
+import com.tom.cpm.shared.animation.AnimationRegistry;
 import com.tom.cpm.shared.animation.InterpolationInfo;
 import com.tom.cpm.shared.animation.InterpolatorChannel;
 import com.tom.cpm.shared.definition.ModelDefinition;
@@ -290,5 +292,41 @@ public class AnimatorChannel {
 		StringBuilder sb = new StringBuilder("Channel ");
 		sb.append(part);
 		return sb.toString();
+	}
+
+	/**
+	 * PartAnimationDriver for TEXTURE type animations.
+	 * Captures the AnimationRegistry during init and sets the active texture slot during playback.
+	 */
+	public static class TextureSlotDriver implements PartAnimationDriver {
+		private AnimationRegistry reg;
+
+		@Override
+		public void init(ModelDefinition def) {
+			this.reg = def.getAnimations();
+		}
+
+		@Override
+		public void set(float value) {
+			if (reg != null) {
+				reg.setActiveTextureSlot((int) value);
+			}
+		}
+
+		@Override
+		public InterpolationInfo getInterpolationInfo() {
+			return InterpolatorChannel.TEXTURE_ID;
+		}
+
+		@Override
+		public AnimationDriver makeDriver(FloatUnaryOperator frameDriver) {
+			if (frameDriver == null) return this;
+			return t -> set(frameDriver.apply(t));
+		}
+
+		@Override
+		public String toString() {
+			return "TextureSlot";
+		}
 	}
 }

@@ -104,8 +104,8 @@ public class TexturesLoaderV1 implements ProjectPartLoader {
 				JsonMap slotMap = slotList.getMap(i);
 				if (slotMap == null) continue;
 				TextureSlot slot = TextureSlot.fromMap(slotMap);
-				// Load the slot's PNG image
-				String pngPath = "skin_" + i + ".png";
+				// Load the slot's PNG image (slot 0 is skin.png, rest are skin_i.png)
+				String pngPath = i == 0 ? "skin.png" : "skin_" + i + ".png";
 				Image slotImg = project.getIfExists(pngPath, Image::loadFrom);
 				if (slotImg != null) {
 					slot.image = slotImg;

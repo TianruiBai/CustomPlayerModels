@@ -16,6 +16,7 @@ import com.tom.cpl.util.Image;
 import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.gui.ViewportCamera;
 import com.tom.cpm.shared.model.render.RenderMode;
+import com.tom.cpm.shared.util.Log;
 
 public abstract class Panel3d extends Panel {
 	private Panel3dNative nat;
@@ -29,8 +30,7 @@ public abstract class Panel3d extends Panel {
 		try {
 			nat = gui.getNative().getNative(Panel3d.class, this);
 		} catch (Throwable t) {
-			System.err.println("[CPM] Panel3d native unavailable, using no-op fallback renderer.");
-			t.printStackTrace();
+			Log.warn("[CPM] Panel3d native unavailable, using no-op fallback renderer.", t);
 			nat = new NoopPanel3dNative(this);
 		}
 	}
@@ -82,6 +82,7 @@ public abstract class Panel3d extends Panel {
 
 	public static class NoopPanel3dNative extends Panel3dNative {
 		private final Mat4f idMat;
+		private final RenderTypes<RenderMode> cachedRenderTypes = new RenderTypes<>(RenderMode.class);
 
 		public NoopPanel3dNative(Panel3d panel) {
 			super(panel);
@@ -95,12 +96,12 @@ public abstract class Panel3d extends Panel {
 
 		@Override
 		public RenderTypes<RenderMode> getRenderTypes() {
-			return new RenderTypes<>(RenderMode.class);
+			return cachedRenderTypes;
 		}
 
 		@Override
 		public RenderTypes<RenderMode> getRenderTypes(String tex) {
-			return new RenderTypes<>(RenderMode.class);
+			return cachedRenderTypes;
 		}
 
 		@Override

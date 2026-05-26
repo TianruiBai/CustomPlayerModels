@@ -153,6 +153,27 @@ public class AnimationExporter {
 				addChannel(anim, c, me, InterpolatorChannel.SCALE_Z, a, 1);
 			}
 		});
+
+		// For TEXTURE animations, create a TEXTURE_ID channel with frame data
+		if (a.type == AnimationType.TEXTURE) {
+			AnimatorChannel.TextureSlotDriver tsd = new AnimatorChannel.TextureSlotDriver();
+			AnimatorChannel texCh = new AnimatorChannel(tsd);
+			float[] texFrames = new float[frames.size()];
+			for (int i = 0; i < frames.size(); i++) {
+				AnimFrame frm = frames.get(i);
+				// Use the first element's textureId, or 0 if no elements
+				texFrames[i] = 0;
+				for (ModelElement me : elems) {
+					IElem dt = frm.getData(me);
+					if (dt != null && dt.getTextureId() != 0) {
+						texFrames[i] = dt.getTextureId();
+						break;
+					}
+				}
+			}
+			texCh.frameData = new ConstantTimeFloat(a.intType, texFrames);
+			anim.addChannel(texCh);
+		}
 	}
 
 	private static class Staging {

@@ -69,7 +69,7 @@ public class ModelFile {
 	}
 
 	public byte[] getOverflowLocal() {
-		return overflowLocal;
+		return overflowLocal != null ? overflowLocal.clone() : null;
 	}
 
 	public String getName() {

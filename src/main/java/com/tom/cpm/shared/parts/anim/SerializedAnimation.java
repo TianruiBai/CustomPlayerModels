@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 import com.tom.cpm.shared.animation.AnimationNew;
+import com.tom.cpm.shared.animation.AnimationType;
 import com.tom.cpm.shared.animation.IAnimation;
 import com.tom.cpm.shared.animation.InterpolatorChannel;
 import com.tom.cpm.shared.definition.ModelDefinition;
@@ -48,13 +49,17 @@ public class SerializedAnimation {
 		for (int i = 0; i < cubeCount; i++) {
 			int id = block.readVarInt();
 			boolean additive = (flags & ADDITIVE) != 0;
-			if (intChCount == 12) {
+			if (intChCount >= 12) {
 				Float3Driver.make(new CubePosDriver(id, additive), InterpolatorChannel.POS_X, InterpolatorChannel.POS_Y, InterpolatorChannel.POS_Z, (ic, ac) -> cA.addChannel(ac));
 				Float3Driver.make(new CubeRotDriver(id, additive), InterpolatorChannel.ROT_X, InterpolatorChannel.ROT_Y, InterpolatorChannel.ROT_Z, (ic, ac) -> cA.addChannel(ac));
 				Float3Driver.make(new CubeColorDriver(id, additive), InterpolatorChannel.COLOR_R, InterpolatorChannel.COLOR_G, InterpolatorChannel.COLOR_B, (ic, ac) -> cA.addChannel(ac));
 				Float3Driver.make(new CubeScaleDriver(id, additive), InterpolatorChannel.SCALE_X, InterpolatorChannel.SCALE_Y, InterpolatorChannel.SCALE_Z, (ic, ac) -> cA.addChannel(ac));
 			}
 			cA.animatorChannels.put(cA.chID++, new AnimatorChannel(new CubeVisDriver(id)));
+		}
+		// Reserve TEXTURE_ID channel (for TEXTURE animations that need per-frame slot switching)
+		if (intChCount >= 13) {
+			cA.animatorChannels.put(cA.chID++, new AnimatorChannel(new AnimatorChannel.TextureSlotDriver()));
 		}
 	}
 
@@ -92,9 +97,10 @@ public class SerializedAnimation {
 				} else {
 					throw new IOException("Misaligned cube info");
 				}
+			} else if (ac.part instanceof AnimatorChannel.TextureSlotDriver) {
+				// Skip non-cube TEXTURE_ID channel in cube iteration; frame data written below
 			} else {
-				//TODO
-				throw new RuntimeException("Can't export non cube mapped channels");
+				throw new RuntimeException("Can't export non cube mapped channels: " + ac.part);
 			}
 		}
 		writeCubeMaps(cubes, dout, add);
@@ -132,9 +138,15 @@ public class SerializedAnimation {
 		return "Animation: " + triggerID;
 	}
 
-	public IAnimation compile(ModelDefinition def) {
+	public IAnimation compile(ModelDefinition def, AnimationType animType) {
 		AnimationNew a = new AnimationNew(priority, duration);
-		animatorChannels.values().forEach(ac -> ac.addToAnim(a, def));
+		for (AnimatorChannel ac : animatorChannels.values()) {
+			// TextureSlotDriver channels are only active for TEXTURE type animations
+			if (ac.part instanceof AnimatorChannel.TextureSlotDriver && animType != AnimationType.TEXTURE) {
+				continue;
+			}
+			ac.addToAnim(a, def);
+		}
 		return a;
 	}
 }

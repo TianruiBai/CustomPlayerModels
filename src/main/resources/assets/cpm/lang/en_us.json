@@ -1213,5 +1213,12 @@
   "label.cpm.key.left": "Left Arrow",
   "label.cpm.key.right": "Right Arrow",
   "label.cpm.key.menu": "Menu",
-  "label.cpm.key.print.screen": "Print Screen"
+  "label.cpm.key.print.screen": "Print Screen",
+  "label.cpm.textureSlots": "Texture Slots",
+  "label.cpm.textureSlotNav": "Slot Navigation",
+  "button.cpm.addTextureSlot": "Add Slot",
+  "button.cpm.removeTextureSlot": "Remove Slot",
+  "button.cpm.nextTextureSlot": "Next Texture Slot",
+  "button.cpm.prevTextureSlot": "Previous Texture Slot",
+  "tooltip.cpm.textureSlots": "Switch between texture slots for multi-texture models"
 }

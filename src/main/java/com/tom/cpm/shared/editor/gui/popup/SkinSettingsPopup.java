@@ -164,14 +164,9 @@ public class SkinSettingsPopup extends PopupPanel {
 		slotY += 22;
 
 		// List texture slot buttons
-		final int[] slotBtnY = {slotY};
-		Runnable rebuildSlotButtons = () -> {
-			// Remove old slot-related elements by rebuilding: we use fixed positions
-			// For simplicity, show up to 6 slots
-		};
-
 		List<TextureSlot> slots = editor.textureSlots;
 		int visibleSlots = Math.min(slots.size(), 6);
+		int slotBtnY = slotY;
 		for (int i = 0; i < visibleSlots; i++) {
 			final int idx = i;
 			TextureSlot slot = slots.get(i);
@@ -180,11 +175,11 @@ public class SkinSettingsPopup extends PopupPanel {
 				editor.switchToTextureSlot(idx);
 				close();
 			});
-			slotBtn.setBounds(new Box(5, slotBtnY[0] + idx * 22, 190, 20));
+			slotBtn.setBounds(new Box(5, slotBtnY + idx * 22, 190, 20));
 			addElement(slotBtn);
 		}
 
-		int btnRowY = slotBtnY[0] + visibleSlots * 22 + 5;
+		int btnRowY = slotBtnY + visibleSlots * 22 + 5;
 
 		// Add Slot button
 		Button addSlotBtn = new Button(gui, gui.i18nFormat("button.cpm.addTextureSlot"), () -> {
@@ -193,15 +188,15 @@ public class SkinSettingsPopup extends PopupPanel {
 			fc.setFileDescText(EmbeddedLocalizations.filePng);
 			fc.setFilter(new FileFilter("png"));
 			fc.setAccept(f -> {
-				com.tom.cpl.util.Image img = com.tom.cpl.util.Image.loadFrom(f).join();
-				if (img != null) {
-					TextureSlot newSlot = new TextureSlot(f.getName(), img,
-						new com.tom.cpl.math.Vec2i(img.getWidth(), img.getHeight()), false);
-					editor.textureSlots.add(newSlot);
-					Log.info("[Editor] Added texture slot: " + newSlot.name);
-					editor.updateGui();
-				}
-				close();
+				com.tom.cpl.util.Image.loadFrom(f).thenAcceptAsync(img -> {
+					if (img != null) {
+						TextureSlot newSlot = new TextureSlot(f.getName(), img,
+							new com.tom.cpl.math.Vec2i(img.getWidth(), img.getHeight()), false);
+						editor.textureSlots.add(newSlot);
+						Log.info("[Editor] Added texture slot: " + newSlot.name);
+						editor.updateGui();
+					}
+				}, gui::executeLater).thenRun(this::close);
 			});
 			fc.setButtonText(gui.i18nFormat("button.cpm.ok"));
 			e.openPopup(fc);

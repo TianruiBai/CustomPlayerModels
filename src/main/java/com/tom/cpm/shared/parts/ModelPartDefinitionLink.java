@@ -26,6 +26,10 @@ public class ModelPartDefinitionLink extends ModelPartLink {
 	protected IModelPart load(IOHelper din, ModelDefinition def) throws IOException {
 		try {
 			IModelPart part = din.readObjectBlock(ModelPartType.VALUES, (t, d) -> t.getFactory().create(d, def));
+			if (part == null) {
+				din.reset();
+				return new ModelPartDefinition(din, def);
+			}
 			if (part instanceof ModelPartDefinition) {
 				while (true) {
 					IModelPart extra = din.readObjectBlock(ModelPartType.VALUES, (t, d) -> t.getFactory().create(d, def));

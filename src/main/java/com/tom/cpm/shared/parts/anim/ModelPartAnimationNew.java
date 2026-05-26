@@ -75,7 +75,7 @@ public class ModelPartAnimationNew implements IModelPart, IResolvedModelPart {
 		state.getAnims().forEach((id, an) -> {
 			SerializedTrigger tr = state.getTriggers().get(an.triggerID);
 			if (tr != null) {
-				IAnimation a = an.compile(def);
+				IAnimation a = an.compile(def, tr.anim);
 				anims.computeIfAbsent(tr, __ -> new ArrayList<>()).add(a);
 			}
 		});

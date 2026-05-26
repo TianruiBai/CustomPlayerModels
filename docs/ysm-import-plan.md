@@ -1,4 +1,4 @@
-# YSM �?CPM Import �?Reworked Implementation Plan (v2)
+﻿# YSM → CPM Import → Reworked Implementation Plan (v2)
 
 ## 0. Executive Summary
 
@@ -8,7 +8,7 @@
 
 **Three Conversion Areas**:
 1. **Model Assets**: Textures, non-player models, sounds, metadata
-2. **Model**: Bone �?ModelElement conversion with correct positioning
+2. **Model**: Bone →ModelElement conversion with correct positioning
 3. **Animation**: Keyframe conversion with world-space delta computation
 
 **Scope**: Phase 1 handles **unencrypted** `.ysmproject` ZIP files (the older YSM format). Encrypted newer `.ysm` files are out of scope.
@@ -34,13 +34,13 @@ YSM Bone Tree:               CPM Output (current, WRONG):
 The current `buildBoneHierarchySmart` detects when a YSM child bone maps to a different CPM part than its YSM parent, and **re-parents** it to a different CPM root. The re-parented bone's position is computed as `worldPos - ysmRootWorldPos`, which is wrong because:
 
 1. **CPM root parts have vanilla Minecraft positions** (e.g., HEAD renders at [0,24,0], BODY at [0,12,0]). The current code ignores these.
-2. **Breaking the YSM hierarchy invalidates child positions** �?children are parent-relative, and when you change the parent, everything shifts.
-3. **Double-accounting** �?`worldPos` sums ancestor pivots, but CPM also applies root part position during rendering.
+2. **Breaking the YSM hierarchy invalidates child positions** →children are parent-relative, and when you change the parent, everything shifts.
+3. **Double-accounting** →`worldPos` sums ancestor pivots, but CPM also applies root part position during rendering.
 
 ### 1.2 Why BlockBench Works (CORRECT)
 
 BlockBench groups map to CPM root parts with the **entire subtree intact**:
-- BB group "HEAD" �?CPM HEAD root
+- BB group "HEAD" →CPM HEAD root
 - All elements within the BB group keep their positions relative to the group
 - The group itself is at the correct world position relative to the CPM root part
 
@@ -50,16 +50,16 @@ BlockBench groups map to CPM root parts with the **entire subtree intact**:
 
 ```
 YSM Bone Tree:               CPM Output (new, CORRECT):
-  [ROOT: Mroot �?BODY]         BODY root (hidden)
+  [ROOT: Mroot →BODY]         BODY root (hidden)
                                  └─ Mroot [pos=pivot, subtree intact]
                                    └─ root [pos=parentRel]
                                      ├─ MAllBody [parentRel]
-                                     �?└─ Allbody [parentRel]
-                                     �?  └─ Upbody [parentRel]
-                                     �?    └─ MUpperBody [parentRel]
-                                     �?      ├─ Chest [parentRel]
-                                     �?      ├─ LeftArm [parentRel]
-                                     �?      └─ RightArm [parentRel]
+                                     →└─ Allbody [parentRel]
+                                     →  └─ Upbody [parentRel]
+                                     →    └─ MUpperBody [parentRel]
+                                     →      ├─ Chest [parentRel]
+                                     →      ├─ LeftArm [parentRel]
+                                     →      └─ RightArm [parentRel]
                                      └─ molang [parentRel]
 ```
 
@@ -69,7 +69,7 @@ YSM Bone Tree:               CPM Output (new, CORRECT):
 
 ## 2. Coordinate System Compatibility
 
-### 2.1 YSM/Bedrock �?CPM Coordinate Mapping
+### 2.1 YSM/Bedrock →CPM Coordinate Mapping
 
 Both systems use **pixel-unit coordinates** with the same axis conventions:
 
@@ -96,25 +96,25 @@ Both systems use **pixel-unit coordinates** with the same axis conventions:
 ### 2.3 Conversion Formulas (1:1 mapping within a subtree)
 
 ```
-// Bone �?ModelElement (parent-relative within same subtree)
+// Bone →ModelElement (parent-relative within same subtree)
 elem.pos       = bone.pivot - parentBone.pivot    // parent-relative
 elem.rotation  = bone.rotation                     // 1:1 degrees
 elem.hidden    = bone.neverRender || no cubes
 
-// Cube within a bone �?cube ModelElement
+// Cube within a bone →cube ModelElement
 cubeElem.size    = cube.size                        // 1:1
 cubeElem.offset  = cube.origin - bone.pivot         // relative to bone pivot
 cubeElem.pos     = [0,0,0]                          // at bone origin
 cubeElem.rotation = cube.rotation                   // if cube has own rotation
 
-// UV �?CPM UV
+// UV →CPM UV
 // Simple case (all faces same UV):
 cubeElem.u = firstFace.u
 cubeElem.v = firstFace.v
 // Complex case (per-face UV):
 cubeElem.faceUV = BedrockModelParser.convertPerFaceUV(cube)
 
-// Inflate �?meshScale
+// Inflate →meshScale
 // meshScale = 1 + 2*inflate/size (per-axis)
 cubeElem.meshScale.x = 1 + 2*cube.inflate / cube.size.x  (clamped to [0.1, 10])
 ```
@@ -155,66 +155,66 @@ Since HEAD and BODY have vanilla pos (0,0,0), bones placed under them use their 
 Each YSM root-level bone tree is classified into a CPM root part using a cascade of strategies:
 
 ```
-┌─────────────────────────────────────────────────────────────────�?
-�?            Smart Bone Tree �?CPM Part Classifier               �?
-├─────────────────────────────────────────────────────────────────�?
-�?                                                                 �?
-�? Input: YSM root bone + its entire subtree                       �?
-�?                                                                 �?
-�? ┌─ Strategy 1: Exact Name Match ────────────────────────────�? �?
-�? �? Match bone name against known patterns:                   �? �?
-�? �?   "head", "mhead", "allhead" �?HEAD                      �? �?
-�? �?   "body", "mallbody", "upbody" �?BODY                    �? �?
-�? �?   "leftarm", "larm" �?LEFT_ARM                           �? �?
-�? �?   "rightarm", "rarm" �?RIGHT_ARM                         �? �?
-�? �?   "leftleg", "lleg" �?LEFT_LEG                           �? �?
-�? �?   "rightleg", "rleg" �?RIGHT_LEG                         �? �?
-�? �? If match found �?RETURN part                              �? �?
-�? └────────────────────────────────────────────────────────────�? �?
-�?                             �?(no match)                        �?
-�? ┌─ Strategy 2: Child Name Consensus ────────────────────────�? �?
-�? �? Check immediate children's name matches.                  �? �?
-�? �? If >50% of children match one part �?RETURN that part     �? �?
-�? �? Example: "UpperBody" has children "Chest", "LeftArm"     �? �?
-�? �?   �?"Chest" maps to BODY �?UpperBody �?BODY              �? �?
-�? └────────────────────────────────────────────────────────────�? �?
-�?                             �?(no consensus)                    �?
-�? ┌─ Strategy 3: Ancestor Chain Inheritance ──────────────────�? �?
-�? �? Walk up the YSM parent chain.                             �? �?
-�? �? If any ancestor maps to a known part �?inherit it.        �? �?
-�? └────────────────────────────────────────────────────────────�? �?
-�?                             �?(no ancestor match)               �?
-�? ┌─ Strategy 4: Spatial Position Analysis ───────────────────�? �?
-�? �? Use the bone's world-space pivot + subtree bounding box   �? �?
-�? �? to determine body region:                                 �? �?
-�? �?                                                           �? �?
-�? �? Compute world-space bounding box of entire subtree:       �? �?
-�? �?   bbox = sum of all cube origins + sizes                  �? �?
-�? �?   centerY = bbox.center.y                                 �? �?
-�? �?   centerX = bbox.center.x                                 �? �?
-�? �?   extentZ = bbox.size.z / 2                               �? �?
-�? �?                                                           �? �?
-�? �? Region classification:                                    �? �?
-�? �?   centerY > 22         �?HEAD                             �? �?
-�? �?   centerY 10-22, |x|<4 �?BODY                             �? �?
-�? �?   centerY 8-22, x<-4  �?RIGHT_ARM                         �? �?
-�? �?   centerY 8-22, x>4   �?LEFT_ARM                          �? �?
-�? �?   centerY < 8, x<0    �?RIGHT_LEG                         �? �?
-�? �?   centerY < 8, x>0    �?LEFT_LEG                          �? �?
-�? �?   extentZ > 6         �?probably arms (forward reach)     �? �?
-�? └────────────────────────────────────────────────────────────�? �?
-�?                             �?(no spatial match)                �?
-�? ┌─ Strategy 5: Hierarchical Similarity ─────────────────────�? �?
-�? �? Compare the tree's topology (depth, child count,          �? �?
-�? �? branching pattern) against known YSM model archetypes.    �? �?
-�? �? Use min-edit-distance to find closest archetype.          �? �?
-�? └────────────────────────────────────────────────────────────�? �?
-�?                             �?(fallback)                        �?
-�? ┌─ Strategy 6: Default ─────────────────────────────────────�? �?
-�? �? RETURN PlayerModelParts.BODY                              �? �?
-�? └────────────────────────────────────────────────────────────�? �?
-�?                                                                 �?
-└─────────────────────────────────────────────────────────────────�?
+┌─────────────────────────────────────────────────────────────────→
+→            Smart Bone Tree →CPM Part Classifier               →
+├─────────────────────────────────────────────────────────────────→
+→                                                                 →
+→ Input: YSM root bone + its entire subtree                       →
+→                                                                 →
+→ ┌─ Strategy 1: Exact Name Match ────────────────────────────→ →
+→ → Match bone name against known patterns:                   → →
+→ →   "head", "mhead", "allhead" →HEAD                      → →
+→ →   "body", "mallbody", "upbody" →BODY                    → →
+→ →   "leftarm", "larm" →LEFT_ARM                           → →
+→ →   "rightarm", "rarm" →RIGHT_ARM                         → →
+→ →   "leftleg", "lleg" →LEFT_LEG                           → →
+→ →   "rightleg", "rleg" →RIGHT_LEG                         → →
+→ → If match found →RETURN part                              → →
+→ └────────────────────────────────────────────────────────────→ →
+→                             →(no match)                        →
+→ ┌─ Strategy 2: Child Name Consensus ────────────────────────→ →
+→ → Check immediate children's name matches.                  → →
+→ → If >50% of children match one part →RETURN that part     → →
+→ → Example: "UpperBody" has children "Chest", "LeftArm"     → →
+→ →   →"Chest" maps to BODY →UpperBody →BODY              → →
+→ └────────────────────────────────────────────────────────────→ →
+→                             →(no consensus)                    →
+→ ┌─ Strategy 3: Ancestor Chain Inheritance ──────────────────→ →
+→ → Walk up the YSM parent chain.                             → →
+→ → If any ancestor maps to a known part →inherit it.        → →
+→ └────────────────────────────────────────────────────────────→ →
+→                             →(no ancestor match)               →
+→ ┌─ Strategy 4: Spatial Position Analysis ───────────────────→ →
+→ → Use the bone's world-space pivot + subtree bounding box   → →
+→ → to determine body region:                                 → →
+→ →                                                           → →
+→ → Compute world-space bounding box of entire subtree:       → →
+→ →   bbox = sum of all cube origins + sizes                  → →
+→ →   centerY = bbox.center.y                                 → →
+→ →   centerX = bbox.center.x                                 → →
+→ →   extentZ = bbox.size.z / 2                               → →
+→ →                                                           → →
+→ → Region classification:                                    → →
+→ →   centerY > 22         →HEAD                             → →
+→ →   centerY 10-22, |x|<4 →BODY                             → →
+→ →   centerY 8-22, x<-4  →RIGHT_ARM                         → →
+→ →   centerY 8-22, x>4   →LEFT_ARM                          → →
+→ →   centerY < 8, x<0    →RIGHT_LEG                         → →
+→ →   centerY < 8, x>0    →LEFT_LEG                          → →
+→ →   extentZ > 6         →probably arms (forward reach)     → →
+→ └────────────────────────────────────────────────────────────→ →
+→                             →(no spatial match)                →
+→ ┌─ Strategy 5: Hierarchical Similarity ─────────────────────→ →
+→ → Compare the tree's topology (depth, child count,          → →
+→ → branching pattern) against known YSM model archetypes.    → →
+→ → Use min-edit-distance to find closest archetype.          → →
+→ └────────────────────────────────────────────────────────────→ →
+→                             →(fallback)                        →
+→ ┌─ Strategy 6: Default ─────────────────────────────────────→ →
+→ → RETURN PlayerModelParts.BODY                              → →
+→ └────────────────────────────────────────────────────────────→ →
+→                                                                 →
+└─────────────────────────────────────────────────────────────────→
 ```
 
 ### 3.2 Known YSM Bone Name Patterns
@@ -224,41 +224,41 @@ From analysis of real YSM models, here are common bone names and their CPM mappi
 ```
 Head Group:
   "MHead", "AllHead", "Head", "hat", "helmet"
-  �?HEAD
+  →HEAD
 
 Body Group (core):
   "MAllBody", "Allbody", "MUpperBody", "UpperBody", "Upbody",
   "Chest", "MUpbody", "Body", "Waist", "Belly"
-  �?BODY
+  →BODY
 
 Body Group (accessories on body):
   "PistolLocator", "RightWaistLocator", "LeftWaistLocator",
   "Backpack", "Tail", "WingL", "WingR", "Skirt"
-  �?BODY (stay with body subtree)
+  →BODY (stay with body subtree)
 
 Left Arm Group:
   "LeftArm", "LArm", "LeftArmLocator", "LeftHand",
   "LeftGlove", "LeftSleeve"
-  �?LEFT_ARM
+  →LEFT_ARM
 
 Right Arm Group:
   "RightArm", "RArm", "RightArmLocator", "RightHand",
   "RightGlove", "RightSleeve"
-  �?RIGHT_ARM
+  →RIGHT_ARM
 
 Left Leg Group:
   "LeftLeg", "LLeg", "LeftLegLocator", "LeftFoot",
   "LeftBoot", "LeftShoe"
-  �?LEFT_LEG
+  →LEFT_LEG
 
 Right Leg Group:
   "RightLeg", "RLeg", "RightLegLocator", "RightFoot",
   "RightBoot", "RightShoe"
-  �?RIGHT_LEG
+  →RIGHT_LEG
 
 Utility/Non-Standard:
   "Mroot", "root", "molang", "controller", "locator"
-  �?Keep with parent tree (don't create new root)
+  →Keep with parent tree (don't create new root)
 ```
 
 ### 3.3 Subtree Root Detection
@@ -267,11 +267,11 @@ Not every YSM bone without a `parent` field is a "root" for CPM purposes. Some a
 
 ```
 YSM hierarchy:
-  Mroot (parent=null)        �?container root �?maps based on children
-  └─ root (parent=Mroot)     �?NOT a subtree root (stays under Mroot)
-  └─ MAllBody (parent=root)  �?body subtree root �?if children map to BODY
-  └─ MHead (parent=root)     �?head subtree root �?if children map to HEAD
-  └─ LeftArm (parent=...)    �?arm subtree root �?maps to LEFT_ARM
+  Mroot (parent=null)        →container root →maps based on children
+  └─ root (parent=Mroot)     →NOT a subtree root (stays under Mroot)
+  └─ MAllBody (parent=root)  →body subtree root →if children map to BODY
+  └─ MHead (parent=root)     →head subtree root →if children map to HEAD
+  └─ LeftArm (parent=...)    →arm subtree root →maps to LEFT_ARM
 ```
 
 **Detection rule**: A bone is a "subtree root for CPM" if:
@@ -282,7 +282,7 @@ YSM hierarchy:
 
 ### 3.4 YSM Utility Bones
 
-Some YSM bones are pure "utility" �?they have no cubes and exist only for animation control:
+Some YSM bones are pure "utility" →they have no cubes and exist only for animation control:
 
 - `Mroot`, `root`: Model root containers
 - `molang`: Molang expression holder
@@ -295,7 +295,7 @@ Some YSM bones are pure "utility" �?they have no cubes and exist only for anim
 
 ## 4. Model Assets Conversion
 
-### 4.1 Textures (Already Working �?Minor Refinements)
+### 4.1 Textures (Already Working →Minor Refinements)
 
 **Current**: Multi-texture slot system via `TextureSlot`. Works correctly.
 
@@ -307,8 +307,8 @@ Some YSM bones are pure "utility" �?they have no cubes and exist only for anim
 ### 4.2 Non-Player Models (Extra Models)
 
 YSM projects can have additional models beyond the body:
-- `arrow.json` �?Arrow projectile model
-- `parcool.json` �?Parkour animation model
+- `arrow.json` →Arrow projectile model
+- `parcool.json` →Parkour animation model
 - Custom locator models
 
 **Current**: Imported as `ModelElement` containers under `editor.elements`.
@@ -331,14 +331,14 @@ YSM projects can include sound files in `sounds/` directory.
 ### 4.4 Metadata
 
 Transfer from `ysm.json`:
-- `metadata.name` �?`editor.description.name`
-- `metadata.authors` �?`editor.description.desc`
-- `metadata.license` �?stored in description text
-- `metadata.tips` �?stored in description text
+- `metadata.name` →`editor.description.name`
+- `metadata.authors` →`editor.description.desc`
+- `metadata.license` →stored in description text
+- `metadata.tips` →stored in description text
 
 ---
 
-## 5. Model Conversion �?Detailed Algorithm
+## 5. Model Conversion →Detailed Algorithm
 
 ### 5.1 Algorithm: `convertModel(ysmData, editor)`
 
@@ -387,7 +387,7 @@ void convertModel(YsmModelData ysmData, Editor editor) {
                      boneIndex, childrenMap, allElements, editor);
     }
     
-    // 8. Handle any missed bones (orphans) �?attach to YSM_UNMAPPED
+    // 8. Handle any missed bones (orphans) →attach to YSM_UNMAPPED
     // ...
     
     // 9. Import extra models
@@ -483,13 +483,13 @@ List<SubtreeInfo> identifySubtrees(List<BedrockBone> allBones,
     // Second pass: find subtree roots
     for (BedrockBone bone : allBones) {
         if (bone.parent == null) {
-            // True YSM root �?always a subtree root
+            // True YSM root →always a subtree root
             subtrees.add(new SubtreeInfo(bone, partCache.get(bone.name)));
         } else {
             PlayerModelParts myPart = partCache.get(bone.name);
             PlayerModelParts parentPart = partCache.get(bone.parent);
             if (myPart != parentPart && parentPart != null && myPart != null) {
-                // Part boundary �?new subtree root
+                // Part boundary →new subtree root
                 subtrees.add(new SubtreeInfo(bone, myPart));
             }
         }
@@ -532,7 +532,7 @@ cpmScale = ysmAnimScale
 ### 6.3 Frame Conversion
 
 ```
-Bedrock keyframe time (seconds) �?CPM frame index:
+Bedrock keyframe time (seconds) →CPM frame index:
   Each unique keyframe time becomes a separate CPM frame,
   preserving exact timing.
 ```
@@ -566,7 +566,7 @@ Vec3f cpmDelta = keyframePos.sub(ysmDefaultWorldPos.get(boneName));
 
 ---
 
-## 7. Implementation Architecture �?Rewritten Files
+## 7. Implementation Architecture →Rewritten Files
 
 ### 7.1 New File Structure
 
@@ -583,7 +583,7 @@ src/main/java/com/tom/cpm/shared/editor/ysm/
 └── YsmCoordUtil.java           # (NEW) Coordinate conversion utilities
 ```
 
-### 7.2 `YsmBoneClassifier` (NEW) �?The Smart Parser
+### 7.2 `YsmBoneClassifier` (NEW) →The Smart Parser
 
 ```java
 /**
@@ -592,7 +592,7 @@ src/main/java/com/tom/cpm/shared/editor/ysm/
  */
 public class YsmBoneClassifier {
     
-    /** Known YSM bone name �?CPM part mappings */
+    /** Known YSM bone name →CPM part mappings */
     private static final Map<String, PlayerModelParts> NAME_MAP = initNameMap();
     
     /** YSM utility bone names (stay with parent tree) */
@@ -641,7 +641,7 @@ public class YsmBoneClassifier {
 }
 ```
 
-### 7.3 `YsmCoordUtil` (NEW) �?Coordinate Utilities
+### 7.3 `YsmCoordUtil` (NEW) →Coordinate Utilities
 
 ```java
 public class YsmCoordUtil {
@@ -673,17 +673,17 @@ public class YsmCoordUtil {
 
 ## 8. Implementation Phases (Reworked)
 
-### Phase 1: Foundation �?Correct Model Geometry (3-4 days)
+### Phase 1: Foundation →Correct Model Geometry (3-4 days)
 **Goal**: Model imports with correct 3D positions, subtree integrity preserved.
 
-1. Create `YsmCoordUtil` �?vanilla part positions, world position computation
-2. Create `YsmBoneClassifier` �?smart bone-to-part mapping (strategies 1-4,6)
-3. Create `YsmSubtreeInfo` �?subtree boundary detection
-4. Rewrite `YsmToCpmConverter.convert()` �?subtree-preserving placement
+1. Create `YsmCoordUtil` →vanilla part positions, world position computation
+2. Create `YsmBoneClassifier` →smart bone-to-part mapping (strategies 1-4,6)
+3. Create `YsmSubtreeInfo` →subtree boundary detection
+4. Rewrite `YsmToCpmConverter.convert()` →subtree-preserving placement
 5. Remove `buildBoneHierarchySmart` and `determineBonePart` (old approach)
 6. Keep `buildBoneHierarchy` for recursion within subtrees
 7. Keep existing `BedrockModelParser` (solid, just minor cube parse updates)
-8. Test with `Avali_零幻.ysmproject` �?verify all bones at correct 3D positions
+8. Test with `Avali_零幻.ysmproject` →verify all bones at correct 3D positions
 9. Validate: compare against BlockBench→CPM round-trip visually
 
 ### Phase 2: Texture & Assets (1-2 days)
@@ -709,7 +709,7 @@ public class YsmCoordUtil {
 **Goal**: Full feature parity with BlockBench export.
 
 1. Per-face UV full support (all face directions, UV flipping, negative uv_size)
-2. Inflate �?meshScale correctness with safety clamping
+2. Inflate →meshScale correctness with safety clamping
 3. Cube-level pivot/rotation
 4. Mirror propagation (bone XOR cube)
 5. Extra animation file support (tac, carryon, slashblade, etc.)
@@ -732,7 +732,7 @@ public class YsmCoordUtil {
 
 | # | Check | Method |
 |---|-------|--------|
-| 1 | Import YSM �?no exceptions | Log output |
+| 1 | Import YSM →no exceptions | Log output |
 | 2 | All bones present (count matches) | Element count vs bone count |
 | 3 | No bones at wrong 3D positions | Visual comparison with BlockBench |
 | 4 | Bone hierarchy preserved (children under correct parents) | Editor tree view |
@@ -740,7 +740,7 @@ public class YsmCoordUtil {
 | 6 | Textures load as slots | Skin Settings panel |
 | 7 | Animations play with correct bone targets | Animation preview |
 | 8 | Position deltas correct (no drift from default pose) | Reset to default, apply animation |
-| 9 | Save as .cpmproject, reopen �?model intact | Round-trip test |
+| 9 | Save as .cpmproject, reopen →model intact | Round-trip test |
 | 10 | Vanilla CPM parts remain hidden | Visual check |
 | 11 | Extra models imported as named containers | Editor tree view |
 | 12 | Sounds detected and logged | Log output |
@@ -778,7 +778,7 @@ public class YsmCoordUtil {
 
 ## 12. Dependencies
 
-- **JSON parsing**: Gson (`com.google.gson`) �?already used in CPM
-- **ZIP reading**: `java.util.zip.ZipFile` �?standard Java
+- **JSON parsing**: Gson (`com.google.gson`) →already used in CPM
+- **ZIP reading**: `java.util.zip.ZipFile` →standard Java
 - **Image loading**: CPM's `Image` class
 - **No new external dependencies needed**
