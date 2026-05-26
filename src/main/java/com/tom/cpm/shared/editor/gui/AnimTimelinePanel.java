@@ -222,15 +222,15 @@ public class AnimTimelinePanel extends Panel {
 		}
 	}
 
-	private void drawDashedLine(int x1, int y, int x2, int y2, int color) {
+	private void drawDashedLine(int x1, int y1, int x2, int y2, int color) {
 		int dx = Math.abs(x2 - x1);
 		int dy = Math.abs(y2 - y1);
 		int steps = Math.max(dx / 3, 2);
 		for (int i = 0; i < steps; i += 2) {
 			int sx = x1 + (x2 - x1) * i / steps;
-			int sy = y + (y2 - y) * i / steps;
+			int sy = y1 + (y2 - y1) * i / steps;
 			int ex = x1 + (x2 - x1) * (i + 1) / steps;
-			int ey = y + (y2 - y) * (i + 1) / steps;
+			int ey = y1 + (y2 - y1) * (i + 1) / steps;
 			gui.drawBox(sx, sy, Math.max(ex - sx, 1), Math.max(ey - sy + 1, 1), color);
 		}
 	}

@@ -34,7 +34,6 @@
   "button.cpm.effect": "效果",
   "button.cpm.anim_reset_gesture": "重置动作",
   "button.cpm.anim_reset_pose": "重置姿势",
-  "button.cpm.reload_models": "重新加载模型",
   "button.cpm.render_models": "渲染模型 [%s]",
   "button.cpm.render_name": "渲染名称",
   "button.cpm.clearLayer": "清除",
