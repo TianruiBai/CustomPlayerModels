@@ -13,7 +13,7 @@
 - Playback shows a live playhead in the timeline; no-interpolation animations snap the playhead to active frames while interpolated modes move continuously. The playhead is always visible and can be dragged to scrub, including during playback.
 - Double-clicking a transform row label toggles an under-row value curve for that channel, showing X/Y/Z curves in red/green/blue sampled from the animation interpolator.
 - Selected-part movement guides in the viewport now render a full movement path, highlighted current segment, and optional dashed past segments, including during playback.
-- Movement guide rendering uses a cheap selected-part position-delta path instead of re-rendering the whole model once per animation frame, keeping large models more responsive.
+- Movement guide rendering uses cached null-buffer world-space matrix captures, so rotation-driven parts get a real full-animation path without re-rendering the capture every viewport frame.
 - Animation panel and display menu include a toggle for dashed past movement segments.
 - Animation panel and display menu include a high-contrast movement-track toggle for stronger guide visibility.
 

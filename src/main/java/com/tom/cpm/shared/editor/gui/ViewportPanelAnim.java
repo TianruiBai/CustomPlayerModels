@@ -17,15 +17,15 @@ import com.tom.cpl.render.VertexBuffer;
 import com.tom.cpl.util.Hand;
 import com.tom.cpl.util.ItemSlot;
 import com.tom.cpm.shared.MinecraftClientAccess;
-import com.tom.cpm.shared.animation.InterpolatorChannel;
 import com.tom.cpm.shared.animation.VanillaPose;
-import com.tom.cpm.shared.animation.interpolator.Interpolator;
 import com.tom.cpm.shared.editor.DisplayItem;
 import com.tom.cpm.shared.editor.Editor;
-import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.editor.anim.AnimationDisplayData;
 import com.tom.cpm.shared.editor.anim.AnimationDisplayData.Type;
 import com.tom.cpm.shared.editor.anim.AnimFrame;
+import com.tom.cpm.shared.editor.anim.EditorAnim;
+import com.tom.cpm.shared.editor.anim.IElem;
+import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.editor.tree.VecType;
 import com.tom.cpm.shared.editor.util.FilterBuffers;
 import com.tom.cpm.shared.gui.Keybinds;
@@ -38,6 +38,10 @@ public class ViewportPanelAnim extends ViewportPanel {
 	private List<AnimationDisplayData> anims;
 	private Vec3f animPos, animRot;
 	private FilterBuffers filter = new FilterBuffers(r -> types.get(RenderMode.OUTLINE) == r);
+	private List<Vec3f> movementTrackCache;
+	private ModelElement movementTrackElementCache;
+	private EditorAnim movementTrackAnimCache;
+	private int movementTrackHashCache;
 
 	public ViewportPanelAnim(Frame frm, Editor editor) {
 		super(frm, editor);
@@ -252,25 +256,26 @@ public class ViewportPanelAnim extends ViewportPanel {
 		ModelElement trackElement = editor.getSelectedElement();
 		boolean renderPreviousFrame = editor.showPreviousFrame.get() && editor.selectedAnim != null && editor.selectedElement != null && editor.selectedAnim.getFrames().size() > 1;
 		boolean drawMovementTrack = editor.showMovementTrack.get() && editor.selectedAnim != null && trackElement != null && editor.selectedAnim.getFrames().size() > 1;
+		List<Vec3f> movementTrack = drawMovementTrack ? buildMovementTrack(stack, partialTicks, trackElement) : null;
+		int displayFrame = getDisplayedFrameIndex();
 		if(renderPreviousFrame && editor.selectedAnim != null) {
 			List<AnimFrame> frames = editor.selectedAnim.getFrames();
 			AnimFrame originalFrame = editor.selectedAnim.getSelectedFrame();
+			boolean originalPlayFullAnim = editor.playFullAnim;
 			int selectedFrame = editor.selectedAnim.getSelectedFrameIndex();
 			int previousFrame = (selectedFrame - 1 + frames.size()) % frames.size();
 			editor.definition.renderingPanel = this;
 			editor.definition.outlineOnly = true;
+			editor.playFullAnim = false;
 			editor.selectedAnim.setSelectedFrame(frames.get(previousFrame));
 			renderModel(stack, filter.filter(buf), partialTicks);
 			editor.selectedAnim.setSelectedFrame(originalFrame);
+			editor.playFullAnim = originalPlayFullAnim;
 			editor.definition.renderingPanel = null;
 			editor.definition.outlineOnly = false;
 		}
 		super.render(stack, buf, partialTicks);
 		if(drawMovementTrack) {
-			Vec3f currentTrackPos = getElementPosition(trackElement);
-			int displayFrame = getDisplayedFrameIndex();
-			float displayTime = getDisplayedTrackTime();
-			List<Vec3f> movementTrack = currentTrackPos != null ? buildMovementTrack(trackElement, currentTrackPos, displayTime) : null;
 			VertexBuffer buffer = buf.getBuffer(types, RenderMode.OUTLINE);
 			if(movementTrack != null)drawMovementTracks(buffer, movementTrack, displayFrame, editor.selectedAnim.getFrames().size());
 		}
@@ -298,47 +303,71 @@ public class ViewportPanelAnim extends ViewportPanel {
 		return Math.max(0, Math.min(frameCount - 1, editor.selectedAnim.getSelectedFrameIndex()));
 	}
 
-	private float getDisplayedTrackTime() {
-		if(editor.selectedAnim == null)return 0;
-		int frameCount = editor.selectedAnim.getFrames().size();
-		if(frameCount <= 1)return 0;
-		if(editor.playFullAnim) {
-			long playTime = MinecraftClientAccess.get().getPlayerRenderManager().getAnimationEngine().getTime();
-			long duration = Math.max(1, editor.selectedAnim.duration);
-			return Math.floorMod(playTime - editor.playStartTime, duration) / (float) duration * frameCount;
-		}
-		return editor.selectedAnim.getSelectedFrameIndex();
-	}
+	private List<Vec3f> buildMovementTrack(MatrixStack stack, float partialTicks, ModelElement element) {
+		EditorAnim anim = editor.selectedAnim;
+		int hash = getMovementTrackHash(anim);
+		if(movementTrackCache != null && movementTrackElementCache == element && movementTrackAnimCache == anim && movementTrackHashCache == hash)
+			return movementTrackCache;
 
-	// Sample the selected part across the full animation timeline, then anchor that path to the
-	// currently rendered part position so the guide stays aligned with the live viewport pose.
-	private List<Vec3f> buildMovementTrack(ModelElement element, Vec3f currentWorldPos, float currentTime) {
-		int frameCount = editor.selectedAnim.getFrames().size();
-		Interpolator[] posInterpolators = createPositionInterpolators(element);
-		Vec3f currentLocal = sampleTrackPosition(posInterpolators, currentTime);
-		int samples = Math.max(frameCount * 8, 16);
-		List<Vec3f> positions = new ArrayList<>(samples + 1);
-		for(int i = 0; i <= samples; i++) {
-			float sampleTime = i / (float) samples * frameCount;
-			Vec3f local = sampleTrackPosition(posInterpolators, sampleTime);
-			positions.add(new Vec3f(currentWorldPos.x + (local.x - currentLocal.x) / 16f, currentWorldPos.y + (local.y - currentLocal.y) / 16f, currentWorldPos.z + (local.z - currentLocal.z) / 16f));
-		}
+		List<Vec3f> positions = captureMovementTrack(stack, partialTicks, anim, element);
+		movementTrackCache = positions;
+		movementTrackElementCache = element;
+		movementTrackAnimCache = anim;
+		movementTrackHashCache = hash;
 		return positions;
 	}
 
-	private Interpolator[] createPositionInterpolators(ModelElement element) {
-		Interpolator[] posInterpolators = new Interpolator[3];
-		InterpolatorChannel[] channels = {InterpolatorChannel.POS_X, InterpolatorChannel.POS_Y, InterpolatorChannel.POS_Z};
-		for(int i = 0; i < channels.length; i++) {
-			Interpolator interpolator = editor.selectedAnim.intType.create();
-			interpolator.init(AnimFrame.toArray(editor.selectedAnim, element, channels[i]), channels[i].createInterpolatorSetup());
-			posInterpolators[i] = interpolator;
+	private List<Vec3f> captureMovementTrack(MatrixStack stack, float partialTicks, EditorAnim anim, ModelElement element) {
+		List<AnimFrame> frames = anim.getFrames();
+		AnimFrame originalFrame = anim.getSelectedFrame();
+		boolean originalPlayFullAnim = editor.playFullAnim;
+		boolean originalOutlineOnly = editor.definition.outlineOnly;
+		ViewportPanel originalRenderingPanel = editor.definition.renderingPanel;
+		VBuffers nullBuffers = new VBuffers(t -> VertexBuffer.NULL, VertexBuffer.NULL);
+		List<Vec3f> positions = new ArrayList<>(frames.size() + (anim.loop ? 1 : 0));
+
+		editor.definition.renderingPanel = this;
+		editor.definition.outlineOnly = false;
+		editor.playFullAnim = false;
+		for(AnimFrame frame : frames) {
+			anim.setSelectedFrame(frame);
+			renderModel(stack, nullBuffers, partialTicks);
+			Vec3f position = getElementPosition(element);
+			positions.add(position == null ? null : new Vec3f(position));
 		}
-		return posInterpolators;
+		if(anim.loop && !positions.isEmpty() && positions.get(0) != null)
+			positions.add(new Vec3f(positions.get(0)));
+
+		anim.setSelectedFrame(originalFrame);
+		editor.playFullAnim = originalPlayFullAnim;
+		editor.definition.renderingPanel = originalRenderingPanel;
+		editor.definition.outlineOnly = originalOutlineOnly;
+		return positions;
 	}
 
-	private Vec3f sampleTrackPosition(Interpolator[] posInterpolators, float time) {
-		return new Vec3f((float) posInterpolators[0].applyAsDouble(time), (float) posInterpolators[1].applyAsDouble(time), (float) posInterpolators[2].applyAsDouble(time));
+	private int getMovementTrackHash(EditorAnim anim) {
+		List<AnimFrame> frames = anim.getFrames();
+		int hash = 31 * frames.size() + anim.duration;
+		hash = 31 * hash + (anim.loop ? 1 : 0);
+		hash = 31 * hash + anim.intType.ordinal();
+		for(AnimFrame frame : frames) {
+			hash = 31 * hash + frame.getComponents().size();
+			for(IElem data : frame.getComponents().values()) {
+				hash = appendVecHash(hash, data.getPosition());
+				hash = appendVecHash(hash, data.getRotation());
+				hash = appendVecHash(hash, data.getScale());
+				hash = 31 * hash + (data.isVisible() ? 1 : 0);
+			}
+		}
+		return hash;
+	}
+
+	private int appendVecHash(int hash, Vec3f vec) {
+		if(vec == null)return 31 * hash;
+		hash = 31 * hash + Float.floatToIntBits(vec.x);
+		hash = 31 * hash + Float.floatToIntBits(vec.y);
+		hash = 31 * hash + Float.floatToIntBits(vec.z);
+		return hash;
 	}
 
 	// Three-layer movement guide like Blockbench/Maya:
@@ -388,7 +417,7 @@ public class ViewportPanelAnim extends ViewportPanel {
 		if(prevFrame >= 0) {
 			int segStart = frameToTrackIndex(prevFrame, positions.size(), frameCount);
 			int segEnd   = frameToTrackIndex(currentFrame, positions.size(), frameCount);
-			if(segStart >= 0 && segEnd > segStart && positions.get(segStart) != null && positions.get(segEnd) != null) {
+			if(segStart >= 0 && segEnd >= 0 && segStart != segEnd && positions.get(segStart) != null && positions.get(segEnd) != null) {
 				if(highContrast) {
 					addLine(buffer, new Vec3f(positions.get(segStart).x, positions.get(segStart).y + 0.006f, positions.get(segStart).z), new Vec3f(positions.get(segEnd).x, positions.get(segEnd).y + 0.006f, positions.get(segEnd).z), 0, 0, 0, 0.95f);
 					addLine(buffer, new Vec3f(positions.get(segStart).x, positions.get(segStart).y - 0.006f, positions.get(segStart).z), new Vec3f(positions.get(segEnd).x, positions.get(segEnd).y - 0.006f, positions.get(segEnd).z), 0, 0, 0, 0.95f);
@@ -402,11 +431,9 @@ public class ViewportPanelAnim extends ViewportPanel {
 
 	private int frameToTrackIndex(int frame, int pointCount, int frameCount) {
 		if(frameCount <= 0 || pointCount <= 0)return -1;
-		return Math.max(0, Math.min(pointCount - 1, Math.round(frame / (float) frameCount * (pointCount - 1))));
-	}
-
-	private Vec3f lerp(Vec3f a, Vec3f b, float t) {
-		return new Vec3f(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+		if(pointCount >= frameCount)return Math.max(0, Math.min(pointCount - 1, frame));
+		if(frameCount <= 1)return 0;
+		return Math.max(0, Math.min(pointCount - 1, Math.round(frame / (float) (frameCount - 1) * (pointCount - 1))));
 	}
 
 	private void drawPoint(VertexBuffer buffer, Vec3f p, float r, float g, float b, float a, float s) {
