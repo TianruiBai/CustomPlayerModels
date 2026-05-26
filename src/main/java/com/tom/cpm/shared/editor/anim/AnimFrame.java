@@ -377,6 +377,11 @@ public class AnimFrame {
 			draggingElem.setRot(vec);
 			break;
 
+		case MESH_SCALE:
+		case SIZE:
+			draggingElem.setScale(vec);
+			break;
+
 		default:
 			break;
 		}
