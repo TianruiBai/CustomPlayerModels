@@ -24,6 +24,7 @@ import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.editor.anim.AnimationDisplayData;
 import com.tom.cpm.shared.editor.anim.AnimationDisplayData.Type;
 import com.tom.cpm.shared.editor.anim.AnimFrame;
+import com.tom.cpm.shared.editor.anim.IElem;
 import com.tom.cpm.shared.editor.tree.VecType;
 import com.tom.cpm.shared.editor.util.FilterBuffers;
 import com.tom.cpm.shared.gui.Keybinds;
@@ -248,34 +249,28 @@ public class ViewportPanelAnim extends ViewportPanel {
 		}
 		editor.applyAnim = true;
 		ModelElement trackElement = editor.getSelectedElement();
-		List<Vec3f> movementTrack = null;
-		int selectedFrame = -1;
 		boolean renderPreviousFrame = editor.showPreviousFrame.get() && editor.selectedAnim != null && editor.selectedElement != null && editor.selectedAnim.getFrames().size() > 1;
-		boolean captureMovementTrack = editor.showMovementTrack.get() && editor.selectedAnim != null && trackElement != null && editor.selectedAnim.getFrames().size() > 1;
-		if((renderPreviousFrame || captureMovementTrack) && editor.selectedAnim != null) {
+		boolean drawMovementTrack = editor.showMovementTrack.get() && editor.selectedAnim != null && trackElement != null && editor.selectedAnim.getFrames().size() > 1;
+		if(renderPreviousFrame && editor.selectedAnim != null) {
 			List<AnimFrame> frames = editor.selectedAnim.getFrames();
 			AnimFrame originalFrame = editor.selectedAnim.getSelectedFrame();
-			selectedFrame = editor.selectedAnim.getSelectedFrameIndex();
+			int selectedFrame = editor.selectedAnim.getSelectedFrameIndex();
 			int previousFrame = (selectedFrame - 1 + frames.size()) % frames.size();
-			movementTrack = captureMovementTrack ? new ArrayList<>() : null;
 			editor.definition.renderingPanel = this;
 			editor.definition.outlineOnly = true;
-			VBuffers nullBuffer = new VBuffers(rt -> VertexBuffer.NULL);
-			for(int i = 0; i < frames.size(); i++) {
-				boolean drawPrevious = renderPreviousFrame && i == previousFrame;
-				if(!drawPrevious && !captureMovementTrack)continue;
-				editor.selectedAnim.setSelectedFrame(frames.get(i));
-				renderModel(stack, drawPrevious ? filter.filter(buf) : nullBuffer, partialTicks);
-				if(captureMovementTrack)movementTrack.add(getElementPosition(trackElement));
-			}
+			editor.selectedAnim.setSelectedFrame(frames.get(previousFrame));
+			renderModel(stack, filter.filter(buf), partialTicks);
 			editor.selectedAnim.setSelectedFrame(originalFrame);
 			editor.definition.renderingPanel = null;
 			editor.definition.outlineOnly = false;
 		}
 		super.render(stack, buf, partialTicks);
-		if(movementTrack != null) {
+		if(drawMovementTrack) {
+			Vec3f currentTrackPos = getElementPosition(trackElement);
+			int displayFrame = getDisplayedFrameIndex();
+			List<Vec3f> movementTrack = currentTrackPos != null ? buildMovementTrack(trackElement, currentTrackPos, displayFrame) : null;
 			VertexBuffer buffer = buf.getBuffer(types, RenderMode.OUTLINE);
-			drawMovementTracks(buffer, movementTrack, selectedFrame);
+			if(movementTrack != null)drawMovementTracks(buffer, movementTrack, displayFrame);
 		}
 		editor.applyAnim = false;
 		anims = null;
@@ -288,23 +283,55 @@ public class ViewportPanelAnim extends ViewportPanel {
 		return new Vec3f(pos.x, pos.y, pos.z);
 	}
 
+	private int getDisplayedFrameIndex() {
+		if(editor.selectedAnim == null)return 0;
+		int frameCount = editor.selectedAnim.getFrames().size();
+		if(frameCount <= 1)return 0;
+		if(editor.playFullAnim) {
+			long playTime = MinecraftClientAccess.get().getPlayerRenderManager().getAnimationEngine().getTime();
+			long duration = Math.max(1, editor.selectedAnim.duration);
+			float progress = Math.floorMod(playTime - editor.playStartTime, duration) / (float) duration;
+			return Math.max(0, Math.min(frameCount - 1, (int) (progress * frameCount)));
+		}
+		return Math.max(0, Math.min(frameCount - 1, editor.selectedAnim.getSelectedFrameIndex()));
+	}
+
+	private List<Vec3f> buildMovementTrack(ModelElement element, Vec3f currentWorldPos, int currentFrame) {
+		List<AnimFrame> frames = editor.selectedAnim.getFrames();
+		Vec3f currentLocal = getFramePosition(frames.get(Math.max(0, Math.min(frames.size() - 1, currentFrame))), element);
+		List<Vec3f> positions = new ArrayList<>(frames.size());
+		for(AnimFrame frame : frames) {
+			Vec3f local = getFramePosition(frame, element);
+			positions.add(new Vec3f(currentWorldPos.x + (local.x - currentLocal.x) / 16f, currentWorldPos.y + (local.y - currentLocal.y) / 16f, currentWorldPos.z + (local.z - currentLocal.z) / 16f));
+		}
+		return positions;
+	}
+
+	private Vec3f getFramePosition(AnimFrame frame, ModelElement element) {
+		IElem data = frame.getData(element);
+		if(data != null)return data.getPosition();
+		if(editor.selectedAnim.add)return new Vec3f();
+		return new Vec3f(element.pos);
+	}
+
 	private void drawMovementTracks(VertexBuffer buffer, List<Vec3f> positions, int selectedFrame) {
 		if(positions.size() < 2)return;
+		boolean highContrast = editor.highContrastMovementTrack.get();
 		for(int i = 1; i < positions.size(); i++) {
 			if(positions.get(i - 1) == null || positions.get(i) == null)continue;
-			drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), 0.15f, 0.75f, 1, 0.35f);
+			drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), highContrast ? 0.05f : 0.15f, highContrast ? 0.95f : 0.75f, 1, highContrast ? 0.75f : 0.35f);
 		}
 		if(editor.showPastMovementTrack.get()) {
 			for(int i = 1; i < selectedFrame; i++) {
 				if(positions.get(i - 1) == null || positions.get(i) == null)continue;
-				drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), 0.85f, 0.85f, 0.85f, 0.55f);
-				drawPoint(buffer, positions.get(i - 1), 0.65f, 0.65f, 0.65f, 0.55f, 0.025f);
+				drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), 1, 1, 1, highContrast ? 0.9f : 0.55f);
+				drawPoint(buffer, positions.get(i - 1), highContrast ? 1 : 0.65f, highContrast ? 1 : 0.65f, highContrast ? 1 : 0.65f, highContrast ? 0.9f : 0.55f, highContrast ? 0.035f : 0.025f);
 			}
 		}
 		if(selectedFrame > 0 && selectedFrame < positions.size() && positions.get(selectedFrame - 1) != null && positions.get(selectedFrame) != null) {
-			drawMovementSegment(buffer, positions.get(selectedFrame - 1), positions.get(selectedFrame), 1, 0.7f, 0.15f, 1);
-			drawPoint(buffer, positions.get(selectedFrame - 1), 0.85f, 0.85f, 0.85f, 0.8f, 0.03f);
-			drawPoint(buffer, positions.get(selectedFrame), 1, 0.84f, 0.1f, 1, 0.04f);
+			drawMovementSegment(buffer, positions.get(selectedFrame - 1), positions.get(selectedFrame), 1, highContrast ? 0.95f : 0.7f, highContrast ? 0.05f : 0.15f, 1);
+			drawPoint(buffer, positions.get(selectedFrame - 1), highContrast ? 1 : 0.85f, highContrast ? 1 : 0.85f, highContrast ? 1 : 0.85f, highContrast ? 1 : 0.8f, highContrast ? 0.04f : 0.03f);
+			drawPoint(buffer, positions.get(selectedFrame), 1, highContrast ? 0.95f : 0.84f, 0.1f, 1, highContrast ? 0.055f : 0.04f);
 		}
 	}
 
@@ -318,7 +345,10 @@ public class ViewportPanelAnim extends ViewportPanel {
 		for(int i = 0; i < steps; i += 2) {
 			float s0 = i / (float) steps;
 			float s1 = Math.min(i + 1, steps) / (float) steps;
-			addLine(buffer, lerp(from, to, s0), lerp(from, to, s1), r, g, b, a);
+			Vec3f start = lerp(from, to, s0);
+			Vec3f end = lerp(from, to, s1);
+			if(editor.highContrastMovementTrack.get())addLine(buffer, new Vec3f(start.x, start.y + 0.006f, start.z), new Vec3f(end.x, end.y + 0.006f, end.z), 0, 0, 0, 0.95f);
+			addLine(buffer, start, end, r, g, b, a);
 		}
 	}
 

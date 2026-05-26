@@ -181,6 +181,7 @@ public class Editor {
 	public BooleanUpdater showTimeline = updaterReg.createBool(true);
 	public BooleanUpdater showMovementTrack = updaterReg.createBool(true);
 	public BooleanUpdater showPastMovementTrack = updaterReg.createBool(true);
+	public BooleanUpdater highContrastMovementTrack = updaterReg.createBool(false);
 	public float animTimelineZoom = 1;
 	public int animTimelineHeight = 86;
 	public int animTimelineCurveTrack = -1;

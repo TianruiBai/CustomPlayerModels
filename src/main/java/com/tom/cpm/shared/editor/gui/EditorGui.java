@@ -862,6 +862,9 @@ public class EditorGui extends Frame {
 
 				Checkbox chxbxShowPastMovementTrack = editor.showPastMovementTrack.makeCheckbox(pp, gui.i18nFormat("label.cpm.display.showPastMovementTrack"));
 				chxbxShowPastMovementTrack.setTooltip(new Tooltip(this, gui.i18nFormat("tooltip.cpm.display.showPastMovementTrack")));
+
+				Checkbox chxbxHighContrastMovementTrack = editor.highContrastMovementTrack.makeCheckbox(pp, gui.i18nFormat("label.cpm.display.highContrastMovementTrack"));
+				chxbxHighContrastMovementTrack.setTooltip(new Tooltip(this, gui.i18nFormat("tooltip.cpm.display.highContrastMovementTrack")));
 			}
 
 			if(viewType != ViewType.ANIMATION || editor.forceHeldItemInAnim.get()) {

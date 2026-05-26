@@ -7,11 +7,15 @@
 
 - Bottom animation timeline is integrated into the animation tab layout and can be collapsed.
 - Timeline is split into Position, Rotation, and Scale rows, with keyed frames shown per transform channel.
-- Timeline header supports previous frame, play/stop, next frame, zoom out, zoom in, frame info, and duration display.
+- Timeline header supports previous frame, play/stop, next frame, zoom out below 100%, zoom in, frame info, and duration display.
+- Frame zero is anchored to the left edge of the timeline, including zoomed-out views.
 - Timeline height is adjustable by dragging the top edge of the panel.
-- Double-clicking a transform row label toggles curve display for that channel, showing X/Y/Z curves in red/green/blue.
-- Selected-part movement guides in the viewport now render a full movement path, highlighted current segment, and optional dashed past segments.
+- Playback shows a live playhead in the timeline; no-interpolation animations snap the playhead to active frames while interpolated modes move continuously. The playhead is always visible and can be dragged to scrub, including during playback.
+- Double-clicking a transform row label toggles an under-row value curve for that channel, showing X/Y/Z curves in red/green/blue sampled from the animation interpolator.
+- Selected-part movement guides in the viewport now render a full movement path, highlighted current segment, and optional dashed past segments, including during playback.
+- Movement guide rendering uses a cheap selected-part position-delta path instead of re-rendering the whole model once per animation frame, keeping large models more responsive.
 - Animation panel and display menu include a toggle for dashed past movement segments.
+- Animation panel and display menu include a high-contrast movement-track toggle for stronger guide visibility.
 
 ---
 

@@ -35,8 +35,8 @@ public class AnimTimelinePanel extends Panel {
 	private final Editor editor;
 	private final Button toggleBtn, prevBtn, playBtn, nextBtn, zoomOutBtn, zoomInBtn;
 	private final Label frameLabel, durationLabel, zoomLabel;
-	private boolean collapsed, resizing;
-	private int resizeStartY, resizeStartH;
+	private boolean collapsed, resizing, draggingCursor;
+	private int resizeStartY, resizeStartH, dragTrackX, dragTrackW;
 	private long lastTrackClick;
 	private int lastClickedTrack = -1;
 	private Runnable layoutListener;
@@ -159,13 +159,13 @@ public class AnimTimelinePanel extends Panel {
 		int visibleW = b.w - LABEL_W - 14;
 		int trackW = getTrackWidth(visibleW);
 		int selIdx = anim.getSelectedFrameIndex();
-		int focusX = editor.playFullAnim ? getPlaybackTrackX(anim, numFrames, trackW) : getFrameX(selIdx, numFrames, trackW);
+		int focusX = getCursorTrackX(anim, numFrames, trackW);
 		int trackX = getTrackX(visibleX, visibleW, trackW, focusX);
 		int[] rowHeights = getRowHeights();
 		int[] rowYs = getRowYs(b.y + HEADER_H + 3, rowHeights);
 		int firstRowY = b.y + HEADER_H + 3;
 		int selX = trackX + getFrameX(selIdx, numFrames, trackW);
-		int playX = trackX + getPlaybackTrackX(anim, numFrames, trackW);
+		int cursorX = trackX + getCursorTrackX(anim, numFrames, trackW);
 		int totalTrackH = rowHeights[0] + rowHeights[1] + rowHeights[2];
 		ModelElement selectedElement = editor.getSelectedElement();
 		if(editor.playFullAnim)frameLabel.setText(gui.i18nFormat("label.cpm.timeline_frame_info", getPlaybackFrameIndex(anim, numFrames) + 1, numFrames));
@@ -174,8 +174,8 @@ public class AnimTimelinePanel extends Panel {
 		drawRow(frames, selectedElement, numFrames, selIdx, trackX, trackW, visibleX, visibleW, rowYs[1], rowHeights[1], gui.i18nFormat("label.cpm.rotation"), 0xff77a7ff, 1);
 		drawRow(frames, selectedElement, numFrames, selIdx, trackX, trackW, visibleX, visibleW, rowYs[2], rowHeights[2], gui.i18nFormat("label.cpm.scale"), 0xff7bd46d, 2);
 
-		if(selX >= visibleX && selX <= visibleX + visibleW)gui.drawBox(selX, firstRowY - 2, 1, totalTrackH + 3, 0xccffffff);
-		if(editor.playFullAnim && playX >= visibleX && playX <= visibleX + visibleW)drawPlayhead(playX, firstRowY - 2, totalTrackH + 3);
+		if(selX >= visibleX && selX <= visibleX + visibleW)gui.drawBox(selX, firstRowY - 2, 1, totalTrackH + 3, 0x88ffffff);
+		drawPlayhead(Math.max(visibleX, Math.min(visibleX + visibleW, cursorX)), firstRowY - 2, totalTrackH + 3);
 		drawFrameNumbers(numFrames, selIdx, trackX, trackW, visibleX, visibleW, firstRowY + totalTrackH - 1);
 	}
 
@@ -203,7 +203,7 @@ public class AnimTimelinePanel extends Panel {
 		int visibleW = b.w - LABEL_W - 14;
 		int trackW = getTrackWidth(visibleW);
 		int selIdx = anim.getSelectedFrameIndex();
-		int focusX = editor.playFullAnim ? getPlaybackTrackX(anim, numFrames, trackW) : getFrameX(selIdx, numFrames, trackW);
+		int focusX = getCursorTrackX(anim, numFrames, trackW);
 		int trackX = getTrackX(visibleX, visibleW, trackW, focusX);
 		int[] rowHeights = getRowHeights();
 		int firstRowY = b.y + HEADER_H + 3;
@@ -224,12 +224,10 @@ public class AnimTimelinePanel extends Panel {
 		}
 		int totalTrackH = rowHeights[0] + rowHeights[1] + rowHeights[2];
 		if(event.isHovered(new Box(visibleX, firstRowY - 2, visibleW, totalTrackH + BOTTOM_H)) && event.x >= trackX - 6 && event.x <= trackX + trackW + 6) {
-			int idx = getFrameAt(event.x, trackX, trackW, numFrames);
-			if(idx != selIdx) {
-				anim.setSelectedFrame(frames.get(idx));
-				editor.setAnimFrame.accept(idx);
-				editor.updateGui();
-			}
+			draggingCursor = true;
+			dragTrackX = trackX;
+			dragTrackW = trackW;
+			scrubCursor(event, anim, frames, trackX, trackW);
 			event.consume();
 		}
 	}
@@ -242,6 +240,15 @@ public class AnimTimelinePanel extends Panel {
 			event.consume();
 			return;
 		}
+		if(draggingCursor) {
+			EditorAnim anim = editor.selectedAnim;
+			if(anim != null) {
+				List<AnimFrame> frames = anim.getFrames();
+				if(!frames.isEmpty())scrubCursor(event, anim, frames, dragTrackX, dragTrackW);
+			}
+			event.consume();
+			return;
+		}
 		super.mouseDrag(event);
 	}
 
@@ -249,6 +256,11 @@ public class AnimTimelinePanel extends Panel {
 	public void mouseRelease(MouseEvent event) {
 		if(resizing) {
 			resizing = false;
+			event.consume();
+			return;
+		}
+		if(draggingCursor) {
+			draggingCursor = false;
 			event.consume();
 			return;
 		}
@@ -369,7 +381,7 @@ public class AnimTimelinePanel extends Panel {
 	}
 
 	private int getTrackX(int visibleX, int visibleW, int trackW, int focusX) {
-		if(trackW <= visibleW)return visibleX + (visibleW - trackW) / 2;
+		if(trackW <= visibleW)return visibleX;
 		return visibleX - getScroll(focusX, visibleW, trackW);
 	}
 
@@ -421,10 +433,28 @@ public class AnimTimelinePanel extends Panel {
 	}
 
 	private int getPlaybackTrackX(EditorAnim anim, int numFrames, int trackW) {
-		if(numFrames <= 1)return trackW / 2;
+		if(numFrames <= 1)return 0;
 		float progress = getPlaybackProgress(anim);
 		if(anim.intType == InterpolatorType.NO_INTERPOLATE)return getFrameX(getPlaybackFrameIndex(anim, numFrames), numFrames, trackW);
 		return Math.round(progress * trackW);
+	}
+
+	private int getCursorTrackX(EditorAnim anim, int numFrames, int trackW) {
+		return editor.playFullAnim ? getPlaybackTrackX(anim, numFrames, trackW) : getFrameX(anim.getSelectedFrameIndex(), numFrames, trackW);
+	}
+
+	private void scrubCursor(MouseEvent event, EditorAnim anim, List<AnimFrame> frames, int trackX, int trackW) {
+		float progress = Math.max(0, Math.min(1, (event.x - trackX) / (float) Math.max(1, trackW)));
+		if(editor.playFullAnim) {
+			long now = MinecraftClientAccess.get().getPlayerRenderManager().getAnimationEngine().getTime();
+			editor.playStartTime = now - Math.round(progress * Math.max(1, anim.duration));
+		}
+		int idx = Math.max(0, Math.min(frames.size() - 1, Math.round(progress * (frames.size() - 1))));
+		if(anim.getSelectedFrameIndex() != idx) {
+			anim.setSelectedFrame(frames.get(idx));
+			editor.setAnimFrame.accept(idx);
+			editor.updateGui();
+		}
 	}
 
 	private void drawPlayhead(int x, int y, int h) {
@@ -433,7 +463,7 @@ public class AnimTimelinePanel extends Panel {
 	}
 
 	private int getFrameX(int frameIdx, int numFrames, int trackW) {
-		if(numFrames <= 1)return trackW / 2;
+		if(numFrames <= 1)return 0;
 		return Math.round(frameIdx / (float) (numFrames - 1) * trackW);
 	}
 

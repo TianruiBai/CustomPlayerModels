@@ -230,6 +230,13 @@ public class AnimPanel extends Panel {
 		editor.showPastMovementTrack.add(showPastMovement::setSelected);
 		addElement(showPastMovement);
 
+		Checkbox highContrastMovement = new Checkbox(gui, gui.i18nFormat("label.cpm.display.highContrastMovementTrack"));
+		highContrastMovement.setBounds(new Box(5, 0, 150, 20));
+		highContrastMovement.setAction(editor.highContrastMovementTrack::toggle);
+		highContrastMovement.setTooltip(new Tooltip(e, gui.i18nFormat("tooltip.cpm.display.highContrastMovementTrack")));
+		editor.highContrastMovementTrack.add(highContrastMovement::setSelected);
+		addElement(highContrastMovement);
+
 		p = new Panel(gui);
 		p.setBounds(new Box(0, 0, bounds.w, 30));
 		addElement(p);
