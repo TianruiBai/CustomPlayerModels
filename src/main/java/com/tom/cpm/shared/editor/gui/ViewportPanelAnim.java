@@ -26,7 +26,6 @@ import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.editor.anim.AnimationDisplayData;
 import com.tom.cpm.shared.editor.anim.AnimationDisplayData.Type;
 import com.tom.cpm.shared.editor.anim.AnimFrame;
-import com.tom.cpm.shared.editor.anim.IElem;
 import com.tom.cpm.shared.editor.tree.VecType;
 import com.tom.cpm.shared.editor.util.FilterBuffers;
 import com.tom.cpm.shared.gui.Keybinds;
@@ -311,6 +310,8 @@ public class ViewportPanelAnim extends ViewportPanel {
 		return editor.selectedAnim.getSelectedFrameIndex();
 	}
 
+	// Sample the selected part across the full animation timeline, then anchor that path to the
+	// currently rendered part position so the guide stays aligned with the live viewport pose.
 	private List<Vec3f> buildMovementTrack(ModelElement element, Vec3f currentWorldPos, float currentTime) {
 		int frameCount = editor.selectedAnim.getFrames().size();
 		Interpolator[] posInterpolators = createPositionInterpolators(element);
@@ -340,19 +341,14 @@ public class ViewportPanelAnim extends ViewportPanel {
 		return new Vec3f((float) posInterpolators[0].applyAsDouble(time), (float) posInterpolators[1].applyAsDouble(time), (float) posInterpolators[2].applyAsDouble(time));
 	}
 
-	private Vec3f getFramePosition(AnimFrame frame, ModelElement element) {
-		IElem data = frame.getData(element);
-		if(data != null)return data.getPosition();
-		if(editor.selectedAnim.add)return new Vec3f();
-		return new Vec3f(element.pos);
-	}
-
+	// Layer order matters for readability: dashed full-path base, previous-segment context, then
+	// the active segment on top so creators can still read the whole motion while editing.
 	private void drawMovementTracks(VertexBuffer buffer, List<Vec3f> positions, int selectedFrame, int frameCount) {
 		if(positions.size() < 2)return;
 		boolean highContrast = editor.highContrastMovementTrack.get();
 		for(int i = 1; i < positions.size(); i++) {
 			if(positions.get(i - 1) == null || positions.get(i) == null)continue;
-			drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), highContrast ? 0.15f : 0.25f, highContrast ? 0.95f : 0.75f, 1, highContrast ? 0.85f : 0.55f, true);
+			drawMovementSegment(buffer, positions.get(i - 1), positions.get(i), highContrast ? 0.18f : 0.22f, highContrast ? 0.92f : 0.72f, highContrast ? 1f : 0.96f, highContrast ? 0.92f : 0.48f, true);
 		}
 		int prevFrame = selectedFrame - 1;
 		if(prevFrame < 0 && editor.selectedAnim.loop)prevFrame = frameCount - 1;
@@ -362,17 +358,17 @@ public class ViewportPanelAnim extends ViewportPanel {
 			int pastStart = frameToTrackIndex(prevPrevFrame, positions.size(), frameCount);
 			int pastEnd = frameToTrackIndex(prevFrame, positions.size(), frameCount);
 			if(pastStart >= 0 && pastEnd > pastStart && positions.get(pastStart) != null && positions.get(pastEnd) != null) {
-				drawMovementSegment(buffer, positions.get(pastStart), positions.get(pastEnd), highContrast ? 1 : 0.92f, highContrast ? 1 : 0.92f, highContrast ? 1 : 0.92f, highContrast ? 0.95f : 0.75f, false);
-				drawPoint(buffer, positions.get(pastEnd), highContrast ? 1 : 0.9f, highContrast ? 1 : 0.9f, highContrast ? 1 : 0.9f, highContrast ? 1 : 0.85f, highContrast ? 0.04f : 0.03f);
+				drawMovementSegment(buffer, positions.get(pastStart), positions.get(pastEnd), highContrast ? 0.88f : 0.72f, highContrast ? 0.96f : 0.78f, highContrast ? 1f : 0.96f, highContrast ? 0.98f : 0.82f, false);
+				drawPoint(buffer, positions.get(pastEnd), highContrast ? 0.94f : 0.82f, highContrast ? 0.98f : 0.86f, highContrast ? 1f : 1f, highContrast ? 1f : 0.9f, highContrast ? 0.04f : 0.03f);
 			}
 		}
 		if(prevFrame >= 0) {
 			int currentStart = frameToTrackIndex(prevFrame, positions.size(), frameCount);
 			int currentEnd = frameToTrackIndex(selectedFrame == 0 && editor.selectedAnim.loop ? frameCount : selectedFrame, positions.size(), frameCount);
 			if(currentStart >= 0 && currentEnd > currentStart && positions.get(currentStart) != null && positions.get(currentEnd) != null) {
-				drawMovementSegment(buffer, positions.get(currentStart), positions.get(currentEnd), 1, highContrast ? 0.9f : 0.78f, 0.1f, 1, false);
-				drawPoint(buffer, positions.get(currentStart), highContrast ? 1 : 0.85f, highContrast ? 1 : 0.85f, highContrast ? 1 : 0.85f, highContrast ? 1 : 0.8f, highContrast ? 0.04f : 0.03f);
-				drawPoint(buffer, positions.get(currentEnd), 1, highContrast ? 0.95f : 0.84f, 0.1f, 1, highContrast ? 0.055f : 0.04f);
+				drawMovementSegment(buffer, positions.get(currentStart), positions.get(currentEnd), 1f, highContrast ? 0.72f : 0.62f, highContrast ? 0.12f : 0.18f, 1f, false);
+				drawPoint(buffer, positions.get(currentStart), 1f, highContrast ? 0.82f : 0.74f, highContrast ? 0.28f : 0.34f, highContrast ? 1f : 0.88f, highContrast ? 0.04f : 0.03f);
+				drawPoint(buffer, positions.get(currentEnd), 1f, highContrast ? 0.74f : 0.64f, highContrast ? 0.08f : 0.12f, 1f, highContrast ? 0.055f : 0.04f);
 			}
 		}
 	}
