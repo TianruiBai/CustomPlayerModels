@@ -114,6 +114,31 @@ public class NetHandler<RL, P, NET> {
 	public <T> UUID resolvePlayerUUID(T player) {
 		return getPlayerUUID.apply((P) player);
 	}
+
+	// Stage 2 Security: admin check (OP level ≥ 2) and IP capture
+	protected Function<P, Boolean> isPlayerAdmin;
+	protected Function<P, String> getPlayerIP;
+
+	public void setIsPlayerAdmin(Function<P, Boolean> isPlayerAdmin) {
+		this.isPlayerAdmin = isPlayerAdmin;
+	}
+
+	public void setGetPlayerIP(Function<P, String> getPlayerIP) {
+		this.getPlayerIP = getPlayerIP;
+	}
+
+	@SuppressWarnings("unchecked")
+	public <T> boolean isAdmin(T player) {
+		if (isPlayerAdmin == null) return false;
+		return isPlayerAdmin.apply((P) player);
+	}
+
+	@SuppressWarnings("unchecked")
+	public <T> String getPlayerIp(T player) {
+		if (getPlayerIP == null) return "unknown";
+		return getPlayerIP.apply((P) player);
+	}
+
 	private TriConsumer<NET, RL, byte[]> sendPacket;
 	private TriConsumer<P, RL, byte[]> sendToAllTracking;
 	protected IntFunction<P> getPlayerById;

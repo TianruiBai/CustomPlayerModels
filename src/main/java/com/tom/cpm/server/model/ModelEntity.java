@@ -21,6 +21,7 @@ public class ModelEntity {
     private byte[] sha256;
     private boolean isDefault;
     private boolean isForced;
+    private boolean isCloneable;
     private Timestamp createdAt;
     private Timestamp updatedAt;
 
@@ -70,6 +71,9 @@ public class ModelEntity {
 
     public boolean isForced() { return isForced; }
     public void setForced(boolean isForced) { this.isForced = isForced; }
+
+    public boolean isCloneable() { return isCloneable; }
+    public void setCloneable(boolean isCloneable) { this.isCloneable = isCloneable; }
 
     public Timestamp getCreatedAt() { return createdAt; }
     public void setCreatedAt(Timestamp createdAt) { this.createdAt = createdAt; }

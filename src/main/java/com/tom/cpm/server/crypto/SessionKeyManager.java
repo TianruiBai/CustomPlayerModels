@@ -10,6 +10,7 @@ import java.util.concurrent.TimeUnit;
 import javax.crypto.SecretKey;
 
 import com.tom.cpm.server.crypto.TimeBoundKeyManager.SessionKeyEntry;
+import com.tom.cpm.server.security.RateLimitFilter;
 import com.tom.cpm.shared.util.Log;
 
 /**
@@ -69,12 +70,14 @@ public class SessionKeyManager {
 
     /**
      * Remove and wipe a session (player disconnected).
+     * Also clears rate limit state for the player (Stage 2.3).
      */
     public void destroySession(UUID playerUuid) {
         SessionKeyEntry entry = sessions.remove(playerUuid);
         if (entry != null) {
             entry.wipe();
         }
+        RateLimitFilter.clearPlayer(playerUuid);
     }
 
     /**
