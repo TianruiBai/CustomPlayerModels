@@ -474,6 +474,8 @@
   "label.cpm.timeline": "Timeline",
   "label.cpm.timeline_duration": "Duration: %sms",
   "label.cpm.timeline_frame_info": "Frame %s / %s",
+  "label.cpm.timeline_play": "Play",
+  "label.cpm.timeline_stop": "Stop",
   "label.cpm.duration": "Duration (ms):",
   "label.cpm.visible": "Visible",
   "label.cpm.anim_additive": "Additive",

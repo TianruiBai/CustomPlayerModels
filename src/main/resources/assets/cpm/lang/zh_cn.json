@@ -473,6 +473,8 @@
   "label.cpm.timeline": "时间轴",
   "label.cpm.timeline_duration": "持续时间：%sms",
   "label.cpm.timeline_frame_info": "帧 %s / %s",
+  "label.cpm.timeline_play": "播放",
+  "label.cpm.timeline_stop": "停止",
   "label.cpm.duration": "持续时间（毫秒）：",
   "label.cpm.visible": "可见",
   "label.cpm.anim_additive": "叠加",

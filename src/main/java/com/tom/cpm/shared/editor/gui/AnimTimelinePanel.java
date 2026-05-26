@@ -132,7 +132,7 @@ public class AnimTimelinePanel extends Panel {
 		prevBtn.setBounds(new Box(268, 1, 18, 18));
 		addElement(prevBtn);
 
-		playBtn = new Button(gui, "Play", this::togglePlay);
+		playBtn = new Button(gui, gui.i18nFormat("label.cpm.timeline_play"), this::togglePlay);
 		playBtn.setBounds(new Box(288, 1, 34, 18));
 		addElement(playBtn);
 
@@ -165,7 +165,7 @@ public class AnimTimelinePanel extends Panel {
 		editor.setSelAnim.add(a -> updateHeader());
 		editor.setAnimDuration.add(d -> updateHeader());
 		editor.setAnimPlay.add(v -> {
-			playBtn.setText(v ? "Stop" : "Play");
+			playBtn.setText(gui.i18nFormat(v ? "label.cpm.timeline_stop" : "label.cpm.timeline_play"));
 			updateHeader();
 		});
 		updateHeader();
