@@ -21,6 +21,9 @@ public class ServerHandlerBase {
 	public static NetHandler<CustomPacketPayload.Type<ByteArrayPayload>, ServerPlayer, ServerGamePacketListenerImpl> init() {
 		NetHandler<CustomPacketPayload.Type<ByteArrayPayload>, ServerPlayer, ServerGamePacketListenerImpl> netHandler = new NetHandler<>((k, v) -> new CustomPacketPayload.Type<>(ResourceLocation.tryBuild(k, v)));
 		netHandler.setGetPlayerUUID(ServerPlayer::getUUID);
+		netHandler.setIsPlayerAdmin(p -> p.hasPermissions(2));
+		netHandler.setGetPlayerIP(p -> p.connection.getRemoteAddress() != null
+			? p.connection.getRemoteAddress().toString() : "unknown");
 		netHandler.setSendPacketServer(Function.identity(), (c, rl, pb) -> c.send(new ClientboundCustomPayloadPacket(new ByteArrayPayload(rl, pb))), ent -> {
 			ChunkMap.TrackedEntity tr = ((ServerLevel)ent.level()).getChunkSource().chunkMap.entityMap.get(ent.getId());
 			if(tr != null) {

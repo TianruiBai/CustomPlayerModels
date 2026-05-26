@@ -102,8 +102,8 @@ public class ModelRepository {
             INSERT INTO models (player_uuid, name, description,
                 data_enc, data_iv, data_tag,
                 icon_enc, icon_iv, icon_tag,
-                size_bytes, sha256, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                size_bytes, sha256, is_cloneable, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """;
         String updateSql = """
             UPDATE models
@@ -236,7 +236,7 @@ public class ModelRepository {
     public List<ModelEntity> listModelsForPlayer(String playerUuid) throws SQLException {
         String sql = """
             SELECT id, player_uuid, name, description, size_bytes,
-                   is_default, is_forced, created_at, updated_at
+                   is_default, is_forced, is_cloneable, created_at, updated_at
             FROM models WHERE player_uuid = ? ORDER BY updated_at DESC
             """;
         List<ModelEntity> models = new ArrayList<>();
@@ -258,7 +258,7 @@ public class ModelRepository {
     public List<ModelEntity> listAllModels(int offset, int limit) throws SQLException {
         String sql = """
             SELECT id, player_uuid, name, description, size_bytes,
-                   is_default, is_forced, created_at, updated_at
+                   is_default, is_forced, is_cloneable, created_at, updated_at
             FROM models ORDER BY updated_at DESC LIMIT ? OFFSET ?
             """;
         List<ModelEntity> models = new ArrayList<>();
@@ -404,15 +404,73 @@ public class ModelRepository {
         }
     }
 
-    // ================================================================
-    // Audit Log
-    // ================================================================
+    /**
+     * Set cloneable flag on a model (set during upload based on model data).
+     */
+    public void setCloneable(long modelId, boolean cloneable) throws SQLException {
+        String sql = "UPDATE models SET is_cloneable = ? WHERE id = ?";
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setBoolean(1, cloneable);
+            ps.setLong(2, modelId);
+            ps.executeUpdate();
+        }
+    }
 
+    /**
+     * Retrieve model metadata (owner UUID, flags) without loading the encrypted blob.
+     * Used for authorization checks before serving downloads.
+     * 
+     * @return ModelEntity with id, playerUuid, name, isForced, isDefault, isCloneable
+     *         populated; null if not found
+     */
+    public ModelEntity getModelMetadata(long modelId) throws SQLException {
+        String sql = "SELECT id, player_uuid, name, is_forced, is_default, is_cloneable FROM models WHERE id = ?";
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, modelId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    ModelEntity m = new ModelEntity();
+                    m.setId(rs.getLong("id"));
+                    m.setPlayerUuid(rs.getString("player_uuid"));
+                    m.setName(rs.getString("name"));
+                    m.setForced(rs.getBoolean("is_forced"));
+                    m.setDefault(rs.getBoolean("is_default"));
+                    m.setCloneable(rs.getBoolean("is_cloneable"));
+                    return m;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Log an auditable action with hash-chain integrity (Stage 2.5).
+     * Each entry chains to the previous via SHA-256.
+     */
     public void logAction(String actor, String action, String target,
                            Long modelId, String details, String ipAddress) throws SQLException {
+        // Compute chain hash from previous entry
+        byte[] previousHash = getLatestChainHash();
+        byte[] chainHash;
+        try {
+            String entryData = String.format("%s|%s|%s|%s|%s|%d",
+                actor, action, target != null ? target : "",
+                modelId != null ? modelId.toString() : "",
+                details != null ? details : "",
+                System.currentTimeMillis());
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            if (previousHash != null) md.update(previousHash);
+            chainHash = md.digest(entryData.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            throw new SQLException("SHA-256 not available for audit chain", e);
+        }
+
         String sql = """
-            INSERT INTO audit_log (actor, action, target, model_id, details, ip_address, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO audit_log (actor, action, target, model_id, details,
+                                   ip_address, chain_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """;
         try (Connection conn = dbManager.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -423,7 +481,67 @@ public class ModelRepository {
             else ps.setNull(4, java.sql.Types.BIGINT);
             ps.setString(5, details);
             ps.setString(6, ipAddress);
+            ps.setBytes(7, chainHash);
             ps.executeUpdate();
+        }
+
+        // Update chain head in server_config
+        setConfigValue("audit_chain_head", bytesToHex(chainHash));
+    }
+
+    private byte[] getLatestChainHash() throws SQLException {
+        String hex = getConfigValue("audit_chain_head");
+        if (hex == null || hex.isEmpty()) return null;
+        return hexToBytes(hex);
+    }
+
+    private String getConfigValue(String key) throws SQLException {
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "SELECT cfg_value FROM server_config WHERE cfg_key = ?")) {
+            ps.setString(1, key);
+            try (java.sql.ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getString(1) : null;
+            }
+        }
+    }
+
+    private void setConfigValue(String key, String value) throws SQLException {
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "MERGE INTO server_config (cfg_key, cfg_value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)")) {
+            ps.setString(1, key);
+            ps.setString(2, value);
+            ps.executeUpdate();
+        }
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
+
+    private static byte[] hexToBytes(String hex) {
+        int len = hex.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(hex.charAt(i), 16) << 4)
+                                + Character.digit(hex.charAt(i + 1), 16));
+        }
+        return data;
+    }
+
+    /**
+     * Delete audit entries older than retentionDays and enforce maxEntries (Stage 2.5).
+     */
+    public void cleanupAuditLog(int retentionDays, int maxEntries) throws SQLException {
+        try (Connection conn = dbManager.getConnection();
+             java.sql.Statement stmt = conn.createStatement()) {
+            stmt.execute("DELETE FROM audit_log WHERE created_at < DATEADD('DAY', "
+                + (-retentionDays) + ", CURRENT_TIMESTAMP)");
+            stmt.execute("DELETE FROM audit_log WHERE id NOT IN ("
+                + "SELECT id FROM audit_log ORDER BY created_at DESC LIMIT " + maxEntries + ")");
         }
     }
 
@@ -469,6 +587,7 @@ public class ModelRepository {
         m.setSizeBytes(rs.getInt("size_bytes"));
         m.setDefault(rs.getBoolean("is_default"));
         m.setForced(rs.getBoolean("is_forced"));
+        try { m.setCloneable(rs.getBoolean("is_cloneable")); } catch (Exception ignored) {}
         m.setCreatedAt(rs.getTimestamp("created_at"));
         m.setUpdatedAt(rs.getTimestamp("updated_at"));
         if (includeData) {

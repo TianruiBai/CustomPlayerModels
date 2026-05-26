@@ -29,8 +29,7 @@ public class MigrationManager {
 
     private void registerMigrations() {
         migrations.add(new Migration(1, "Initial schema", this::migrateV1));
-        // Future migrations:
-        // migrations.add(new Migration(2, "Add model_tags table", this::migrateV2));
+        migrations.add(new Migration(2, "Stage 2 Security Enhancements", this::migrateV2));
     }
 
     /**
@@ -164,6 +163,29 @@ public class MigrationManager {
                     updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
+        }
+    }
+
+    private void migrateV2(Connection conn) throws SQLException {
+        try (Statement stmt = conn.createStatement()) {
+            // 2.1+2.4: Add is_cloneable column to models table
+            stmt.execute("ALTER TABLE models ADD COLUMN IF NOT EXISTS is_cloneable BOOLEAN NOT NULL DEFAULT FALSE");
+
+            // 2.4: Add signature column for model attestation
+            stmt.execute("ALTER TABLE models ADD COLUMN IF NOT EXISTS signature BINARY(32)");
+
+            // 2.5: Add chain_hash column for audit integrity
+            stmt.execute("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS chain_hash BINARY(32)");
+
+            // Create genesis audit entry if table is empty
+            stmt.execute("""
+                INSERT INTO audit_log (actor, action, target, model_id, details, ip_address, chain_hash, created_at)
+                SELECT 'SYSTEM', 'GENESIS', NULL, NULL, 'Audit log initialized — Stage 2 Security', '127.0.0.1',
+                       HASH('SHA256', 'CPM_AUDIT_GENESIS'), CURRENT_TIMESTAMP
+                WHERE NOT EXISTS (SELECT 1 FROM audit_log)
+                """);
+
+            Log.info("Migration V2 complete: Stage 2 Security Enhancements applied");
         }
     }
 

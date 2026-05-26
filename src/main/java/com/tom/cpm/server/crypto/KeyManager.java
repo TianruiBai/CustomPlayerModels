@@ -27,6 +27,7 @@ public class KeyManager {
     private static final String KEYSTORE_TYPE = "JCEKS";
     private static final String DB_MASTER_KEY_ALIAS = "cpm-db-master-key";
     private static final String DB_FILE_PASSWORD_ALIAS = "cpm-db-file-password";
+    private static final String SIGNING_KEY_ALIAS = "cpm-signing-key";
 
     private final File keystoreFile;
     private final CryptoService crypto;
@@ -35,6 +36,7 @@ public class KeyManager {
 
     private SecretKey dbMasterKey;
     private String dbFilePassword;
+    private SecretKey signingKey;
 
     public KeyManager(File serverDir, CryptoService crypto) {
         this.keystoreFile = new File(serverDir, "cpm_keystore.jks");
@@ -114,6 +116,27 @@ public class KeyManager {
             throw new IOException("Failed to access DB file password in keystore", e);
         }
 
+        // Load or generate signing key (Stage 2.4)
+        try {
+            if (keyStore.containsAlias(SIGNING_KEY_ALIAS)) {
+                KeyStore.SecretKeyEntry entry = (KeyStore.SecretKeyEntry)
+                    keyStore.getEntry(SIGNING_KEY_ALIAS,
+                        new KeyStore.PasswordProtection(keystorePassword));
+                this.signingKey = entry.getSecretKey();
+                Log.info("Loaded signing key from keystore");
+            } else {
+                this.signingKey = crypto.generateAesKey();
+                keyStore.setEntry(SIGNING_KEY_ALIAS,
+                    new KeyStore.SecretKeyEntry(signingKey),
+                    new KeyStore.PasswordProtection(keystorePassword));
+                save();
+                Log.info("Generated new signing key for model attestation");
+            }
+        } catch (java.security.NoSuchAlgorithmException | java.security.UnrecoverableEntryException
+                | java.security.KeyStoreException e) {
+            throw new IOException("Failed to access signing key in keystore", e);
+        }
+
         // Restrict file permissions on the keystore
         if (keystoreFile.exists()) {
             keystoreFile.setReadable(true, false);  // owner only
@@ -128,6 +151,10 @@ public class KeyManager {
 
     public String getDbFilePassword() {
         return dbFilePassword;
+    }
+
+    public SecretKey getSigningKey() {
+        return signingKey;
     }
 
     private void save() throws IOException {
