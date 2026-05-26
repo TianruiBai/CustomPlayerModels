@@ -452,6 +452,7 @@
   "label.cpm.texHeight": "Height:",
   "label.cpm.overwrite": "Overwrite file?",
   "label.cpm.file_project": "Project file (.cpmproject)",
+  "label.cpm.file_project_or_ysm": "Project files (.cpmproject, .ysmproject)",
   "label.cpm.file_png": "Image (.png)",
   "label.cpm.file_cpmmodel": "Model (.cpmmodel)",
   "label.cpm.new_project": "Untitled.cpmproject",
@@ -1213,5 +1214,12 @@
   "label.cpm.key.left": "Left Arrow",
   "label.cpm.key.right": "Right Arrow",
   "label.cpm.key.menu": "Menu",
-  "label.cpm.key.print.screen": "Print Screen"
+  "label.cpm.key.print.screen": "Print Screen",
+  "label.cpm.textureSlots": "Texture Slots",
+  "label.cpm.textureSlotNav": "Slot Navigation",
+  "button.cpm.addTextureSlot": "Add Slot",
+  "button.cpm.removeTextureSlot": "Remove Slot",
+  "button.cpm.nextTextureSlot": "Next Texture Slot",
+  "button.cpm.prevTextureSlot": "Previous Texture Slot",
+  "tooltip.cpm.textureSlots": "Switch between texture slots for multi-texture models"
 }

@@ -12,6 +12,7 @@ import com.tom.cpl.gui.elements.ChooseElementPopup;
 import com.tom.cpl.gui.elements.PopupMenu;
 import com.tom.cpl.math.Vec2i;
 import com.tom.cpm.shared.MinecraftClientAccess;
+import com.tom.cpm.shared.gui.GestureGui;
 import com.tom.cpm.shared.gui.gesture.IGestureButtonContainer.BoundKeyInfo;
 import com.tom.cpm.shared.parts.anim.menu.AbstractGestureButtonData;
 
@@ -31,7 +32,8 @@ public class AbstractGestureButton extends Button implements IGestureButton {
 	public void draw(MouseEvent event, float partialTicks) {
 		isHovered = event.isHovered(bounds);
 
-		int w = gui.textWidth(name);
+		String displayName = GestureGui.stripSourcePrefix(name);
+		int w = gui.textWidth(displayName);
 		int bgColor = gui.getColors().button_fill;
 		int color = gui.getColors().button_text_color;
 		if(!enabled) {
@@ -51,7 +53,7 @@ public class AbstractGestureButton extends Button implements IGestureButton {
 			gui.drawText(bounds.x + bounds.w / 2 - w2 / 2, bounds.y + bounds.h / 2 + 4, kb.bound, color);
 			nameY = -10;
 		}
-		gui.drawText(bounds.x + bounds.w / 2 - w / 2, bounds.y + bounds.h / 2 + nameY, name, color);
+		gui.drawText(bounds.x + bounds.w / 2 - w / 2, bounds.y + bounds.h / 2 + nameY, displayName, color);
 	}
 
 	protected boolean canHold() {

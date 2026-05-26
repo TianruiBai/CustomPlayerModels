@@ -57,6 +57,7 @@ import com.tom.cpm.common.ItemStackHandlerImpl;
 import com.tom.cpm.mixin.GuiAccessor;
 import com.tom.cpm.shared.MinecraftCommonAccess;
 import com.tom.cpm.shared.gui.panel.Panel3d;
+import com.tom.cpm.shared.util.Log;
 
 public class GuiImpl extends Screen implements IGui {
 	protected static final KeyCodes CODES = new GLFWKeyCodes();
@@ -74,7 +75,11 @@ public class GuiImpl extends Screen implements IGui {
 	static {
 		nativeComponents.register(TextField.class, local(GuiImpl::createTextField));
 		nativeComponents.register(FileChooserPopup.class, TinyFDChooser::new);
-		nativeComponents.register(Panel3d.class, Panel3dImpl::new);
+		try {
+			nativeComponents.register(Panel3d.class, Panel3dImpl::new);
+		} catch (Throwable t) {
+			Log.warn("[CPM] Failed to register Panel3d native renderer, 3D viewport will be disabled.", t);
+		}
 	}
 
 	public GuiImpl(Function<IGui, Frame> creator, Screen parent) {

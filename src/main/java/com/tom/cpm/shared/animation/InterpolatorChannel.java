@@ -18,6 +18,8 @@ public enum InterpolatorChannel implements InterpolationInfo {
 	SCALE_X(9, 1),
 	SCALE_Y(10, 1),
 	SCALE_Z(11, 1),
+	/** Integer channel: which texture slot index is active. Step-interpolated (no blending). */
+	TEXTURE_ID(12, 0),
 	;
 	public static final InterpolatorChannel[] VALUES = values();
 	private final Supplier<DoubleUnaryOperator> interpolatorSetupFactory;

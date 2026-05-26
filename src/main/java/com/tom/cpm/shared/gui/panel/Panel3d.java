@@ -16,6 +16,7 @@ import com.tom.cpl.util.Image;
 import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.gui.ViewportCamera;
 import com.tom.cpm.shared.model.render.RenderMode;
+import com.tom.cpm.shared.util.Log;
 
 public abstract class Panel3d extends Panel {
 	private Panel3dNative nat;
@@ -26,7 +27,12 @@ public abstract class Panel3d extends Panel {
 		super(frm.getGui());
 		this.frame = frm;
 
-		nat = gui.getNative().getNative(Panel3d.class, this);
+		try {
+			nat = gui.getNative().getNative(Panel3d.class, this);
+		} catch (Throwable t) {
+			Log.warn("[CPM] Panel3d native unavailable, using no-op fallback renderer.", t);
+			nat = new NoopPanel3dNative(this);
+		}
 	}
 
 	public static abstract class Panel3dNative {
@@ -71,6 +77,46 @@ public abstract class Panel3d extends Panel {
 			float sx = (off.x + bounds.x) / (float) ws.x;
 			float sy = (off.y + bounds.y) / (float) ws.y;
 			panel.gui.drawTexture(bounds.x, bounds.y, bounds.w, bounds.h, sx, sy, sx + bounds.w / (float) ws.x, sy + bounds.h / (float) ws.y);
+		}
+	}
+
+	public static class NoopPanel3dNative extends Panel3dNative {
+		private final Mat4f idMat;
+		private final RenderTypes<RenderMode> cachedRenderTypes = new RenderTypes<>(RenderMode.class);
+
+		public NoopPanel3dNative(Panel3d panel) {
+			super(panel);
+			idMat = new Mat4f();
+			idMat.setIdentity();
+		}
+
+		@Override
+		public void render(float partialTicks) {
+		}
+
+		@Override
+		public RenderTypes<RenderMode> getRenderTypes() {
+			return cachedRenderTypes;
+		}
+
+		@Override
+		public RenderTypes<RenderMode> getRenderTypes(String tex) {
+			return cachedRenderTypes;
+		}
+
+		@Override
+		public Image takeScreenshot(Vec2i size) {
+			return new Image(size.x, size.y);
+		}
+
+		@Override
+		public Mat4f getView() {
+			return idMat.copy();
+		}
+
+		@Override
+		public Mat4f getProjection() {
+			return idMat.copy();
 		}
 	}
 

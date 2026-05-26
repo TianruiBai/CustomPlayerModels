@@ -452,6 +452,7 @@
   "label.cpm.texHeight": "高度：",
   "label.cpm.overwrite": "覆盖文件？",
   "label.cpm.file_project": "项目文件（.cpmproject）",
+  "label.cpm.file_project_or_ysm": "项目文件（.cpmproject，.ysmproject）",
   "label.cpm.file_png": "图片（.png）",
   "label.cpm.file_cpmmodel": "模型（.cpmmodel）",
   "label.cpm.new_project": "无标题.cpmproject",

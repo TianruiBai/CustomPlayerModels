@@ -64,8 +64,9 @@ public class AnimationExporter {
 		SerializedTrigger tr = new SerializedTrigger();
 		if (a.pose instanceof VanillaPose) {
 			tr.pose = (VanillaPose) a.pose;
+			tr.looping = a.loop;
 			tr.mustFinish = a.mustFinish;
-		} else if(a.type == AnimationType.CUSTOM_POSE || a.type == AnimationType.GESTURE || a.type.isLayer()) {
+		} else if(a.type == AnimationType.CUSTOM_POSE || a.type == AnimationType.GESTURE || a.type == AnimationType.TEXTURE || a.type.isLayer()) {
 			tr.looping = a.type == AnimationType.GESTURE ? a.loop : true;
 			if (!allButtons.containsKey(a.getId())) {
 				ParameterInfo info = makeButtonInfo(a);
@@ -103,6 +104,10 @@ public class AnimationExporter {
 			tr.stage = a.type == AnimationType.SETUP ? StageType.SETUP : StageType.FINISH;
 			tr.stagingID = st.id;
 		}
+		tr.triggerItem = a.triggerItem;
+		tr.triggerHand = a.triggerHand;
+		tr.triggerAction = a.triggerAction;
+		tr.triggerUseAnimation = a.triggerUseAnimation;
 		int id = triggers.computeIfAbsent(tr, an::newTrigger);
 		animTriggers.put(a, id);
 		SerializedAnimation anim = new SerializedAnimation();
@@ -148,6 +153,27 @@ public class AnimationExporter {
 				addChannel(anim, c, me, InterpolatorChannel.SCALE_Z, a, 1);
 			}
 		});
+
+		// For TEXTURE animations, create a TEXTURE_ID channel with frame data
+		if (a.type == AnimationType.TEXTURE) {
+			AnimatorChannel.TextureSlotDriver tsd = new AnimatorChannel.TextureSlotDriver();
+			AnimatorChannel texCh = new AnimatorChannel(tsd);
+			float[] texFrames = new float[frames.size()];
+			for (int i = 0; i < frames.size(); i++) {
+				AnimFrame frm = frames.get(i);
+				// Use the first element's textureId, or 0 if no elements
+				texFrames[i] = 0;
+				for (ModelElement me : elems) {
+					IElem dt = frm.getData(me);
+					if (dt != null && dt.getTextureId() != 0) {
+						texFrames[i] = dt.getTextureId();
+						break;
+					}
+				}
+			}
+			texCh.frameData = new ConstantTimeFloat(a.intType, texFrames);
+			anim.addChannel(texCh);
+		}
 	}
 
 	private static class Staging {

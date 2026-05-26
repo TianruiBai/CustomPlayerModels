@@ -46,6 +46,7 @@ public class AnimFrame {
 	public class FrameData implements IElem {
 		private Vec3f pos, rot, color, scale;
 		private boolean show = true;
+		private int textureId = 0;
 		private ModelElement comp;
 
 		public FrameData(ModelElement comp) {
@@ -109,6 +110,19 @@ public class AnimFrame {
 		@Override
 		public Vec3f getScale() {
 			return scale;
+		}
+
+		@Override
+		public int getTextureId() {
+			return textureId;
+		}
+
+		public void setTextureId(int id) {
+			this.textureId = id;
+		}
+
+		public boolean hasTextureChange() {
+			return textureId != 0;
 		}
 
 		private void apply() {

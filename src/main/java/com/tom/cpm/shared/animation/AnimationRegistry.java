@@ -89,6 +89,17 @@ public class AnimationRegistry {
 		}
 	}
 
+	/** Current texture slot index driven by TEXTURE animations. Default 0. */
+	private int activeTextureSlot = 0;
+
+	public int getActiveTextureSlot() {
+		return activeTextureSlot;
+	}
+
+	public void setActiveTextureSlot(int slot) {
+		activeTextureSlot = slot;
+	}
+
 	public List<AbstractGestureButtonData> getNamedActions() {
 		return namedActions;
 	}

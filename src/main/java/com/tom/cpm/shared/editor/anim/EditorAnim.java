@@ -58,6 +58,10 @@ public class EditorAnim implements IAnimation {
 	public boolean interpolateValue = true;
 	public boolean mustFinish;
 	public boolean hidden;
+	public String triggerItem;
+	public String triggerHand;
+	public String triggerAction;
+	public String triggerUseAnimation;
 
 	public EditorAnim(Editor e, String filename, AnimationType type, boolean initNew) {
 		this.editor = e;
@@ -82,6 +86,10 @@ public class EditorAnim implements IAnimation {
 		this.isProperty = anim.isProperty;
 		this.group = anim.group;
 		this.command = anim.command;
+		this.triggerItem = anim.triggerItem;
+		this.triggerHand = anim.triggerHand;
+		this.triggerAction = anim.triggerAction;
+		this.triggerUseAnimation = anim.triggerUseAnimation;
 		anim.frames.stream().map(AnimFrame::new).forEach(this.frames::add);
 		if(frames.size() > 0)
 			this.currentFrame = this.frames.get(0);

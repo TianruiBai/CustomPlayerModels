@@ -441,12 +441,19 @@ public class EditorGui extends Frame {
 		pp.addButton(gui.i18nFormat("button.cpm.file.load"), () -> checkUnsaved(() -> {
 			FileChooserPopup fc = new FileChooserPopup(this);
 			fc.setTitle(EmbeddedLocalizations.loadProject);
-			fc.setFileDescText(EmbeddedLocalizations.fileProject);
-			fc.setFilter(new FileFilter("cpmproject"));
+			fc.setFileDescText(EmbeddedLocalizations.fileProjectOrYsm);
+			fc.setFilter(new FileFilter("cpmproject", "ysmproject"));
 			fc.setAccept(this::load);
 			fc.setButtonText(gui.i18nFormat("button.cpm.ok"));
 			openPopup(fc);
 		}));
+
+		// Texture slot quick-switch submenu
+		PopupMenu texSlotMenu = new PopupMenu(gui, this);
+		texSlotMenu.addButton(gui.i18nFormat("button.cpm.nextTextureSlot"), editor::nextTextureSlot);
+		texSlotMenu.addButton(gui.i18nFormat("button.cpm.prevTextureSlot"), editor::prevTextureSlot);
+		pp.addMenuButton(gui.i18nFormat("label.cpm.textureSlots"), texSlotMenu).setTooltip(
+			new Tooltip(this, gui.i18nFormat("tooltip.cpm.textureSlots"), "Texture Slots"));
 
 		pp.addButton(gui.i18nFormat("button.cpm.file.save"), this::save);
 
@@ -885,7 +892,19 @@ public class EditorGui extends Frame {
 		group.accept(editor.handDisplay.getOrDefault(hand, DisplayItem.NONE));
 	}
 
+	private void importYsm(File file) {
+		checkUnsaved(() -> {
+			editor.importYsmProject(file);
+		});
+	}
+
 	private void load(File file) {
+		if (isYsmProject(file)) {
+			editor.importYsmProject(file);
+			addRecent(file);
+			return;
+		}
+
 		editor.load(file).handleAsync((v, e) -> {
 			if(e != null) {
 				Log.warn("Error loading project file", e);
@@ -898,6 +917,11 @@ public class EditorGui extends Frame {
 			addRecent(file);
 			return null;
 		}, gui::executeLater);
+	}
+
+	private boolean isYsmProject(File file) {
+		String name = file.getName().toLowerCase(Locale.ROOT);
+		return name.endsWith(".ysmproject");
 	}
 
 	private void saveProject(File file) {

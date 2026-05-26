@@ -69,6 +69,10 @@ public class ModelDefinition {
 	private Map<Integer, RenderedCube> cubeMap;
 	private Map<TextureSheetType, TextureProvider> textures;
 	private TextureProvider skinTexture;
+	/** Multi-texture slot providers (Phase 6). Index 0 = default SKIN. */
+	private final List<TextureProvider> textureSlotProviders = new ArrayList<>();
+	/** Currently active texture slot index. Driven by TEXTURE animations. */
+	private int activeTextureSlot = 0;
 	public Map<ItemRenderer, ItemTransform> itemTransforms = new HashMap<>();
 	protected Map<VanillaModelPart, PartRoot> rootRenderingCubes;
 	protected ModelLoadingState resolveState = ModelLoadingState.NEW;
@@ -326,12 +330,45 @@ public class ModelDefinition {
 	}
 
 	public TextureProvider getTexture(TextureSheetType key, boolean inGui) {
+		// Phase 6: If a TEXTURE animation has changed the active slot, use that slot's texture
+		if (key == TextureSheetType.SKIN && activeTextureSlot > 0 && activeTextureSlot < textureSlotProviders.size()) {
+			TextureProvider slotTex = textureSlotProviders.get(activeTextureSlot);
+			if (slotTex != null) return slotTex;
+		}
 		if(key == TextureSheetType.SKIN && inGui)return skinTexture;
 		return key.editable ? textures == null ? null : textures.get(key) : null;
 	}
 
 	public void setTexture(TextureSheetType key, TextureProvider value) {
 		textures.put(key, value);
+	}
+
+	/**
+	 * Add a texture provider for a specific slot index.
+	 * Called during model resolution from {@link com.tom.cpm.shared.parts.ModelPartTextureSlot#preApply}.
+	 */
+	public void addTextureSlot(int index, TextureProvider provider) {
+		while (textureSlotProviders.size() <= index) {
+			textureSlotProviders.add(null);
+		}
+		textureSlotProviders.set(index, provider);
+		if (index == 0) {
+			skinTexture = provider;
+		}
+	}
+
+	/**
+	 * Set the active texture slot. Called by the animation system when a
+	 * TEXTURE animation changes the TEXTURE_ID channel value.
+	 */
+	public void setActiveTextureSlot(int index) {
+		if (index >= 0 && index < textureSlotProviders.size()) {
+			activeTextureSlot = index;
+		}
+	}
+
+	public int getActiveTextureSlot() {
+		return activeTextureSlot;
 	}
 
 	public ModelPartLink findDefLink() {

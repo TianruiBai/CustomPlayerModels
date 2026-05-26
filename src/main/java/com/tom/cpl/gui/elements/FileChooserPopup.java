@@ -277,9 +277,9 @@ public class FileChooserPopup extends PopupPanel {
 
 	public static class FileFilter implements BiPredicate<File, String> {
 		private boolean folder;
-		private String ext;
-		public FileFilter(String ext) {
-			this.ext = ext;
+		private String[] exts;
+		public FileFilter(String... exts) {
+			this.exts = exts;
 		}
 
 		public FileFilter(boolean allowFolder) {
@@ -288,13 +288,28 @@ public class FileChooserPopup extends PopupPanel {
 
 		@Override
 		public boolean test(File f, String n) {
-			if(ext != null && !n.endsWith("." + ext))return false;
+			if(exts != null) {
+				String nl = n.toLowerCase();
+				boolean found = false;
+				for (String ext : exts) {
+					if(nl.endsWith("." + ext.toLowerCase())) {
+						found = true;
+						break;
+					}
+				}
+				if(!found)return false;
+			}
 			if(folder != f.isDirectory())return false;
 			return true;
 		}
 
 		public String getExt() {
-			return ext;
+			if(exts == null || exts.length == 0)return null;
+			return exts[0];
+		}
+
+		public String[] getExts() {
+			return exts;
 		}
 
 		public boolean isFolder() {

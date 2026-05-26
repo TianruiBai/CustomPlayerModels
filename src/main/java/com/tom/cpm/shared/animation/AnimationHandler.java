@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import com.tom.cpm.shared.animation.AnimationEngine.AnimationMode;
 import com.tom.cpm.shared.definition.ModelDefinition;
@@ -42,11 +43,12 @@ public class AnimationHandler {
 		player.get().resetAnimationPos();
 
 		for (PlayingAnim a : currentAnimations) {
-			if(!a.finished) {
+			if(!a.finished || a.mustFinish) {
 				long currentStep = (currentTime - a.currentStart);
-				a.currentAnimation.animate(state, a.getTime(state, currentStep), player.get(), mode);
+				long playbackStep = a.finished ? a.lastFrameTime(mode) : currentStep;
+				a.currentAnimation.animate(state, a.getTime(state, playbackStep), player.get(), mode);
 
-				if(!a.loop && currentStep / a.currentAnimation.getDuration(mode) != a.lastFrame / a.currentAnimation.getDuration(mode)) {
+				if(!a.finished && !a.loop && currentStep / a.currentAnimation.getDuration(mode) != a.lastFrame / a.currentAnimation.getDuration(mode)) {
 					a.finished = true;
 				}
 				a.lastFrame = currentStep;
@@ -57,7 +59,19 @@ public class AnimationHandler {
 	}
 
 	public void addAnimations(AnimationState state, List<AnimationTrigger> next, IPose pose) {
-		next.stream().filter(t -> t.canPlay(state, mode)).forEach(t -> {
+		List<AnimationTrigger> playable = next.stream().filter(t -> t.canPlay(state, mode)).collect(Collectors.toList());
+		int bestExclusiveScore = playable.stream()
+			.filter(AnimationTrigger::isExclusiveMatch)
+			.mapToInt(t -> t.getMatchScore(state, mode))
+			.max().orElse(-1);
+		if (bestExclusiveScore >= 0) {
+			AnimationTrigger best = playable.stream()
+				.filter(AnimationTrigger::isExclusiveMatch)
+				.filter(t -> t.getMatchScore(state, mode) == bestExclusiveScore)
+				.findFirst().orElse(null);
+			playable = best != null ? List.of(best) : List.of();
+		}
+		playable.forEach(t -> {
 			for (IAnimation a : t.animations) {
 				nextAnims.add(new NextAnim(a, t));
 			}
@@ -97,6 +111,11 @@ public class AnimationHandler {
 			this.loop = anim.isLoop();
 			this.finished = false;
 			this.mustFinish = anim.trigger.mustFinish;
+			if (anim.trigger.startsAtEnd()) {
+				this.currentStart = currentStart - lastFrameTime(mode);
+				this.lastFrame = lastFrameTime(mode);
+				this.finished = true;
+			}
 		}
 
 		public boolean checkAndUpdateRemove(AnimationMode mode) {
@@ -108,8 +127,12 @@ public class AnimationHandler {
 		}
 
 		public long getTime(AnimationState state, long time) {
-			if(trigger == null || !currentAnimation.useTriggerTime())return time;
-			else return trigger.getTime(state, time);
+			long animTime = trigger == null || !currentAnimation.useTriggerTime() ? time : trigger.getTime(state, time);
+			return loop ? animTime : Math.min(animTime, lastFrameTime(mode));
+		}
+
+		private long lastFrameTime(AnimationMode mode) {
+			return Math.max(0, currentAnimation.getDuration(mode) - 1L);
 		}
 	}
 }

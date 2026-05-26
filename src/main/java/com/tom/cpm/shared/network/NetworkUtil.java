@@ -18,6 +18,7 @@ import com.tom.cpm.shared.config.ModConfig;
 import com.tom.cpm.shared.config.PlayerData;
 import com.tom.cpm.shared.config.PlayerSpecificConfigKey;
 import com.tom.cpm.shared.config.PlayerSpecificConfigKey.KeyGroup;
+import com.tom.cpm.shared.io.LocalModelFiles;
 import com.tom.cpm.shared.io.ModelFile;
 import com.tom.cpm.shared.network.NetH.ServerNetH;
 import com.tom.cpm.shared.network.packet.ModelDeleteReqC2S;
@@ -160,7 +161,7 @@ public class NetworkUtil {
 		if(model != null) {
 			File modelsDir = new File(MinecraftClientAccess.get().getGameDir(), "player_models");
 			try {
-				ModelFile file = ModelFile.load(new File(modelsDir, model));
+				ModelFile file = ModelFile.load(LocalModelFiles.resolveModelFile(modelsDir, model));
 				NBTTagCompound data = new NBTTagCompound();
 				byte[] modelBytes = file.getDataBlock();
 				data.setByteArray(DATA_TAG, modelBytes);

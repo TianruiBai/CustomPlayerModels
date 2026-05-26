@@ -7,6 +7,7 @@ import java.util.List;
 import com.tom.cpm.shared.animation.AnimationRegistry;
 import com.tom.cpm.shared.animation.AnimationTrigger;
 import com.tom.cpm.shared.animation.AnimationTrigger.GestureTrigger;
+import com.tom.cpm.shared.animation.AnimationTrigger.ItemAnimationTrigger;
 import com.tom.cpm.shared.animation.AnimationTrigger.LayerTrigger;
 import com.tom.cpm.shared.animation.AnimationTrigger.ValueTrigger;
 import com.tom.cpm.shared.animation.AnimationType;
@@ -21,6 +22,7 @@ public class SerializedTrigger {
 	public static final int BITMASK      = 1 << 2;
 	public static final int PARAM_INTERPOLATE      = 1 << 3;
 	public static final int MUST_FINISH      = 1 << 4;
+	public static final int BUILTIN_LOOP_EXPLICIT = 1 << 5;
 
 	private boolean init;
 	public StageType stage;
@@ -35,6 +37,10 @@ public class SerializedTrigger {
 	public boolean bitMask;
 	public boolean parameterInterpolate;
 	public boolean mustFinish;
+	public String triggerItem;
+	public String triggerHand;
+	public String triggerAction;
+	public String triggerUseAnimation;
 
 	public static void newTrigger(IOHelper block, AnimLoaderState state) throws IOException {
 		SerializedTrigger t = new SerializedTrigger();
@@ -47,7 +53,8 @@ public class SerializedTrigger {
 		t.anim = AnimationType.POSE;
 		int flags = block.read();
 		t.mustFinish = (flags & MUST_FINISH) != 0;
-		t.looping = true;
+		boolean explicitLoop = (flags & BUILTIN_LOOP_EXPLICIT) != 0;
+		t.looping = explicitLoop ? (flags & LOOPING) != 0 : !t.mustFinish;
 		t.init = true;
 	}
 
@@ -88,13 +95,23 @@ public class SerializedTrigger {
 		cT.init = true;
 	}
 
+	public static void initItemTrigger(IOHelper block, AnimLoaderState state) throws IOException {
+		SerializedTrigger cT = state.getTrigger();
+		cT.triggerItem = readNullableUTF(block);
+		cT.triggerHand = readNullableUTF(block);
+		cT.triggerAction = readNullableUTF(block);
+		cT.triggerUseAnimation = readNullableUTF(block);
+		normalizeItemPoseTiming(cT);
+	}
+
 	public void write(IOHelper dout) throws IOException {
 		try (IOHelper d = dout.writeNextObjectBlock(TagType.NEW_TRIGGER)) {
 		}
 		if (this.pose != null) {
 			try (IOHelper d = dout.writeNextObjectBlock(TagType.INIT_BUILTIN_TRIGGER)) {
 				d.writeEnum(this.pose);
-				int flags = 0;
+				int flags = BUILTIN_LOOP_EXPLICIT;
+				if (this.looping)flags |= LOOPING;
 				if (this.mustFinish)flags |= MUST_FINISH;
 				d.write(flags);
 			}
@@ -132,6 +149,38 @@ public class SerializedTrigger {
 				d.write(flags);
 			}
 		}
+		if (hasItemTrigger()) {
+			try (IOHelper d = dout.writeNextObjectBlock(TagType.INIT_ITEM_TRIGGER)) {
+				writeNullableUTF(d, triggerItem);
+				writeNullableUTF(d, triggerHand);
+				writeNullableUTF(d, triggerAction);
+				writeNullableUTF(d, triggerUseAnimation);
+			}
+		}
+	}
+
+	private boolean hasItemTrigger() {
+		return (triggerItem != null && !triggerItem.isEmpty()) ||
+			(triggerHand != null && !triggerHand.isEmpty()) ||
+			(triggerAction != null && !triggerAction.isEmpty()) ||
+			(triggerUseAnimation != null && !triggerUseAnimation.isEmpty());
+	}
+
+	private static String readNullableUTF(IOHelper block) throws IOException {
+		String value = block.readUTF();
+		return value.isEmpty() ? null : value;
+	}
+
+	private static void writeNullableUTF(IOHelper block, String value) throws IOException {
+		block.writeUTF(value != null ? value : "");
+	}
+
+	private static void normalizeItemPoseTiming(SerializedTrigger trigger) {
+		if (trigger.pose == null || trigger.triggerAction == null) return;
+		if (!"use".equals(trigger.triggerAction)) return;
+		if (trigger.pose.hasStateGetter()) return;
+		trigger.looping = false;
+		trigger.mustFinish = true;
 	}
 
 	@Override
@@ -143,10 +192,15 @@ public class SerializedTrigger {
 		result = prime * result + parameter;
 		result = prime * result + value;
 		result = prime * result + (bitMask ? 1 : 0);
+		result = prime * result + (looping ? 1 : 0);
 		result = prime * result + ((pose == null) ? 0 : pose.hashCode());
 		result = prime * result + ((stage == null) ? 0 : stage.hashCode());
 		result = prime * result + stagingID;
 		result = prime * result + (mustFinish ? 1 : 0);
+		result = prime * result + ((triggerAction == null) ? 0 : triggerAction.hashCode());
+		result = prime * result + ((triggerHand == null) ? 0 : triggerHand.hashCode());
+		result = prime * result + ((triggerItem == null) ? 0 : triggerItem.hashCode());
+		result = prime * result + ((triggerUseAnimation == null) ? 0 : triggerUseAnimation.hashCode());
 		return result;
 	}
 
@@ -162,7 +216,20 @@ public class SerializedTrigger {
 		if (parameter != other.parameter) return false;
 		if (value != other.value) return false;
 		if (bitMask != other.bitMask) return false;
+		if (looping != other.looping) return false;
 		if (mustFinish != other.mustFinish) return false;
+		if (triggerAction == null) {
+			if (other.triggerAction != null) return false;
+		} else if (!triggerAction.equals(other.triggerAction)) return false;
+		if (triggerHand == null) {
+			if (other.triggerHand != null) return false;
+		} else if (!triggerHand.equals(other.triggerHand)) return false;
+		if (triggerItem == null) {
+			if (other.triggerItem != null) return false;
+		} else if (!triggerItem.equals(other.triggerItem)) return false;
+		if (triggerUseAnimation == null) {
+			if (other.triggerUseAnimation != null) return false;
+		} else if (!triggerUseAnimation.equals(other.triggerUseAnimation)) return false;
 		if (pose == null) {
 			if (other.pose != null) return false;
 		} else if (!pose.equals(other.pose)) return false;
@@ -204,6 +271,11 @@ public class SerializedTrigger {
 
 		if (p == null)return null;
 
+		if (hasItemTrigger()) {
+			normalizeItemPoseTiming(this);
+			return new ItemAnimationTrigger(reg, Collections.singleton(p), pose, animations, looping, mustFinish,
+				triggerItem, triggerHand, triggerAction, triggerUseAnimation);
+		}
 		return new AnimationTrigger(reg, Collections.singleton(p), pose, animations, looping, mustFinish);
 	}
 

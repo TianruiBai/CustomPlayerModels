@@ -9,6 +9,8 @@ public interface IElem {
 	Vec3f getColor();
 	Vec3f getScale();
 	boolean isVisible();
+	/** Texture slot index for TEXTURE animations. Default 0 (first slot). */
+	default int getTextureId() { return 0; }
 
 	default float part(InterpolatorChannel i) {
 		switch (i) {
@@ -24,6 +26,7 @@ public interface IElem {
 		case SCALE_X: return getScale().x;
 		case SCALE_Y: return getScale().y;
 		case SCALE_Z: return getScale().z;
+		case TEXTURE_ID: return getTextureId();
 		default:
 			break;
 		}

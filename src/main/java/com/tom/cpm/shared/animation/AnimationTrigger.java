@@ -1,9 +1,14 @@
 package com.tom.cpm.shared.animation;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
+import com.tom.cpl.item.NamedSlot;
+import com.tom.cpl.item.Stack;
 import com.tom.cpl.math.MathHelper;
+import com.tom.cpl.util.Hand;
+import com.tom.cpl.util.HandAnimation;
 import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.animation.AnimationEngine.AnimationMode;
 import com.tom.cpm.shared.network.ServerCaps;
@@ -30,6 +35,158 @@ public class AnimationTrigger {
 
 	public boolean canPlay(AnimationState state, AnimationMode mode) {
 		return true;
+	}
+
+	public int getMatchScore(AnimationState state, AnimationMode mode) {
+		return canPlay(state, mode) ? 0 : -1;
+	}
+
+	public boolean isExclusiveMatch() {
+		return false;
+	}
+
+	public boolean startsAtEnd() {
+		return false;
+	}
+
+	public static class ItemAnimationTrigger extends AnimationTrigger {
+		private final String itemFilter;
+		private final String hand;
+		private final String action;
+		private final HandAnimation useAnimation;
+
+		public ItemAnimationTrigger(AnimationRegistry reg, Set<IPose> onPoses, VanillaPose valuePose, List<IAnimation> animations,
+				boolean looping, boolean mustFinish, String itemFilter, String hand, String action, String useAnimation) {
+			super(reg, onPoses, valuePose, animations, looping, mustFinish);
+			this.itemFilter = clean(itemFilter);
+			this.hand = clean(hand);
+			this.action = clean(action);
+			this.useAnimation = parseUseAnimation(useAnimation);
+		}
+
+		@Override
+		public boolean canPlay(AnimationState state, AnimationMode mode) {
+			return getMatchScore(state, mode) >= 0;
+		}
+
+		@Override
+		public int getMatchScore(AnimationState state, AnimationMode mode) {
+			if (state == null) return -1;
+			Hand physicalHand = getPhysicalHand(state);
+			if ("use".equals(action)) {
+				if (state.usingAnimation == HandAnimation.NONE || state.activeHand != physicalHand) return -1;
+			} else if ("swing".equals(action)) {
+				if (state.attackTime <= 0 || state.swingingHand != physicalHand) return -1;
+			}
+			if (useAnimation != null && state.usingAnimation != useAnimation) return -1;
+			int itemScore = itemMatchScore(getStack(state), itemFilter);
+			if (itemScore < 0) return -1;
+			int score = 1 + itemScore;
+			if (hand != null) score += 10;
+			if (action != null) score += 20;
+			if (useAnimation != null) score += 50;
+			return score;
+		}
+
+		@Override
+		public boolean isExclusiveMatch() {
+			return true;
+		}
+
+		@Override
+		public boolean startsAtEnd() {
+			return "hold".equals(action) && mustFinish;
+		}
+
+		private static String clean(String value) {
+			return value == null || value.isEmpty() ? null : value.toLowerCase(Locale.ROOT);
+		}
+
+		private static HandAnimation parseUseAnimation(String value) {
+			if (value == null || value.isEmpty()) return null;
+			for (HandAnimation anim : HandAnimation.VALUES) {
+				if (anim.name().equalsIgnoreCase(value)) return anim;
+			}
+			return null;
+		}
+
+		private Hand getPhysicalHand(AnimationState state) {
+			if ("offhand".equals(hand)) return state.mainHand == Hand.LEFT ? Hand.RIGHT : Hand.LEFT;
+			if ("left".equals(hand)) return Hand.LEFT;
+			if ("right".equals(hand)) return Hand.RIGHT;
+			return state.mainHand;
+		}
+
+		private Stack getStack(AnimationState state) {
+			if (state.playerInventory == null) return Stack.EMPTY;
+			NamedSlot slot;
+			if ("offhand".equals(hand)) {
+				slot = NamedSlot.OFF_HAND;
+			} else if ("left".equals(hand)) {
+				slot = state.mainHand == Hand.LEFT ? NamedSlot.MAIN_HAND : NamedSlot.OFF_HAND;
+			} else if ("right".equals(hand)) {
+				slot = state.mainHand == Hand.RIGHT ? NamedSlot.MAIN_HAND : NamedSlot.OFF_HAND;
+			} else {
+				slot = NamedSlot.MAIN_HAND;
+			}
+			try {
+				return state.playerInventory.getStack(state.playerInventory.getNamedSlotId(slot));
+			} catch (RuntimeException e) {
+				return Stack.EMPTY;
+			}
+		}
+
+		private static int itemMatchScore(Stack stack, String filter) {
+			if (filter == null || filter.isEmpty()) return 0;
+			String normalizedFilter = filter.replace('$', ':').toLowerCase(Locale.ROOT);
+			String id = stack != null ? stack.getItemId().toLowerCase(Locale.ROOT) : "minecraft:air";
+			boolean empty = stack == null || stack.getCount() <= 0 || "minecraft:air".equals(id);
+			if ("empty".equals(normalizedFilter) || "air".equals(normalizedFilter) || "minecraft:air".equals(normalizedFilter)) return empty ? 2000 : -1;
+			if (empty) return -1;
+			if (normalizedFilter.indexOf(':') >= 0) {
+				if (id.equals(normalizedFilter)) return 3000;
+				return inNativeTag(stack, normalizedFilter) ? 900 : -1;
+			}
+			if (id.equals("minecraft:" + normalizedFilter) || id.endsWith(":" + normalizedFilter)) return 2500;
+			switch (normalizedFilter) {
+			case "sword":
+				return id.endsWith("_sword") || inNativeTag(stack, "minecraft:swords") ? 1200 : -1;
+			case "pickaxe":
+				return id.endsWith("_pickaxe") || inNativeTag(stack, "minecraft:pickaxes") ? 1200 : -1;
+			case "axe":
+				return id.endsWith("_axe") || inNativeTag(stack, "minecraft:axes") ? 1200 : -1;
+			case "shovel":
+				return id.endsWith("_shovel") || inNativeTag(stack, "minecraft:shovels") ? 1200 : -1;
+			case "hoe":
+				return id.endsWith("_hoe") || inNativeTag(stack, "minecraft:hoes") ? 1200 : -1;
+			case "fishing":
+			case "fishingrod":
+			case "fishing_rod":
+				return "minecraft:fishing_rod".equals(id) ? 2500 : -1;
+			case "spear":
+			case "trident":
+				return "minecraft:trident".equals(id) ? 2500 : -1;
+			case "potion":
+			case "throwablepotion":
+			case "throwable_potion":
+				return id.endsWith(":potion") || id.endsWith(":splash_potion") || id.endsWith(":lingering_potion") ? 1200 : -1;
+			case "goathorn":
+			case "goat_horn":
+			case "horn":
+				return "minecraft:goat_horn".equals(id) ? 2500 : -1;
+			default:
+				if (id.endsWith("_" + normalizedFilter)) return 700;
+				return inNativeTag(stack, "minecraft:" + normalizedFilter) || inNativeTag(stack, "minecraft:" + normalizedFilter + "s") ? 900 : -1;
+			}
+		}
+
+		private static boolean inNativeTag(Stack stack, String tag) {
+			try {
+				return stack.isInNativeTag("#" + tag);
+			} catch (RuntimeException e) {
+				return false;
+			}
+		}
 	}
 
 	public static class LayerTrigger extends AnimationTrigger {

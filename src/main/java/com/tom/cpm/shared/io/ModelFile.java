@@ -64,6 +64,14 @@ public class ModelFile {
 		}
 	}
 
+	public Link getOverflowLink() {
+		return link;
+	}
+
+	public byte[] getOverflowLocal() {
+		return overflowLocal != null ? overflowLocal.clone() : null;
+	}
+
 	public String getName() {
 		return name;
 	}
