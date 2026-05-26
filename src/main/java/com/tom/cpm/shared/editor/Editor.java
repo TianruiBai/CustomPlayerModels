@@ -178,6 +178,8 @@ public class Editor {
 	public long playStartTime;
 	public AnimationEncodingData animEnc;
 	public BooleanUpdater showPreviousFrame = updaterReg.createBool(true);
+	public BooleanUpdater showTimeline = updaterReg.createBool(true);
+	public BooleanUpdater showMovementTrack = updaterReg.createBool(true);
 
 	public UI ui;
 	private boolean initialized;

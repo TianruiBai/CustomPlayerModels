@@ -355,6 +355,9 @@ public class EditorGui extends Frame {
 	}
 
 	private void initAnimPanel(int width, int height) {
+		int timelineH = AnimTimelinePanel.PANEL_H;
+		int contentH = height - 20 - timelineH;
+
 		Panel mainPanel = new Panel(gui);
 		mainPanel.setBounds(new Box(0, 0, width, height - 20));
 
@@ -366,25 +369,25 @@ public class EditorGui extends Frame {
 		TabbedPanelManager animPanelTabs = new TabbedPanelManager(gui);
 
 		ScrollPanel spSetup = new ScrollPanel(gui);
-		spSetup.setBounds(new Box(0, 0, 170, height - 40));
+		spSetup.setBounds(new Box(0, 0, 170, height - 40 - timelineH));
 		spSetup.setDisplay(new AnimPanel(gui, this));
 		spSetup.setScrollBarSide(true);
 
 		ScrollPanel spTest = new ScrollPanel(gui);
-		spTest.setBounds(new Box(0, 0, 170, height - 40));
+		spTest.setBounds(new Box(0, 0, 170, height - 40 - timelineH));
 		spTest.setDisplay(new AnimTestPanel(gui, this));
 		spTest.setScrollBarSide(true);
 
 		buttons.add(animPanelTabs.createTab(gui.i18nFormat("tab.cpm.animation.setup"), spSetup));
 		buttons.add(animPanelTabs.createTab(gui.i18nFormat("tab.cpm.animation.test"), spTest));
 
-		animPanelTabs.setBounds(new Box(0, 20, 170, height - 40));
+		animPanelTabs.setBounds(new Box(0, 20, 170, height - 40 - timelineH));
 		mainPanel.addElement(animPanelTabs);
 		mainPanel.addElement(buttonsPanel);
 
 		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.animation"), mainPanel, () -> viewType = ViewType.ANIMATION));
 
-		mainPanel.addElement(new TreePanel(gui, this, width, height - 20, false) {
+		mainPanel.addElement(new TreePanel(gui, this, width, contentH, false) {
 
 			@Override
 			public void draw(MouseEvent event, float partialTicks) {
@@ -395,11 +398,17 @@ public class EditorGui extends Frame {
 		});
 
 		ViewportPanelAnim view = new ViewportPanelAnim(this, editor);
-		view.setBounds(new Box(170, 0, width - 170 - 150, height - 20));
+		view.setBounds(new Box(170, 0, width - 170 - 150, contentH));
 		mainPanel.addElement(view);
 		editor.displayViewport.add(view::setEnabled);
 
-		mainPanel.addElement(initQuickPanel(Math.max(width - 350, 170), height - 20, Math.min(200, width - 320)));
+		mainPanel.addElement(initQuickPanel(Math.max(width - 350, 170), contentH, Math.min(200, width - 320)));
+
+		// Timeline panel
+		AnimTimelinePanel timelinePanel = new AnimTimelinePanel(gui, editor, width);
+		timelinePanel.setBounds(new Box(0, contentH, width, timelineH));
+		mainPanel.addElement(timelinePanel);
+		editor.showTimeline.add(v -> timelinePanel.setVisible(v));
 	}
 
 	private void newModel(SkinType type) {
@@ -827,6 +836,12 @@ public class EditorGui extends Frame {
 			if(viewType == ViewType.ANIMATION) {
 				Checkbox chxbxShowPreviousFrame = editor.showPreviousFrame.makeCheckbox(pp, gui.i18nFormat("label.cpm.display.showPreviousFrame"));
 				chxbxShowPreviousFrame.setTooltip(new Tooltip(this, gui.i18nFormat("tooltip.cpm.display.showPreviousFrame")));
+
+				Checkbox chxbxShowTimeline = editor.showTimeline.makeCheckbox(pp, gui.i18nFormat("label.cpm.display.showTimeline"));
+				chxbxShowTimeline.setTooltip(new Tooltip(this, gui.i18nFormat("tooltip.cpm.display.showTimeline")));
+
+				Checkbox chxbxShowMovementTrack = editor.showMovementTrack.makeCheckbox(pp, gui.i18nFormat("label.cpm.display.showMovementTrack"));
+				chxbxShowMovementTrack.setTooltip(new Tooltip(this, gui.i18nFormat("tooltip.cpm.display.showMovementTrack")));
 			}
 
 			if(viewType != ViewType.ANIMATION || editor.forceHeldItemInAnim.get()) {

@@ -19,6 +19,8 @@ import com.tom.cpm.shared.editor.DisplayItem;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.editor.anim.AnimationDisplayData;
 import com.tom.cpm.shared.editor.anim.AnimationDisplayData.Type;
+import com.tom.cpm.shared.editor.anim.AnimFrame;
+import com.tom.cpm.shared.editor.anim.IElem;
 import com.tom.cpm.shared.editor.tree.VecType;
 import com.tom.cpm.shared.editor.util.FilterBuffers;
 import com.tom.cpm.shared.gui.Keybinds;
@@ -69,6 +71,59 @@ public class ViewportPanelAnim extends ViewportPanel {
 				for (int i = 0;i<10;i++) {
 					int sy = MathHelper.clamp(val - i * 2, 0, 2);
 					gui.drawTexture(bounds.x + i * 9 + 1, bounds.y + bounds.h - 10, 9, 9, spr * 9, sy * 9 + 64, "editor");
+				}
+			}
+		}
+
+		// Movement track overlay
+		if (editor.showMovementTrack.get() && editor.selectedAnim != null) {
+			AnimFrame curFrame = editor.selectedAnim.getSelectedFrame();
+			int idx = editor.selectedAnim.getSelectedFrameIndex();
+			if (curFrame != null && idx > 0 && editor.getSelectedElement() != null) {
+				AnimFrame prevFrame = editor.selectedAnim.getFrames().get(idx - 1);
+				IElem curData = curFrame.getData(editor.getSelectedElement());
+				IElem prevData = prevFrame.getData(editor.getSelectedElement());
+				if (curData != null && prevData != null) {
+					Vec3f dPos = new Vec3f(
+							curData.getPosition().x - prevData.getPosition().x,
+							curData.getPosition().y - prevData.getPosition().y,
+							curData.getPosition().z - prevData.getPosition().z
+					);
+					float dx = dPos.x;
+					float dy = dPos.y;
+					float dz = dPos.z;
+
+					String dirText = String.format("dX:%+.1f dY:%+.1f dZ:%+.1f", dx, dy, dz);
+					int textColor = 0xffffd740;
+					gui.drawText(bounds.x + 5, bounds.y + bounds.h - 22, dirText, textColor);
+
+					// Draw a simple direction arrow
+					int cx = bounds.x + bounds.w - 50;
+					int cy = bounds.y + 55;
+					int arrowLen = 20;
+					float largest = Math.max(Math.abs(dx), Math.max(Math.abs(dy), Math.abs(dz)));
+					if (largest > 0.001f) {
+						int ax = (int) (dx / largest * arrowLen);
+						int ay = (int) (-dy / largest * arrowLen); // invert Y for screen
+						int arrowColor = 0x88ffd740;
+						// Line from center in movement direction
+						gui.drawBox(cx, cy, 1, 1, 0xffffffff); // center dot
+						if (Math.abs(ax) > 0 || Math.abs(ay) > 0) {
+							int len = Math.max(Math.abs(ax), Math.abs(ay));
+							int steps = Math.max(len, 1);
+							for (int i = 0; i < steps; i += 2) {
+								int sx = cx + ax * i / steps;
+								int sy = cy + ay * i / steps;
+								int ex = cx + ax * (i + 1) / steps;
+								int ey = cy + ay * (i + 1) / steps;
+								int lx = Math.min(sx, ex);
+								int ly = Math.min(sy, ey);
+								int lw = Math.max(Math.abs(ex - sx), 1);
+								int lh = Math.max(Math.abs(ey - sy), 1);
+								gui.drawBox(lx, ly, lw, lh, arrowColor);
+							}
+						}
+					}
 				}
 			}
 		}
