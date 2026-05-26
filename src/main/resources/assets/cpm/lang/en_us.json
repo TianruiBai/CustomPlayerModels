@@ -452,6 +452,7 @@
   "label.cpm.texHeight": "Height:",
   "label.cpm.overwrite": "Overwrite file?",
   "label.cpm.file_project": "Project file (.cpmproject)",
+  "label.cpm.file_project_or_ysm": "Project files (.cpmproject, .ysmproject)",
   "label.cpm.file_png": "Image (.png)",
   "label.cpm.file_cpmmodel": "Model (.cpmmodel)",
   "label.cpm.new_project": "Untitled.cpmproject",

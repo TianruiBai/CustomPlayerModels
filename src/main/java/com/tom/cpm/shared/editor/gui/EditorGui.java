@@ -448,16 +448,6 @@ public class EditorGui extends Frame {
 			openPopup(fc);
 		}));
 
-		pp.addButton(gui.i18nFormat("button.cpm.file.importYsm"), () -> checkUnsaved(() -> {
-			FileChooserPopup fc = new FileChooserPopup(this);
-			fc.setTitle(EmbeddedLocalizations.importYsm);
-			fc.setFileDescText(EmbeddedLocalizations.fileYsm);
-			fc.setFilter(new FileFilter("ysmproject"));
-			fc.setAccept(this::importYsm);
-			fc.setButtonText(gui.i18nFormat("button.cpm.ok"));
-			openPopup(fc);
-		}));
-
 		// Texture slot quick-switch submenu
 		PopupMenu texSlotMenu = new PopupMenu(gui, this);
 		texSlotMenu.addButton(gui.i18nFormat("button.cpm.nextTextureSlot"), editor::nextTextureSlot);
