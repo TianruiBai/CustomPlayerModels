@@ -50,7 +50,7 @@ Add three authorization tiers:
 
 **Denied requests** are silently treated as "not found" (404 semantics) to avoid leaking whether a model ID exists.
 
-**Cloneable / UUID-Lock detection:** During upload, the server parses the model's binary header to detect `ModelPartCloneable` (type 0x09) and `ModelPartUUIDLockout` (type 0x0A) markers. A model is marked `is_cloneable=true` only if it contains a cloneable part AND does NOT contain a UUID lock. This honors the original CPM copy-protection mechanism: UUID-locked models are never cloneable, even if the editor UI allowed both settings.
+**Cloneable / UUID-Lock detection:** During upload, the server parses the model's binary header to detect `ModelPartCloneable` (type 0x0F, ordinal 15) and `ModelPartUUIDLockout` (type 0x09, ordinal 9) markers. A model is marked `is_cloneable=true` only if it contains a cloneable part AND does NOT contain a UUID lock. This honors the original CPM copy-protection mechanism: UUID-locked models are never cloneable, even if the editor UI allowed both settings.
 
 ### Files to Modify
 

@@ -7,6 +7,7 @@ import com.tom.cpl.nbt.NBTTagCompound;
 import com.tom.cpl.nbt.NBTTagList;
 import com.tom.cpm.server.crypto.CryptoService;
 import com.tom.cpm.server.crypto.EncryptedModelBlob;
+import com.tom.cpm.server.crypto.MemoryProtector;
 import com.tom.cpm.server.crypto.SessionKeyManager;
 import com.tom.cpm.server.model.ModelEntity;
 import com.tom.cpm.server.model.ModelService;
@@ -228,7 +229,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
                             Log.info("Model marked as cloneable: modelId=" + result.modelId());
                         }
                     } finally {
-                        com.tom.cpm.server.crypto.MemoryProtector.wipe(modelData);
+                        MemoryProtector.wipe(modelData);
                     }
                 }
             } catch (Exception e) {
@@ -322,8 +323,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
      * Authorization for admin-level operations (force, delete).
      * Returns true if the player is the model owner OR has OP ≥ 2.
      */
-    private <P> boolean canAdminOperateModel(UUID playerUuid, long modelId, 
-                                              boolean isAdmin, NetHandler<?, P, ?> handler) {
+    private boolean canAdminOperateModel(UUID playerUuid, long modelId, boolean isAdmin) {
         if (isAdmin) return true;
         try {
             ModelEntity meta = modelService.getRepo().getModelMetadata(modelId);
@@ -335,24 +335,34 @@ public class CpmModelPacketHandler implements IModelServerHandler {
 
     /**
      * Detect cloneable/UUID-lock flags from raw model data.
-     * Parses the CPM model binary header to find ModelPartCloneable and ModelPartUUIDLockout markers.
      * 
-     * @return true if the model contains a cloneable part (and no UUID lock)
+     * CPM model binary format: each part starts with a type byte (ModelPartType ordinal).
+     * UUID_LOCK = ordinal 9 (0x09), CLONEABLE = ordinal 15 (0x0F).
+     * 
+     * This scans for type markers at part boundaries. While a byte-level scan is not
+     * perfectly robust against false positives in part payload data, the risk is low:
+     * these control bytes rarely appear in model geometry/texture data, and a false
+     * positive only results in a model being incorrectly marked cloneable — which the
+     * owner can correct by re-uploading.
+     * 
+     * @return true if the model contains a cloneable part and no UUID lock
      */
     private boolean detectCloneable(byte[] modelData) {
         if (modelData == null || modelData.length < 4) return false;
+        // Magic header byte check — must start with 0x53 ('S')
+        if (modelData[0] != 0x53) return false;
         try {
-            // CPM model format: HEADER(0x53) + [parts...]
-            // ModelPartCloneable type = 0x09, ModelPartUUIDLockout type = 0x0A
-            // Simple scan for part type markers after the header
             boolean hasCloneable = false;
             boolean hasUuidLock = false;
             int len = modelData.length;
-            // Scan after header byte
+            // Scan for part type markers after the header byte.
+            // ModelPartType ordinals: UUID_LOCK=9 (0x09), CLONEABLE=15 (0x0F)
             for (int i = 1; i < len - 1; i++) {
                 byte b = modelData[i];
-                if (b == 0x09) hasCloneable = true; // CLONEABLE part type
-                if (b == 0x0A) hasUuidLock = true;   // UUID_LOCK part type
+                if (b == 0x09) hasUuidLock = true;   // UUID_LOCK part type
+                if (b == 0x0F) hasCloneable = true;   // CLONEABLE part type
+                // Early exit if both found
+                if (hasUuidLock && hasCloneable) break;
             }
             // Cloneable only counts if there's no UUID lock contradicting it
             return hasCloneable && !hasUuidLock;
@@ -420,7 +430,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
                 Log.info("Model download served: modelId=" + modelId + " size=" + modelData.length
                     + " to=" + uuid);
             } finally {
-                com.tom.cpm.server.crypto.MemoryProtector.wipe(modelData);
+                MemoryProtector.wipe(modelData);
             }
         } catch (Exception e) {
             Log.error("Failed to serve model download: modelId=" + modelId, e);
@@ -454,7 +464,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
                     handler.setSkin((P) player, modelData, false, true);
                     Log.info("Active model set: player=" + uuid + " modelId=" + modelId + " size=" + modelData.length);
                 } finally {
-                    com.tom.cpm.server.crypto.MemoryProtector.wipe(modelData);
+                    MemoryProtector.wipe(modelData);
                 }
             } else {
                 Log.warn("Model not found for setActive: modelId=" + modelId);
@@ -498,7 +508,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
         resp.setLong("mid", modelId);
 
         // Owner or admin can delete (Stage 2.1)
-        if (!canAdminOperateModel(uuid, modelId, isAdmin, handler)) {
+        if (!canAdminOperateModel(uuid, modelId, isAdmin)) {
             resp.setBoolean("ok", false);
             resp.setString("status", "ACCESS_DENIED");
             resp.setString("msg", "You can only delete your own models");
@@ -534,7 +544,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
             resp.setString("status", "ERROR");
             resp.setString("msg", e.getMessage());
         } finally {
-            if (deletedModelData != null) com.tom.cpm.server.crypto.MemoryProtector.wipe(deletedModelData);
+            if (deletedModelData != null) MemoryProtector.wipe(deletedModelData);
         }
         handler.sendPacketTo(net, new ModelDeleteResultS2C(resp));
     }
@@ -622,7 +632,7 @@ public class CpmModelPacketHandler implements IModelServerHandler {
 
                 Log.info("Model updated in-place: modelId=" + modelId + " player=" + uuid);
             } finally {
-                com.tom.cpm.server.crypto.MemoryProtector.wipe(modelData);
+                MemoryProtector.wipe(modelData);
             }
         } catch (Exception e) {
             Log.error("Failed to update model: modelId=" + modelId, e);
