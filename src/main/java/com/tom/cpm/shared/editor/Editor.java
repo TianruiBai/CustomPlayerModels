@@ -185,6 +185,7 @@ public class Editor {
 	public float animTimelineZoom = 1;
 	public int animTimelineHeight = 86;
 	public int animTimelineCurveTrack = -1;
+	public int[] animTimelineAxisMask = {7, 7, 7};
 
 	public UI ui;
 	private boolean initialized;

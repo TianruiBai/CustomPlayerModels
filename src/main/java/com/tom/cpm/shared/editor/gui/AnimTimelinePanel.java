@@ -8,7 +8,6 @@ import com.tom.cpl.gui.elements.Button;
 import com.tom.cpl.gui.elements.Label;
 import com.tom.cpl.gui.elements.Panel;
 import com.tom.cpl.math.Box;
-import com.tom.cpl.math.Vec3f;
 import com.tom.cpm.shared.animation.InterpolatorChannel;
 import com.tom.cpm.shared.animation.interpolator.Interpolator;
 import com.tom.cpm.shared.animation.interpolator.InterpolatorType;
@@ -27,8 +26,12 @@ public class AnimTimelinePanel extends Panel {
 	private static final int MIN_H = 86;
 	private static final int MIN_CURVE_H = 128;
 	private static final int MAX_H = 240;
+	private static final int AXIS_FILTER_W = 18;
+	private static final int AXIS_FILTER_H = 12;
 	private static final float MIN_ZOOM = 0.25f;
 	private static final float MAX_ZOOM = 8;
+	private static final int[] AXIS_COLORS = {0xffff5555, 0xff55dd55, 0xff6699ff};
+	private static final String[] AXIS_LABELS = {"X", "Y", "Z"};
 	public static final int PANEL_H = MIN_H;
 	public static final int COLLAPSED_H = HEADER_H;
 
@@ -102,7 +105,8 @@ public class AnimTimelinePanel extends Panel {
 	}
 
 	public int getPreferredHeight() {
-		return collapsed ? COLLAPSED_H : Math.max(MIN_H, Math.min(MAX_H, editor.animTimelineHeight));
+		int minHeight = editor.animTimelineCurveTrack == -1 ? MIN_H : MIN_CURVE_H;
+		return collapsed ? COLLAPSED_H : Math.max(minHeight, Math.min(MAX_H, editor.animTimelineHeight));
 	}
 
 	private void updateHeader() {
@@ -143,7 +147,16 @@ public class AnimTimelinePanel extends Panel {
 	@Override
 	public void draw(MouseEvent event, float partialTicks) {
 		super.draw(event, partialTicks);
-		Box b = getBounds();
+		gui.pushMatrix();
+		gui.setPosOffset(getBounds());
+		gui.setupCut();
+		drawTimelineContent();
+		gui.popMatrix();
+		gui.setupCut();
+	}
+
+	private void drawTimelineContent() {
+		Box b = new Box(0, 0, bounds.w, bounds.h);
 		gui.drawBox(b.x, b.y, b.w, 2, 0xff333333);
 		gui.drawBox(b.x, b.y + HEADER_H - 1, b.w, 1, 0xff3a3a3a);
 		if(collapsed)return;
@@ -208,6 +221,14 @@ public class AnimTimelinePanel extends Panel {
 		int[] rowHeights = getRowHeights();
 		int firstRowY = b.y + HEADER_H + 3;
 		int clickedTrack = getTrackAt(event.y, firstRowY, rowHeights);
+		if(clickedTrack != -1 && editor.animTimelineCurveTrack == clickedTrack) {
+			int axis = getAxisFilterAt(event.x, event.y, b.x + 8, getAxisFilterY(firstRowY, rowHeights, clickedTrack));
+			if(axis != -1) {
+				toggleAxisFilter(clickedTrack, axis);
+				event.consume();
+				return;
+			}
+		}
 		if(clickedTrack != -1 && event.x >= b.x && event.x < visibleX) {
 			long now = System.currentTimeMillis();
 			if(lastClickedTrack == clickedTrack && now - lastTrackClick < 400) {
@@ -235,7 +256,8 @@ public class AnimTimelinePanel extends Panel {
 	@Override
 	public void mouseDrag(MouseEvent event) {
 		if(resizing) {
-			editor.animTimelineHeight = Math.max(MIN_H, Math.min(MAX_H, resizeStartH + resizeStartY - event.y));
+			int minHeight = editor.animTimelineCurveTrack == -1 ? MIN_H : MIN_CURVE_H;
+			editor.animTimelineHeight = Math.max(minHeight, Math.min(MAX_H, resizeStartH + resizeStartY - event.y));
 			if(layoutListener != null)layoutListener.run();
 			event.consume();
 			return;
@@ -276,6 +298,7 @@ public class AnimTimelinePanel extends Panel {
 		if(curve && elem != null) {
 			int curveY = lineY + 7;
 			int curveH = Math.max(8, rowY + rowH - curveY - 4);
+			drawAxisFilter(track, bounds.x + 8, curveY);
 			gui.drawBox(visibleX, curveY, visibleW, curveH, 0xff242424);
 			gui.drawBox(visibleX, curveY + curveH / 2, visibleW, 1, 0xff3c3c3c);
 			drawCurve(frames, elem, numFrames, trackX, trackW, visibleX, visibleW, curveY + 2, curveH - 4, track);
@@ -297,9 +320,10 @@ public class AnimTimelinePanel extends Panel {
 
 	private void drawCurve(List<AnimFrame> frames, ModelElement elem, int numFrames, int trackX, int trackW, int visibleX, int visibleW, int rowY, int rowH, int track) {
 		if(numFrames < 2)return;
-		int[] colors = {0xffff5555, 0xff55dd55, 0xff6699ff};
 		InterpolatorChannel[] channels = getChannels(track);
+		int axisMask = getAxisMask(track);
 		for(int axis = 0; axis < 3; axis++) {
+			if((axisMask & (1 << axis)) == 0)continue;
 			Interpolator interpolator = editor.selectedAnim.intType.create();
 			interpolator.init(AnimFrame.toArray(editor.selectedAnim, elem, channels[axis]), channels[axis].createInterpolatorSetup());
 			float min = Float.MAX_VALUE, max = -Float.MAX_VALUE;
@@ -318,7 +342,7 @@ public class AnimTimelinePanel extends Panel {
 				int x = trackX + Math.round(progress * trackW);
 				float v = (float) interpolator.applyAsDouble(progress * numFrames);
 				int y = rowY + rowH - 1 - Math.round((v - min) / (max - min) * Math.max(1, rowH - 2));
-				if(px != -1)drawSolidLine(px, py, x, y, colors[axis], visibleX, visibleW);
+				if(px != -1)drawSolidLine(px, py, x, y, AXIS_COLORS[axis], visibleX, visibleW);
 				px = x;
 				py = y;
 			}
@@ -327,11 +351,58 @@ public class AnimTimelinePanel extends Panel {
 				FrameData data = getData(frames.get(i), elem);
 				if(data == null || !hasTrackChanges(frames.get(i), elem, track))continue;
 				int x = trackX + getFrameX(i, numFrames, trackW);
-				float v = getTrackValue(data, track, axis);
+				float v = data.part(channels[axis]);
 				int y = rowY + rowH - 1 - Math.round((v - min) / (max - min) * Math.max(1, rowH - 2));
-				if(x >= visibleX && x <= visibleX + visibleW)gui.drawBox(x - 1, y - 1, 3, 3, colors[axis]);
+				if(x >= visibleX && x <= visibleX + visibleW)gui.drawBox(x - 1, y - 1, 3, 3, AXIS_COLORS[axis]);
 			}
 		}
+	}
+
+	private void drawAxisFilter(int track, int x, int y) {
+		int mask = getAxisMask(track);
+		for(int axis = 0; axis < 3; axis++) {
+			boolean active = (mask & (1 << axis)) != 0;
+			int bx = x + axis * (AXIS_FILTER_W + 3);
+			gui.drawBox(bx, y, AXIS_FILTER_W, AXIS_FILTER_H, active ? AXIS_COLORS[axis] : 0xff555555);
+			gui.drawBox(bx + 1, y + 1, AXIS_FILTER_W - 2, AXIS_FILTER_H - 2, active ? 0xff303030 : 0xff222222);
+			String label = AXIS_LABELS[axis];
+			gui.drawText(bx + (AXIS_FILTER_W - gui.textWidth(label)) / 2, y + 2, label, active ? AXIS_COLORS[axis] : 0xff888888);
+		}
+	}
+
+	private int getAxisFilterY(int firstRowY, int[] rowHeights, int track) {
+		int rowY = firstRowY;
+		for(int i = 0; i < track; i++)rowY += rowHeights[i];
+		return rowY + 18;
+	}
+
+	private int getAxisFilterAt(int x, int y, int filterX, int filterY) {
+		if(y < filterY || y >= filterY + AXIS_FILTER_H)return -1;
+		for(int axis = 0; axis < 3; axis++) {
+			int bx = filterX + axis * (AXIS_FILTER_W + 3);
+			if(x >= bx && x < bx + AXIS_FILTER_W)return axis;
+		}
+		return -1;
+	}
+
+	private int getAxisMask(int track) {
+		if(track < 0 || track >= editor.animTimelineAxisMask.length)return 7;
+		int mask = editor.animTimelineAxisMask[track] & 7;
+		if(mask == 0) {
+			editor.animTimelineAxisMask[track] = 7;
+			return 7;
+		}
+		return mask;
+	}
+
+	private void toggleAxisFilter(int track, int axis) {
+		if(track < 0 || track >= editor.animTimelineAxisMask.length || axis < 0 || axis > 2)return;
+		int mask = getAxisMask(track);
+		int bit = 1 << axis;
+		if((mask & bit) != 0) {
+			if(Integer.bitCount(mask) > 1)mask &= ~bit;
+		} else mask |= bit;
+		editor.animTimelineAxisMask[track] = mask & 7;
 	}
 
 	private InterpolatorChannel[] getChannels(int track) {
@@ -357,11 +428,6 @@ public class AnimTimelinePanel extends Panel {
 		case 2: return data.hasScaleChanges();
 		default: return false;
 		}
-	}
-
-	private float getTrackValue(FrameData data, int track, int axis) {
-		Vec3f v = track == 0 ? data.getPosition() : track == 1 ? data.getRotation() : data.getScale();
-		return axis == 0 ? v.x : axis == 1 ? v.y : v.z;
 	}
 
 	private void drawFrameNumbers(int numFrames, int selIdx, int trackX, int trackW, int visibleX, int visibleW, int y) {
