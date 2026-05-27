@@ -3,6 +3,7 @@ package com.tom.cpm.shared.editor.gui;
 import java.util.function.Consumer;
 
 import com.tom.cpl.gui.IGui;
+import com.tom.cpl.gui.elements.Button;
 import com.tom.cpl.gui.elements.Checkbox;
 import com.tom.cpl.gui.elements.Label;
 import com.tom.cpl.gui.elements.Panel;
@@ -12,12 +13,15 @@ import com.tom.cpl.gui.util.FlowLayout;
 import com.tom.cpl.math.Box;
 import com.tom.cpl.math.Vec3f;
 import com.tom.cpm.shared.editor.Editor;
+import com.tom.cpm.shared.editor.gui.popup.ColorButton;
 import com.tom.cpm.shared.psl.PslElement;
 import com.tom.cpm.shared.psl.light.LightEmitter;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter.BillboardMode;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter.BlendMode;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter.EmitterType;
+import com.tom.cpm.shared.psl.particle.ParticleEmitter.ParticleSource;
+import com.tom.cpm.shared.psl.particle.ParticleEmitter.PathMode;
 import com.tom.cpm.shared.psl.physics.PhysicsBone;
 import com.tom.cpm.shared.psl.physics.PhysicsBone.SimType;
 import com.tom.cpm.shared.psl.sound.MidiEmitter;
@@ -27,12 +31,14 @@ import com.tom.cpm.shared.psl.sound.SoundEmitter.SoundCategory;
 
 public class PslSettingsPanel extends Panel {
 	private final Editor editor;
+	private final EditorGui frm;
 	private final FlowLayout layout;
 	private final int formWidth;
 
 	public PslSettingsPanel(IGui gui, EditorGui e, int width) {
 		super(gui);
 		this.editor = e.getEditor();
+		this.frm = e;
 		this.formWidth = Math.min(760, Math.max(420, width - 14));
 		setBounds(new Box(0, 0, formWidth, 420));
 		setBackgroundColor(gui.getColors().panel_background);
@@ -59,10 +65,11 @@ public class PslSettingsPanel extends Panel {
 
 	private void particle(ParticleEmitter p) {
 		section("label.cpm.psl.section.source");
-		text("label.cpm.psl.particle.texture", p.getTextureName(), p::setTextureName);
-		enumRow("label.cpm.psl.particle.emitterType", p.getEmitterType().ordinal(), EmitterType.VALUES, v -> p.setEmitterType(EmitterType.VALUES[v]),
-				"label.cpm.psl.particle.billboard", p.getBillboard().ordinal(), BillboardMode.VALUES, v -> p.setBillboard(BillboardMode.VALUES[v]));
-		enumRow("label.cpm.psl.particle.blend", p.getBlendMode().ordinal(), BlendMode.VALUES, v -> p.setBlendMode(BlendMode.VALUES[v]), null, 0, null, null);
+		enumRow("label.cpm.psl.particle.source", p.getParticleSource().ordinal(), ParticleSource.VALUES, v -> p.setParticleSource(ParticleSource.VALUES[v]),
+				"label.cpm.psl.particle.emitterType", p.getEmitterType().ordinal(), EmitterType.VALUES, v -> p.setEmitterType(EmitterType.VALUES[v]));
+		particleAssetRow(p);
+		enumRow("label.cpm.psl.particle.billboard", p.getBillboard().ordinal(), BillboardMode.VALUES, v -> p.setBillboard(BillboardMode.VALUES[v]),
+				"label.cpm.psl.particle.blend", p.getBlendMode().ordinal(), BlendMode.VALUES, v -> p.setBlendMode(BlendMode.VALUES[v]));
 
 		section("label.cpm.psl.section.emission");
 		numberRow("label.cpm.psl.particle.rate", p.getRate(), 1, p::setRate, "label.cpm.psl.particle.maxParticles", p.getMaxParticles(), 0, v -> p.setMaxParticles((int) v.floatValue()));
@@ -70,6 +77,9 @@ public class PslSettingsPanel extends Panel {
 		vec3("label.cpm.psl.particle.emitterSize", p.getEmitterSize());
 
 		section("label.cpm.psl.section.motion");
+		enumRow("label.cpm.psl.particle.pathMode", p.getPathMode().ordinal(), PathMode.VALUES, v -> p.setPathMode(PathMode.VALUES[v]), null, 0, null, null);
+		text("label.cpm.psl.particle.pathAnimation", p.getPathAnimation(), p::setPathAnimation);
+		checkRow("label.cpm.psl.particle.inheritTargetMotion", p.isInheritTargetMotion(), p::setInheritTargetMotion, null, false, null);
 		vec3("label.cpm.psl.particle.velocity", p.getVelocity());
 		numberRow("label.cpm.psl.particle.velocityVar", p.getVelocityVariation(), 2, p::setVelocityVariation, "label.cpm.psl.particle.gravity", p.getGravity(), 2, p::setGravity);
 		checkRow("label.cpm.psl.particle.collision", p.isCollision(), p::setCollision, "label.cpm.psl.particle.respectGfx", p.isRespectGraphicsSetting(), p::setRespectGraphicsSetting);
@@ -107,6 +117,7 @@ public class PslSettingsPanel extends Panel {
 	private void sound(SoundEmitter s) {
 		section("label.cpm.psl.section.source");
 		text("label.cpm.psl.sound.file", s.getSoundFile(), s::setSoundFile);
+		previewSoundRow(s);
 		enumRow("label.cpm.psl.sound.category", s.getCategory().ordinal(), SoundCategory.VALUES, v -> s.setCategory(SoundCategory.VALUES[v]),
 				"label.cpm.psl.sound.attenuation", s.getAttenuation().ordinal(), Attenuation.VALUES, v -> s.setAttenuation(Attenuation.VALUES[v]));
 		checkRow("label.cpm.psl.sound.loop", s.isLoop(), s::setLoop, "label.cpm.psl.sound.oneShot", s.isOneShot(), s::setOneShot);
@@ -144,6 +155,31 @@ public class PslSettingsPanel extends Panel {
 		Label label = new Label(gui, gui.i18nFormat(key));
 		label.setBounds(new Box(4, 0, formWidth - 8, 12));
 		addElement(label);
+	}
+
+	private void particleAssetRow(ParticleEmitter emitter) {
+		Panel row = row();
+		String id = emitter.isMinecraftParticle() ? emitter.getMinecraftParticle() : emitter.getTextureName();
+		addReadout(row, 0, formWidth - 136, "label.cpm.psl.particle.asset", id != null ? id : gui.i18nFormat("label.cpm.psl.target.none"));
+		Button select = new Button(gui, gui.i18nFormat("button.cpm.psl.selectParticle"), () -> {
+			frm.openPopup(new PslParticlePickerPopup(frm, editor, (source, value) -> {
+				emitter.setParticleSource(source);
+				if(source == ParticleSource.MINECRAFT_BUILTIN)emitter.setMinecraftParticle(value);
+				else emitter.setTextureName(value);
+				editor.markDirty();
+				editor.updateGui.accept(null);
+			}));
+		});
+		select.setBounds(new Box(formWidth - 126, 2, 118, 18));
+		row.addElement(select);
+	}
+
+	private void previewSoundRow(SoundEmitter sound) {
+		Panel row = row();
+		addReadout(row, 0, formWidth - 136, "label.cpm.psl.sound.previewTarget", sound.getSoundFile() != null ? sound.getSoundFile() : gui.i18nFormat("label.cpm.psl.target.none"));
+		Button preview = new Button(gui, gui.i18nFormat("button.cpm.psl.previewSfx"), () -> PslPreviewUtil.previewSound(sound));
+		preview.setBounds(new Box(formWidth - 126, 2, 118, 18));
+		row.addElement(preview);
 	}
 
 	private void addLabel(String key) {
@@ -287,9 +323,17 @@ public class PslSettingsPanel extends Panel {
 		Label label = new Label(gui, gui.i18nFormat(key));
 		label.setBounds(new Box(4, 5, 116, 12));
 		row.addElement(label);
-		Spinner r = colorAxis(row, 124, (color >> 16) & 0xFF);
-		Spinner g = colorAxis(row, 204, (color >> 8) & 0xFF);
-		Spinner b = colorAxis(row, 284, color & 0xFF);
+		ColorButton picker = new ColorButton(gui, gui.i18nFormat("button.cpm.psl.pickColor"), frm, c -> {
+			setter.accept(c);
+			editor.markDirty();
+			editor.updateGui.accept(null);
+		});
+		picker.setColor(color);
+		picker.setBounds(new Box(124, 2, 84, 18));
+		row.addElement(picker);
+		Spinner r = colorAxis(row, 214, (color >> 16) & 0xFF);
+		Spinner g = colorAxis(row, 278, (color >> 8) & 0xFF);
+		Spinner b = colorAxis(row, 342, color & 0xFF);
 		Runnable update = () -> {
 			int rv = clampColor(r.getValue());
 			int gv = clampColor(g.getValue());
@@ -306,7 +350,7 @@ public class PslSettingsPanel extends Panel {
 		Spinner spinner = new Spinner(gui);
 		spinner.setDp(0);
 		spinner.setValue(value);
-		spinner.setBounds(new Box(x, 2, 72, 18));
+		spinner.setBounds(new Box(x, 2, 58, 18));
 		row.addElement(spinner);
 		return spinner;
 	}

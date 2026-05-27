@@ -158,19 +158,22 @@ public class PslPanel extends Panel {
 		PslSystem s = editor.pslSystem;
 		int y = 0;
 		if (s != null) {
-			for (PslElement el : s.getElements()) {
-				if (!vis(el.getType())) continue;
-				String marker = el == editor.selectedPslElement ? "> " : "  ";
-				String name = el.getName() != null && !el.getName().isEmpty() ? el.getName() : el.getType().name();
-				String txt = marker + ch(el.getType()) + " " + name;
-				Button b = new Button(gui, txt, () -> {
-					editor.selectedPslElement = el;
-					editor.updateGui.accept(null);
-				});
-				b.setBounds(new Box(2, y, 164, 16));
-				b.setTooltip(new Tooltip(frm, gui.i18nFormat("label.cpm.psl.target", PslUiUtil.describeTarget(editor, el.getElementId())) + "\\" + el.getTrigger().toString()));
-				addElement(b);
-				y += 18;
+			if(activeFilter == null) {
+				for(PslElementType type : PslElementType.VALUES) {
+					int count = count(s, type);
+					if(count == 0)continue;
+					Label group = new Label(gui, ch(type) + " " + gui.i18nFormat(typeKey(type)) + " (" + count + ")");
+					group.setBounds(new Box(4, y, 160, 12));
+					addElement(group);
+					y += 13;
+					for (PslElement el : s.getElements()) {
+						if(el.getType() == type)y = addElementButton(el, y, 12);
+					}
+				}
+			} else {
+				for (PslElement el : s.getElements()) {
+					if (vis(el.getType())) y = addElementButton(el, y, 0);
+				}
 			}
 		}
 		if (y == 0) {
@@ -179,6 +182,39 @@ public class PslPanel extends Panel {
 			addElement(l);
 		}
 		layout.reflow();
+	}
+
+	private int addElementButton(PslElement el, int y, int indent) {
+		String marker = el == editor.selectedPslElement ? "> " : "  ";
+		String name = el.getName() != null && !el.getName().isEmpty() ? el.getName() : el.getType().name();
+		String txt = marker + name;
+		Button b = new Button(gui, txt, () -> {
+			editor.selectedPslElement = el;
+			editor.updateGui.accept(null);
+		});
+		b.setBounds(new Box(2 + indent, y, 164 - indent, 16));
+		b.setTooltip(new Tooltip(frm, gui.i18nFormat("label.cpm.psl.target", PslUiUtil.describeTarget(editor, el.getElementId())) + "\\" + el.getTrigger().toString()));
+		addElement(b);
+		return y + 18;
+	}
+
+	private int count(PslSystem system, PslElementType type) {
+		int count = 0;
+		for(PslElement element : system.getElements()) {
+			if(element.getType() == type)count++;
+		}
+		return count;
+	}
+
+	private String typeKey(PslElementType type) {
+		switch (type) {
+			case PARTICLE: return "label.cpm.psl.type.particle";
+			case PHYSICS: return "label.cpm.psl.type.physics";
+			case SOUND: return "label.cpm.psl.type.sound";
+			case LIGHT: return "label.cpm.psl.type.light";
+			case MIDI: return "label.cpm.psl.type.midi";
+			default: return "label.cpm.psl.elements";
+		}
 	}
 
 	private boolean vis(PslElementType t) {

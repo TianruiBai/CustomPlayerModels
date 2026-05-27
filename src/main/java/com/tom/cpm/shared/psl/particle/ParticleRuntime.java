@@ -18,6 +18,7 @@ public class ParticleRuntime {
 	private final List<ParticleInstance> activeParticles = new ArrayList<>();
 	private float spawnTimer;
 	private final Random random = new Random();
+	private Vec3f lastWorldPos;
 
 	/**
 	 * Tick the particle system for one emitter.
@@ -28,6 +29,11 @@ public class ParticleRuntime {
 	 */
 	public void tick(ParticleEmitter def, Vec3f worldPos, float dt, IPslRuntime runtime) {
 		if (def == null || runtime == null) return;
+		Vec3f targetDelta = null;
+		if(lastWorldPos != null) {
+			targetDelta = new Vec3f(worldPos.x - lastWorldPos.x, worldPos.y - lastWorldPos.y, worldPos.z - lastWorldPos.z);
+		}
+		lastWorldPos = copy(worldPos);
 
 		float rate = def.getRate();
 		int maxParticles = def.getMaxParticles();
@@ -42,7 +48,7 @@ public class ParticleRuntime {
 		float spawnInterval = rate > 0 ? 1.0f / rate : Float.MAX_VALUE;
 		while (spawnTimer >= spawnInterval && activeParticles.size() < maxParticles) {
 			spawnTimer -= spawnInterval;
-			spawnParticle(def, worldPos);
+			spawnParticle(def, worldPos, runtime);
 		}
 		if (spawnTimer > spawnInterval) spawnTimer = 0; // clamp
 
@@ -55,6 +61,12 @@ public class ParticleRuntime {
 			if (p.age >= p.maxAge) {
 				it.remove();
 				continue;
+			}
+
+			if (def.isInheritTargetMotion() && def.getPathMode() != ParticleEmitter.PathMode.WORLD && targetDelta != null) {
+				p.position.x += targetDelta.x;
+				p.position.y += targetDelta.y;
+				p.position.z += targetDelta.z;
 			}
 
 			// Velocity integration with gravity
@@ -80,10 +92,18 @@ public class ParticleRuntime {
 
 			// Interpolate color
 			p.color = lerpColor(def.getColorStart(), def.getColorEnd(), progress);
+
+			if(def.getPathMode() == ParticleEmitter.PathMode.ANIMATION_PATH) {
+				Vec3f nextOffset = copy(runtime.sampleParticlePath(def.getPathAnimation(), progress));
+				p.position.x += nextOffset.x - p.pathOffset.x;
+				p.position.y += nextOffset.y - p.pathOffset.y;
+				p.position.z += nextOffset.z - p.pathOffset.z;
+				p.pathOffset = nextOffset;
+			}
 		}
 	}
 
-	private void spawnParticle(ParticleEmitter def, Vec3f worldPos) {
+	private void spawnParticle(ParticleEmitter def, Vec3f worldPos, IPslRuntime runtime) {
 		ParticleInstance p = new ParticleInstance();
 
 		// Position: emitter origin + random offset within emitter volume
@@ -112,6 +132,12 @@ public class ParticleRuntime {
 		}
 
 		p.position = new Vec3f(worldPos.x + offset.x, worldPos.y + offset.y, worldPos.z + offset.z);
+		if(def.getPathMode() == ParticleEmitter.PathMode.ANIMATION_PATH) {
+			p.pathOffset = copy(runtime.sampleParticlePath(def.getPathAnimation(), 0));
+			p.position.x += p.pathOffset.x;
+			p.position.y += p.pathOffset.y;
+			p.position.z += p.pathOffset.z;
+		}
 
 		// Velocity with variation
 		float var = def.getVelocityVariation();
@@ -129,7 +155,11 @@ public class ParticleRuntime {
 		p.color = def.getColorStart();
 		p.rotation = def.getRotationStart();
 
-		activeParticles.add(p);
+		if(def.isMinecraftParticle()) {
+			runtime.spawnBuiltinParticle(def.getMinecraftParticle(), p.position.x, p.position.y, p.position.z, p.velocity.x, p.velocity.y, p.velocity.z);
+		} else {
+			activeParticles.add(p);
+		}
 	}
 
 	/**
@@ -145,6 +175,11 @@ public class ParticleRuntime {
 	public void clear() {
 		activeParticles.clear();
 		spawnTimer = 0;
+		lastWorldPos = null;
+	}
+
+	private static Vec3f copy(Vec3f v) {
+		return v != null ? new Vec3f(v.x, v.y, v.z) : Vec3f.ZERO;
 	}
 
 	private static float lerp(float a, float b, float t) {

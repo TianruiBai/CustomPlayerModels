@@ -126,7 +126,9 @@ public class PslProjectLoader implements ProjectPartLoader {
 	private void loadElementData(PslElement elem, JsonMap map) {
 		if (elem instanceof ParticleEmitter) {
 			ParticleEmitter p = (ParticleEmitter) elem;
+			p.setParticleSource(parseEnum(ParticleEmitter.ParticleSource.VALUES, map.getString("particleSource", "CUSTOM_SPRITE")));
 			p.setTextureName(map.getString("texture", null));
+			p.setMinecraftParticle(map.getString("minecraftParticle", "minecraft:flame"));
 			p.setSpriteWidth(map.getFloat("spriteWidth", 1));
 			p.setSpriteHeight(map.getFloat("spriteHeight", 1));
 			p.setSpriteU(map.getInt("spriteU", 0));
@@ -154,6 +156,9 @@ public class PslProjectLoader implements ProjectPartLoader {
 			p.setBillboard(parseEnum(ParticleEmitter.BillboardMode.VALUES, map.getString("billboard", "CENTER")));
 			p.setBlendMode(parseEnum(ParticleEmitter.BlendMode.VALUES, map.getString("blendMode", "ALPHA")));
 			p.setRespectGraphicsSetting(map.getBoolean("respectGraphicsSetting", true));
+			p.setPathMode(parseEnum(ParticleEmitter.PathMode.VALUES, map.getString("pathMode", "ATTACHED")));
+			p.setPathAnimation(map.getString("pathAnimation", null));
+			p.setInheritTargetMotion(map.getBoolean("inheritTargetMotion", true));
 		} else if (elem instanceof PhysicsBone) {
 			PhysicsBone b = (PhysicsBone) elem;
 			b.setParentElementId(map.getInt("parentElementId", -1));
@@ -264,7 +269,9 @@ public class PslProjectLoader implements ProjectPartLoader {
 	private void saveElementData(PslElement elem, JsonMap map) {
 		if (elem instanceof ParticleEmitter) {
 			ParticleEmitter p = (ParticleEmitter) elem;
+			map.put("particleSource", p.getParticleSource().name());
 			if (p.getTextureName() != null) map.put("texture", p.getTextureName());
+			if (p.getMinecraftParticle() != null) map.put("minecraftParticle", p.getMinecraftParticle());
 			map.put("spriteWidth", p.getSpriteWidth());
 			map.put("spriteHeight", p.getSpriteHeight());
 			map.put("spriteU", p.getSpriteU());
@@ -292,6 +299,9 @@ public class PslProjectLoader implements ProjectPartLoader {
 			map.put("billboard", p.getBillboard().name());
 			map.put("blendMode", p.getBlendMode().name());
 			map.put("respectGraphicsSetting", p.isRespectGraphicsSetting());
+			map.put("pathMode", p.getPathMode().name());
+			if (p.getPathAnimation() != null) map.put("pathAnimation", p.getPathAnimation());
+			map.put("inheritTargetMotion", p.isInheritTargetMotion());
 		} else if (elem instanceof PhysicsBone) {
 			PhysicsBone b = (PhysicsBone) elem;
 			map.put("parentElementId", b.getParentElementId());

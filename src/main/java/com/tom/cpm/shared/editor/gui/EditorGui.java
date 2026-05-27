@@ -204,6 +204,7 @@ public class EditorGui extends Frame {
 
 		initModelPanel(width, height);
 		initTexturePanel(width, height);
+		initAssetsPanel(width, height);
 		initAnimPanel(width, height);
 		initPslPanel(width, height);
 
@@ -353,6 +354,16 @@ public class EditorGui extends Frame {
 			w = Math.min(200, x - Math.max(x - 200, 175));
 			textureEditor.addElement(initQuickPanel(Math.max(x - 200, 175), height - 20, w));
 		}
+	}
+
+	private void initAssetsPanel(int width, int height) {
+		Panel assetsEditor = new Panel(gui);
+		assetsEditor.setBounds(new Box(0, 0, width, height - 20));
+		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.assets"), assetsEditor, () -> viewType = ViewType.ASSETS));
+
+		AssetsPanel assetsPanel = new AssetsPanel(gui, this, width, height - 20);
+		assetsPanel.setBounds(new Box(0, 0, width, height - 20));
+		assetsEditor.addElement(assetsPanel);
 	}
 
 	private void initAnimPanel(int width, int height) {
@@ -1128,6 +1139,7 @@ public class EditorGui extends Frame {
 	public static enum ViewType {
 		MODEL,
 		TEXTURE,
+		ASSETS,
 		ANIMATION,
 		PSL
 	}

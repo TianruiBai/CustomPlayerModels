@@ -9,6 +9,7 @@ import com.tom.cpl.math.Vec3f;
 public class ParticleInstance {
 	public Vec3f position = new Vec3f();
 	public Vec3f velocity = new Vec3f();
+	public Vec3f pathOffset = new Vec3f();
 	public float age;
 	public float maxAge = 1;
 	public float scale = 1;

@@ -3,6 +3,9 @@ package com.tom.cpm.client.psl;
 import java.io.InputStream;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.particles.SimpleParticleType;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 
 import com.tom.cpm.shared.psl.IPslRuntime;
 
@@ -59,6 +62,18 @@ public class PslClientRuntime implements IPslRuntime {
 	@Override
 	public boolean isDynamicLightSupported() {
 		return false; // Phase 5+
+	}
+
+	@Override
+	public void spawnBuiltinParticle(String particleId, float x, float y, float z, float vx, float vy, float vz) {
+		if(mc.level == null || particleId == null || particleId.isEmpty())return;
+		try {
+			var type = BuiltInRegistries.PARTICLE_TYPE.get(ResourceLocation.parse(particleId));
+			if(type instanceof SimpleParticleType) {
+				mc.level.addParticle((SimpleParticleType) type, x, y, z, vx, vy, vz);
+			}
+		} catch (Exception ignored) {
+		}
 	}
 
 	@Override

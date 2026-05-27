@@ -2,6 +2,8 @@ package com.tom.cpm.shared.psl;
 
 import java.io.InputStream;
 
+import com.tom.cpl.math.Vec3f;
+
 /**
  * Platform-agnostic runtime interface for PSL operations.
  * Each platform port (NeoForge 1.21, Fabric 1.20, Forge 1.16, etc.)
@@ -62,6 +64,21 @@ public interface IPslRuntime {
 	boolean isDynamicLightSupported();
 
 	// --- Block collision ---
+
+	/**
+	 * Spawn a Minecraft-native particle if this platform can resolve the particle id.
+	 * Custom CPM sprite particles are simulated/rendered by the shared particle runtime instead.
+	 */
+	default void spawnBuiltinParticle(String particleId, float x, float y, float z, float vx, float vy, float vz) {
+	}
+
+	/**
+	 * Sample an editor/runtime particle path by name. Implementations can bind this
+	 * to animation curves; the default keeps older runtimes at the emitter origin.
+	 */
+	default Vec3f sampleParticlePath(String animationName, float progress) {
+		return Vec3f.ZERO;
+	}
 
 	/**
 	 * Check if there is a solid block at the given world-space position.

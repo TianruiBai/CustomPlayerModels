@@ -38,7 +38,24 @@ public class ParticleEmitter extends PslElement {
 		public static final BlendMode[] VALUES = values();
 	}
 
+	public enum ParticleSource {
+		CUSTOM_SPRITE,
+		MINECRAFT_BUILTIN,
+		;
+		public static final ParticleSource[] VALUES = values();
+	}
+
+	public enum PathMode {
+		ATTACHED,
+		WORLD,
+		ANIMATION_PATH,
+		;
+		public static final PathMode[] VALUES = values();
+	}
+
+	private ParticleSource particleSource = ParticleSource.CUSTOM_SPRITE;
 	private String textureName;
+	private String minecraftParticle = "minecraft:flame";
 	private float spriteWidth = 1;
 	private float spriteHeight = 1;
 	private int spriteU;
@@ -66,6 +83,9 @@ public class ParticleEmitter extends PslElement {
 	private BillboardMode billboard = BillboardMode.CENTER;
 	private BlendMode blendMode = BlendMode.ALPHA;
 	private boolean respectGraphicsSetting = true;
+	private PathMode pathMode = PathMode.ATTACHED;
+	private String pathAnimation;
+	private boolean inheritTargetMotion = true;
 
 	public ParticleEmitter() {
 	}
@@ -113,6 +133,11 @@ public class ParticleEmitter extends PslElement {
 		out.writeVarInt(billboard.ordinal());
 		out.writeVarInt(blendMode.ordinal());
 		out.writeBoolean(respectGraphicsSetting);
+		out.writeVarInt(particleSource.ordinal());
+		out.writeUTF(minecraftParticle != null ? minecraftParticle : "");
+		out.writeVarInt(pathMode.ordinal());
+		out.writeUTF(pathAnimation != null ? pathAnimation : "");
+		out.writeBoolean(inheritTargetMotion);
 	}
 
 	@Override
@@ -146,12 +171,36 @@ public class ParticleEmitter extends PslElement {
 		billboard = BillboardMode.VALUES[in.readVarInt()];
 		blendMode = BlendMode.VALUES[in.readVarInt()];
 		respectGraphicsSetting = in.readBoolean();
+		try {
+			particleSource = readEnum(ParticleSource.VALUES, in.readVarInt(), ParticleSource.CUSTOM_SPRITE);
+			minecraftParticle = in.readUTF();
+			if (minecraftParticle.isEmpty()) minecraftParticle = "minecraft:flame";
+			pathMode = readEnum(PathMode.VALUES, in.readVarInt(), PathMode.ATTACHED);
+			pathAnimation = in.readUTF();
+			if (pathAnimation.isEmpty()) pathAnimation = null;
+			inheritTargetMotion = in.readBoolean();
+		} catch (IOException ignored) {
+			particleSource = ParticleSource.CUSTOM_SPRITE;
+			minecraftParticle = "minecraft:flame";
+			pathMode = PathMode.ATTACHED;
+			pathAnimation = null;
+			inheritTargetMotion = true;
+		}
+	}
+
+	private static <T> T readEnum(T[] values, int ordinal, T fallback) {
+		return ordinal >= 0 && ordinal < values.length ? values[ordinal] : fallback;
 	}
 
 	// --- Getters/Setters ---
 
+	public ParticleSource getParticleSource() { return particleSource; }
+	public void setParticleSource(ParticleSource particleSource) { this.particleSource = particleSource != null ? particleSource : ParticleSource.CUSTOM_SPRITE; }
 	public String getTextureName() { return textureName; }
 	public void setTextureName(String textureName) { this.textureName = textureName; }
+	public String getMinecraftParticle() { return minecraftParticle; }
+	public void setMinecraftParticle(String minecraftParticle) { this.minecraftParticle = minecraftParticle; }
+	public boolean isMinecraftParticle() { return particleSource == ParticleSource.MINECRAFT_BUILTIN; }
 	public float getSpriteWidth() { return spriteWidth; }
 	public void setSpriteWidth(float spriteWidth) { this.spriteWidth = spriteWidth; }
 	public float getSpriteHeight() { return spriteHeight; }
@@ -206,4 +255,10 @@ public class ParticleEmitter extends PslElement {
 	public void setBlendMode(BlendMode blendMode) { this.blendMode = blendMode; }
 	public boolean isRespectGraphicsSetting() { return respectGraphicsSetting; }
 	public void setRespectGraphicsSetting(boolean respectGraphicsSetting) { this.respectGraphicsSetting = respectGraphicsSetting; }
+	public PathMode getPathMode() { return pathMode; }
+	public void setPathMode(PathMode pathMode) { this.pathMode = pathMode != null ? pathMode : PathMode.ATTACHED; }
+	public String getPathAnimation() { return pathAnimation; }
+	public void setPathAnimation(String pathAnimation) { this.pathAnimation = pathAnimation; }
+	public boolean isInheritTargetMotion() { return inheritTargetMotion; }
+	public void setInheritTargetMotion(boolean inheritTargetMotion) { this.inheritTargetMotion = inheritTargetMotion; }
 }
