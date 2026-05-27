@@ -1,10 +1,12 @@
 package com.tom.cpm.shared.editor.gui;
 
 import com.tom.cpl.gui.IGui;
+import com.tom.cpl.gui.elements.Button;
 import com.tom.cpl.gui.elements.Label;
 import com.tom.cpl.gui.elements.Panel;
 import com.tom.cpl.gui.elements.Spinner;
 import com.tom.cpl.gui.elements.TextField;
+import com.tom.cpl.gui.elements.Tooltip;
 import com.tom.cpl.gui.util.FlowLayout;
 import com.tom.cpl.math.Box;
 import com.tom.cpm.shared.editor.Editor;
@@ -17,25 +19,26 @@ public class PslElementPropertiesPanel extends Panel {
 	private final Editor editor;
 	private final TextField nameField;
 	private final Spinner elementIdSpinner;
-	private final Label typeLabel;
+	private final Label typeLabel, targetDisplayLabel;
+	private final Button useSelectedButton, showTargetButton;
 
 	public PslElementPropertiesPanel(IGui gui, EditorGui e) {
 		super(gui);
 		editor = e.getEditor();
-		setBounds(new Box(0, 0, 170, 76));
+		setBounds(new Box(0, 0, 240, 112));
 		setBackgroundColor(gui.getColors().panel_background);
 		new FlowLayout(this, 3, 1);
 
 		typeLabel = new Label(gui, "");
-		typeLabel.setBounds(new Box(2, 0, 164, 12));
+		typeLabel.setBounds(new Box(2, 0, 234, 12));
 		addElement(typeLabel);
 
 		Label nameLabel = new Label(gui, gui.i18nFormat("label.cpm.psl.common.name"));
-		nameLabel.setBounds(new Box(2, 0, 164, 12));
+		nameLabel.setBounds(new Box(2, 0, 234, 12));
 		addElement(nameLabel);
 
 		nameField = new TextField(gui);
-		nameField.setBounds(new Box(2, 0, 164, 18));
+		nameField.setBounds(new Box(2, 0, 234, 18));
 		nameField.setEventListener(() -> {
 			PslElement element = editor.selectedPslElement;
 			if(element != null) {
@@ -47,20 +50,39 @@ public class PslElementPropertiesPanel extends Panel {
 		addElement(nameField);
 
 		Label targetLabel = new Label(gui, gui.i18nFormat("label.cpm.psl.common.elementId"));
-		targetLabel.setBounds(new Box(2, 0, 164, 12));
+		targetLabel.setBounds(new Box(2, 0, 234, 12));
 		addElement(targetLabel);
 
+		targetDisplayLabel = new Label(gui, "");
+		targetDisplayLabel.setBounds(new Box(2, 0, 234, 12));
+		addElement(targetDisplayLabel);
+
+		Panel targetRow = new Panel(gui);
+		targetRow.setBounds(new Box(0, 0, 240, 18));
+
 		elementIdSpinner = new Spinner(gui);
-		elementIdSpinner.setBounds(new Box(2, 0, 164, 18));
+		elementIdSpinner.setBounds(new Box(2, 0, 74, 18));
 		elementIdSpinner.setDp(0);
 		elementIdSpinner.addChangeListener(() -> {
 			PslElement element = editor.selectedPslElement;
 			if(element != null) {
 				element.setElementId((int) elementIdSpinner.getValue());
 				editor.markDirty();
+				editor.updateGui.accept(null);
 			}
 		});
-		addElement(elementIdSpinner);
+		targetRow.addElement(elementIdSpinner);
+
+		useSelectedButton = new Button(gui, gui.i18nFormat("button.cpm.psl.useSelected"), this::useSelectedTarget);
+		useSelectedButton.setBounds(new Box(80, 0, 76, 18));
+		useSelectedButton.setTooltip(new Tooltip(e, gui.i18nFormat("tooltip.cpm.psl.useSelected")));
+		targetRow.addElement(useSelectedButton);
+
+		showTargetButton = new Button(gui, gui.i18nFormat("button.cpm.psl.showTarget"), this::showTarget);
+		showTargetButton.setBounds(new Box(160, 0, 76, 18));
+		showTargetButton.setTooltip(new Tooltip(e, gui.i18nFormat("tooltip.cpm.psl.showTarget")));
+		targetRow.addElement(showTargetButton);
+		addElement(targetRow);
 	}
 
 	public void refresh() {
@@ -69,10 +91,28 @@ public class PslElementPropertiesPanel extends Panel {
 		setVisible(enabled);
 		nameField.setEnabled(enabled);
 		elementIdSpinner.setEnabled(enabled);
+		useSelectedButton.setEnabled(enabled && editor.getSelectedElement() != null);
+		showTargetButton.setEnabled(enabled && element.getElementId() >= 0);
 		if(enabled) {
 			typeLabel.setText(element.getType().name());
 			nameField.setText(element.getName() != null ? element.getName() : "");
 			elementIdSpinner.setValue(element.getElementId());
+			targetDisplayLabel.setText(gui.i18nFormat("label.cpm.psl.target", PslUiUtil.describeTarget(editor, element.getElementId())));
 		}
+	}
+
+	private void useSelectedTarget() {
+		PslElement element = editor.selectedPslElement;
+		if(element == null)return;
+		int id = PslUiUtil.getSelectedRuntimeId(editor);
+		if(id < 0)return;
+		element.setElementId(id);
+		editor.markDirty();
+		editor.updateGui.accept(null);
+	}
+
+	private void showTarget() {
+		PslElement element = editor.selectedPslElement;
+		if(element != null)PslUiUtil.selectElement(editor, element.getElementId());
 	}
 }

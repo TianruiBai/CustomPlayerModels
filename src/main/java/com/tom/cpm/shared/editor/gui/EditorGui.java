@@ -432,9 +432,9 @@ public class EditorGui extends Frame {
 	private void initPslPanel(int width, int height) {
 		int fullH = height - 20;
 		int listW = 170;
-		int propsW = 170;
-		int commonH = 78;
-		int triggerH = 160;
+		int treeW = 150;
+		int inspectorH = Math.min(220, Math.max(180, fullH / 3));
+		int contentH = fullH - inspectorH;
 		Panel mainPanel = new Panel(gui);
 		mainPanel.setBounds(new Box(0, 0, width, fullH));
 
@@ -447,81 +447,19 @@ public class EditorGui extends Frame {
 
 		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.psl"), mainPanel, () -> viewType = ViewType.PSL));
 
-		// Center: Viewport
+		// Center: Viewport, leaving the familiar model tree on the right for target picking.
 		ViewportPanel view = new ViewportPanel(this, editor);
-		view.setBounds(new Box(listW, 0, width - listW - propsW, fullH));
+		view.setBounds(new Box(listW, 0, width - listW - treeW, contentH));
 		mainPanel.addElement(view);
 		editor.displayViewport.add(view::setEnabled);
 
-		// Right: Properties panel (context-sensitive based on selected PSL element type)
-		Panel propsPanel = new Panel(gui);
-		propsPanel.setBounds(new Box(width - propsW, 0, propsW, fullH));
-		propsPanel.setBackgroundColor(gui.getColors().panel_background);
+		TreePanel treePanel = new TreePanel(gui, this, treeW, contentH, false);
+		treePanel.setBounds(new Box(width - treeW, 0, treeW, contentH));
+		mainPanel.addElement(treePanel);
 
-		PslElementPropertiesPanel commonProps = new PslElementPropertiesPanel(gui, this);
-		commonProps.setBounds(new Box(0, 0, propsW, commonH));
-		propsPanel.addElement(commonProps);
-
-		ScrollPanel typeScroll = new ScrollPanel(gui);
-		typeScroll.setBounds(new Box(0, commonH, propsW, Math.max(20, fullH - commonH - triggerH)));
-		typeScroll.setScrollBarSide(true);
-		propsPanel.addElement(typeScroll);
-
-		// Stack property editors — only one visible at a time
-		ParticlePropertiesPanel particleProps = new ParticlePropertiesPanel(gui, this);
-
-		PhysicsPropertiesPanel physicsProps = new PhysicsPropertiesPanel(gui, this);
-
-		SoundPropertiesPanel soundProps = new SoundPropertiesPanel(gui, this);
-
-		MidiPropertiesPanel midiProps = new MidiPropertiesPanel(gui, this);
-
-		LightPropertiesPanel lightProps = new LightPropertiesPanel(gui, this);
-
-		Panel noSelectionPanel = new Panel(gui);
-		noSelectionPanel.setBounds(new Box(0, 0, propsW, 40));
-		noSelectionPanel.addElement(new Label(gui, gui.i18nFormat("label.cpm.psl.noSelection")).setBounds(new Box(5, 5, 160, 12)));
-		typeScroll.setDisplay(noSelectionPanel);
-
-		PslTriggerEditor triggerEditor = new PslTriggerEditor(gui, this);
-		triggerEditor.setBounds(new Box(0, fullH - triggerH, propsW, triggerH));
-		propsPanel.addElement(triggerEditor);
-
-		mainPanel.addElement(propsPanel);
-
-		// Refresh property panels when selection changes
-		editor.updateGui.add(() -> {
-			boolean hasSel = editor.selectedPslElement != null;
-			var sel = editor.selectedPslElement;
-			commonProps.refresh();
-			particleProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.particle.ParticleEmitter);
-			physicsProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.physics.PhysicsBone);
-			soundProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.sound.SoundEmitter);
-			midiProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.sound.MidiEmitter);
-			lightProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.light.LightEmitter);
-			if (hasSel) {
-				if (sel instanceof com.tom.cpm.shared.psl.particle.ParticleEmitter) {
-					particleProps.refresh();
-					typeScroll.setDisplay(particleProps);
-				} else if (sel instanceof com.tom.cpm.shared.psl.physics.PhysicsBone) {
-					physicsProps.refresh();
-					typeScroll.setDisplay(physicsProps);
-				} else if (sel instanceof com.tom.cpm.shared.psl.sound.SoundEmitter) {
-					soundProps.refresh();
-					typeScroll.setDisplay(soundProps);
-				} else if (sel instanceof com.tom.cpm.shared.psl.sound.MidiEmitter) {
-					midiProps.refresh();
-					typeScroll.setDisplay(midiProps);
-				} else if (sel instanceof com.tom.cpm.shared.psl.light.LightEmitter) {
-					lightProps.refresh();
-					typeScroll.setDisplay(lightProps);
-				}
-			} else {
-				typeScroll.setDisplay(noSelectionPanel);
-			}
-			triggerEditor.refresh();
-		});
-		editor.updateGui.accept(null);
+		PslInspectorPanel inspector = new PslInspectorPanel(gui, this, width - listW, inspectorH);
+		inspector.setBounds(new Box(listW, contentH, width - listW, inspectorH));
+		mainPanel.addElement(inspector);
 	}
 
 	private void newModel(SkinType type) {
