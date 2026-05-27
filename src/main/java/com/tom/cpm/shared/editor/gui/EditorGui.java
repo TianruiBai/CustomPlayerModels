@@ -471,6 +471,10 @@ public class EditorGui extends Frame {
 		midiProps.setBounds(new Box(2, 2, 146, fullH - 4));
 		propsPanel.addElement(midiProps);
 
+		LightPropertiesPanel lightProps = new LightPropertiesPanel(gui, this);
+		lightProps.setBounds(new Box(2, 2, 146, fullH - 4));
+		propsPanel.addElement(lightProps);
+
 		PslTriggerEditor triggerEditor = new PslTriggerEditor(gui, this);
 		triggerEditor.setBounds(new Box(2, fullH - 130, 146, 120));
 		propsPanel.addElement(triggerEditor);
@@ -485,11 +489,13 @@ public class EditorGui extends Frame {
 			physicsProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.physics.PhysicsBone);
 			soundProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.sound.SoundEmitter);
 			midiProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.sound.MidiEmitter);
+			lightProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.light.LightEmitter);
 			if (hasSel) {
 				if (sel instanceof com.tom.cpm.shared.psl.particle.ParticleEmitter) particleProps.refresh();
 				if (sel instanceof com.tom.cpm.shared.psl.physics.PhysicsBone) physicsProps.refresh();
 				if (sel instanceof com.tom.cpm.shared.psl.sound.SoundEmitter) soundProps.refresh();
 				if (sel instanceof com.tom.cpm.shared.psl.sound.MidiEmitter) midiProps.refresh();
+				if (sel instanceof com.tom.cpm.shared.psl.light.LightEmitter) lightProps.refresh();
 			}
 			triggerEditor.refresh();
 		});
