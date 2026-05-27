@@ -189,6 +189,104 @@ AnimationEngine.tick()
 - Max file size: 512 KB per file
 - Recommended sample rate: 44100 Hz
 
+**MIDI Support**:
+
+In addition to OGG samples, the sound subsystem supports MIDI (`.mid`) files for sequenced musical playback. This allows creators to compose simple melodies, background themes, or note-based SFX without shipping large audio files.
+
+**Key Properties per MIDI Player**:
+
+| Property | Type | Description |
+|---|---|---|
+| `id` | long | Unique identifier |
+| `midiFile` | String | `.mid` filename from `sounds/` folder |
+| `instrumentMap` | Map<Integer, String> | MIDI program number → OGG sample file (in `sounds/`), or `"noteblock"` for Minecraft note block sounds |
+| `tempo` | float | Playback speed multiplier (0.5–2.0, 1.0 = original tempo) |
+| `volume` | float | 0.0–1.0 master volume |
+| `transpose` | int | Semitone transpose (−24 to +24) |
+| `loop` | boolean | Whether to loop playback |
+| `loopDelay` | float | Seconds between loop iterations (0 = seamless) |
+| `category` | Enum | `PLAYER`, `AMBIENT`, `MASTER` |
+| `trigger` | PslTrigger | Activation trigger |
+| `polyphony` | int | Max simultaneous notes (1–32, default 8) |
+| `noteFalloff` | float | Per-note decay time in seconds (0 = instant stop, 0.5 = half-second fade) |
+
+**MIDI Playback Flow**:
+```
+AnimationEngine.tick()
+  → PslSystem.tick()
+    → MidiRuntime.tick() for each active MIDI player:
+      1. Read MIDI tick events for current timestamp
+      2. For each NOTE_ON event:
+         a. Resolve instrument: instrumentMap[program] → OGG sample or "noteblock"
+         b. Pitch-shift sample to match MIDI note (or use note block pitch)
+         c. Play sound at computed pitch/volume
+      3. For each NOTE_OFF event:
+         a. Stop or fade the corresponding note
+      4. Advance playback position
+      5. If loop && reached end: reset position
+```
+
+**Instrument Mapping**:
+
+Default mapping if no `instrumentMap` is specified:
+| MIDI Program Range | Maps To |
+|---|---|
+| 0–7 (Piano) | `"noteblock:harp"` |
+| 8–15 (Chromatic Percussion) | `"noteblock:bell"` |
+| 16–23 (Organ) | `"noteblock:flute"` |
+| 24–31 (Guitar) | `"noteblock:guitar"` |
+| 32–39 (Bass) | `"noteblock:bass"` |
+| 40–47 (Strings) | `"noteblock:harp"` |
+| 48–55 (Ensemble) | `"noteblock:chime"` |
+| 56–63 (Brass) | `"noteblock:bell"` |
+| 64–71 (Reed) | `"noteblock:flute"` |
+| 72–79 (Pipe) | `"noteblock:didgeridoo"` |
+| 80–87 (Synth Lead) | `"noteblock:bit"` |
+| 88–95 (Synth Pad) | `"noteblock:iron_xylophone"` |
+| 96–103 (Synth Effects) | `"noteblock:xylophone"` |
+| 104–111 (Ethnic) | `"noteblock:banjo"` |
+| 112–119 (Percussive) | `"noteblock:basedrum"` |
+| 120–127 (Sound Effects) | `"noteblock:pling"` |
+
+Creators can override any program number with a custom OGG sample: `"0": "sounds/my_piano.ogg"`.
+
+**MIDI File Constraints**:
+- Format: Standard MIDI File (SMF) Type 0 or 1
+- Max file size: 64 KB (MIDI files are tiny)
+- Max tracks: 16 (one per MIDI channel)
+- Supported events: NOTE_ON, NOTE_OFF, PROGRAM_CHANGE, TEMPO, CONTROLLER (volume, pan)
+- Unsupported: SysEx, aftertouch, pitch bend (ignored gracefully)
+
+**MIDI Runtime**:
+```java
+public class MidiEmitter extends PslElement {
+    long id;
+    String midiFile;              // e.g., "sounds/theme.mid"
+    Map<Integer, String> instrumentMap;  // program → sound resource
+    float tempo;                  // 0.5–2.0
+    float volume;                 // 0.0–1.0
+    int transpose;                // semitones
+    boolean loop;
+    float loopDelay;
+    SoundCategory category;
+    int polyphony;                // 1–32
+    float noteFalloff;            // decay seconds
+}
+
+public class MidiRuntime {
+    MidiFile parsedMidi;          // Pre-parsed MIDI data
+    long playbackTick;            // Current position in MIDI ticks
+    Map<Integer, ActiveNote> activeNotes;  // Currently playing notes
+    float timer;                  // Seconds since last tick
+
+    void tick(MidiEmitter def, IPslRuntime runtime) {
+        // Advance timer, process events at current tick
+        // Manage active note lifecycle (play, sustain, fade)
+        // Handle loop point
+    }
+}
+```
+
 ### 2.4 Light System
 
 **Concept**: Mark model parts as glowing light sources. The part is rendered on BOTH an emissive (fullbright) render layer AND as a dynamic light that illuminates surroundings. The implementation focuses on modern Minecraft (1.20+) with a portable abstraction for version flexibility.
@@ -313,7 +411,8 @@ cpm/shared/psl/           ← Platform-agnostic logic (largest layer)
 │   └── PhysicsRuntime.java     ← Verlet integration, constraint solver
 ├── sound/
 │   ├── SoundEmitter.java       ← Sound emitter definition (data)
-│   └── SoundRuntime.java       ← Shared sound trigger logic
+│   ├── SoundRuntime.java       ← Shared sound trigger logic
+│   └── MidiRuntime.java        ← MIDI parsing & sequenced playback logic
 ├── light/
 │   ├── LightEmitter.java       ← Light emitter definition (data)
 │   └── LightRuntime.java       ← Shared light state (flicker, intensity)
@@ -686,7 +785,7 @@ public final Updater<Float> setLightIntensity = updaterReg.create(null);
 - Tabbed sub-panel with Particle/Physics/Sound/Light tabs (only relevant tab shown)
 - Particle tab: texture picker, rate spinner, lifetime range, color picker with gradient preview, etc.
 - Physics tab: sim type selector, gravity/damping/stiffness sliders, angular limit spinners, collision radius, preview play button
-- Sound tab: file picker (browse `sounds/` folder), volume slider, pitch spinner, loop toggle
+- Sound tab: file picker (browse `sounds/` folder), volume slider, pitch spinner, loop toggle. For MIDI: instrument mapper, tempo slider, transpose spinner.
 - Light tab: color picker, intensity slider, radius spinner, flicker settings
 
 **Tree Panel** (right, 150px):
@@ -898,6 +997,24 @@ PSL Block:
     float cooldown
     bool oneShot
 
+  int midiCount
+  for each midi:
+    long id
+    UTF midiFile
+    int instrumentCount
+    for each mapping:
+      int program
+      UTF resource (OGG filename or "noteblock:<instrument>")
+    float tempo
+    float volume
+    int transpose
+    bool loop
+    float loopDelay
+    byte category
+    PslTrigger trigger
+    int polyphony
+    float noteFalloff
+
   int lightCount
   for each light:
     long id
@@ -995,6 +1112,28 @@ PSL Block:
       "trigger": {
         "type": "ANIMATION",
         "animName": "c_attack"
+      }
+    }
+  ],
+  "midi": [
+    {
+      "id": 1234567894,
+      "name": "Theme Music",
+      "midiFile": "sounds/theme.mid",
+      "instrumentMap": {
+        "0": "noteblock:harp",
+        "40": "sounds/violin.ogg"
+      },
+      "tempo": 1.0,
+      "volume": 0.6,
+      "transpose": 0,
+      "loop": true,
+      "loopDelay": 2.0,
+      "category": "AMBIENT",
+      "polyphony": 8,
+      "noteFalloff": 0.3,
+      "trigger": {
+        "type": "ALWAYS"
       }
     }
   ],
@@ -1124,7 +1263,7 @@ Each port provides concrete implementations via dependency injection through the
 | 3.5 Physics preview in editor | `ViewportPanel.java` extension | Live physics simulation in viewport |
 | 3.6 Self-collision (sphere-sphere) | `PhysicsRuntime.java` | Simple sphere collision between sibling bones |
 
-### Phase 4: Sound System (Estimated: 1–2 weeks)
+### Phase 4: Sound System (Estimated: 2–3 weeks)
 
 **Goal**: Full sound editor and runtime.
 
@@ -1135,6 +1274,10 @@ Each port provides concrete implementations via dependency injection through the
 | 3.3 Implement `SoundPlayer` (NeoForge 1.21) | `client/psl/SoundPlayer.java` | OGG loading, Minecraft sound playback |
 | 3.4 Sound file picker | `SoundFilePicker.java` | Browse `sounds/` folder |
 | 3.5 Audio preview in editor | `SoundPlayer.java` | "Test Sound" button |
+| 3.6 Implement MIDI parser (shared) | `shared/psl/sound/MidiRuntime.java` | SMF Type 0/1 parsing, tempo map, tick-to-time conversion |
+| 3.7 Implement MIDI playback (client) | `client/psl/MidiPlayer.java` | Note scheduling, instrument mapping, polyphony management |
+| 3.8 Build MIDI instrument mapper GUI | `editor/gui/MidiInstrumentMapper.java` | Visual program→sound mapping, note block instrument picker |
+| 3.9 MIDI preview in editor | `MidiPlayer.java` | Play/stop MIDI with instrument preview |
 
 ### Phase 5: Light System (Estimated: 2–3 weeks)
 
@@ -1170,7 +1313,8 @@ Each port provides concrete implementations via dependency injection through the
 | **Shader incompatibility with dynamic lights** | High | Medium | Default to emissive-only; make dynamic lights opt-in with warning |
 | **Physics simulation cost** | Medium | Medium | Max 8 physics bones, solver iterations capped at 5; skip when model off-screen |
 | **Particle rendering performance** | Medium | Medium | Limit max particles per emitter; cull off-screen; use batched rendering |
-| **Sound file size bloating .cpmmodel** | Medium | Low | Enforce 512 KB per-file limit; compress OGG at low bitrate |
+| **Sound file size bloating .cpmmodel** | Medium | Low | Enforce 512 KB per-file limit; compress OGG at low bitrate; MIDI files are inherently tiny (<64 KB) |
+| **MIDI playback timing drift** | Medium | Medium | Use Minecraft tick-aligned clock; resync tempo on loop boundaries; limit polyphony to 8 default |
 | **v1 → v2 project migration issues** | Low | Low | `skin.png` stays at root — no files move. v2 is additive-only; v1 projects open unchanged. |
 | **Porting complexity (1.7.10 particle API)** | Low | Medium | `IPslRuntime` abstraction handles this; each port implements separately |
 | **Network bandwidth (PSL data in model payload)** | Low | Low | PSL data is small (mostly numeric); only sent once on model change |
@@ -1198,7 +1342,8 @@ src/main/java/com/tom/cpm/shared/psl/
 │   └── PhysicsRuntime.java
 ├── sound/
 │   ├── SoundEmitter.java
-│   └── SoundRuntime.java
+│   ├── SoundRuntime.java
+│   └── MidiRuntime.java
 ├── light/
 │   ├── LightEmitter.java
 │   └── LightRuntime.java
@@ -1211,6 +1356,7 @@ src/main/java/com/tom/cpm/client/psl/
 ├── ParticleRenderer.java
 ├── PhysicsRenderer.java
 ├── SoundPlayer.java
+├── MidiPlayer.java
 └── LightRenderer.java
 
 src/main/java/com/tom/cpm/shared/editor/gui/
@@ -1219,6 +1365,7 @@ src/main/java/com/tom/cpm/shared/editor/gui/
 ├── ParticlePropertiesPanel.java
 ├── PhysicsPropertiesPanel.java
 ├── SoundPropertiesPanel.java
+├── MidiInstrumentMapper.java
 ├── LightPropertiesPanel.java
 └── PslTriggerEditor.java
 ```
