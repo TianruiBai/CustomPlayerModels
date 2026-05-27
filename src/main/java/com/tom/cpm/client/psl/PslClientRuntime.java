@@ -132,22 +132,30 @@ public class PslClientRuntime implements IPslRuntime {
 	@Override
 	public Image loadParticleImage(String particleId) {
 		if (particleId == null || particleId.isEmpty()) return null;
-		try {
-			ResourceLocation particleIdRl = ResourceLocation.parse(particleId);
-			TextureAtlas atlas = getParticleAtlas();
-			if(atlas != null) {
-				Image fromDescription = loadFromParticleDefinition(atlas, particleIdRl);
-				if(fromDescription != null)return fromDescription;
+		ResourceLocation rl = ResourceLocation.parse(particleId);
 
-				Image directSprite = loadAtlasSprite(atlas, particleIdRl);
-				if(directSprite != null)return directSprite;
-			}
-		} catch (Exception ignored) {
+		// 1. Try standalone particle PNG (most reliable, works for flame/smoke/bubble/etc.)
+		Image png = loadParticlePng(rl);
+		if (png != null) return png;
+
+		// 2. Try direct atlas sprite lookup (no JSON parsing needed)
+		TextureAtlas atlas = getParticleAtlas();
+		if (atlas != null) {
+			Image sprite = loadAtlasSprite(atlas, rl);
+			if (sprite != null) return sprite;
 		}
 
-		// Fallback for resource packs or custom ids that expose an individual PNG.
+		// 3. Try JSON particle definition (resolves multi-sprite particles like cherry_leaves)
+		if (atlas != null) {
+			Image desc = loadFromParticleDefinition(atlas, rl);
+			if (desc != null) return desc;
+		}
+
+		return null;
+	}
+
+	private Image loadParticlePng(ResourceLocation rl) {
 		try {
-			ResourceLocation rl = ResourceLocation.parse(particleId);
 			ResourceLocation texRl = ResourceLocation.fromNamespaceAndPath(rl.getNamespace(),
 				"textures/particle/" + rl.getPath() + ".png");
 			var opt = mc.getResourceManager().getResource(texRl);
@@ -168,18 +176,19 @@ public class PslClientRuntime implements IPslRuntime {
 	}
 
 	private Image loadFromParticleDefinition(TextureAtlas atlas, ResourceLocation particleId) {
-		ResourceLocation definitionPath = ResourceLocation.fromNamespaceAndPath(particleId.getNamespace(), "particles/" + particleId.getPath() + ".json");
+		ResourceLocation definitionPath = ResourceLocation.fromNamespaceAndPath(particleId.getNamespace(),
+			"particles/" + particleId.getPath() + ".json");
 		try {
 			var resource = mc.getResourceManager().getResource(definitionPath);
-			if(resource.isEmpty())return null;
+			if (resource.isEmpty()) return null;
 			try (Reader reader = resource.get().openAsReader()) {
 				ParticleDescription description = ParticleDescription.fromJson(GsonHelper.parse(reader));
-				for(ResourceLocation spriteId : description.getTextures()) {
+				for (ResourceLocation spriteId : description.getTextures()) {
 					Image image = loadAtlasSprite(atlas, spriteId);
-					if(image != null)return image;
+					if (image != null) return image;
 				}
 			}
-		} catch (Exception ignored) {
+		} catch (IOException ignored) {
 		}
 		return null;
 	}
@@ -187,11 +196,12 @@ public class PslClientRuntime implements IPslRuntime {
 	private Image loadAtlasSprite(TextureAtlas atlas, ResourceLocation spriteId) {
 		try {
 			TextureAtlasSprite sprite = atlas.getSprite(spriteId);
-			if(sprite == null || sprite.contents() == null)return null;
-			if(MissingTextureAtlasSprite.getLocation().equals(sprite.contents().name()))return null;
+			if (sprite == null || sprite.contents() == null) return null;
+			if (MissingTextureAtlasSprite.getLocation().equals(sprite.contents().name())) return null;
 			NativeImage ni = sprite.contents().getOriginalImage();
-			if(ni != null && ni.getWidth() > 0 && ni.getHeight() > 0)return nativeImageToCpm(ni);
-		} catch (Exception ignored) {
+			if (ni != null && ni.getWidth() > 0 && ni.getHeight() > 0) return nativeImageToCpm(ni);
+		} catch (IllegalStateException ignored) {
+			// atlas not initialized yet
 		}
 		return null;
 	}
