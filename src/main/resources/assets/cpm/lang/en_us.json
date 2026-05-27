@@ -450,6 +450,7 @@
   "button.cpm.psl.previewSfx": "Preview SFX",
   "button.cpm.psl.pickColor": "Pick",
   "button.cpm.psl.preview.reset": "Reset Preview",
+  "button.cpm.psl.preview.playSelected": "Play Selected",
   "label.cpm.psl.rename": "Rename PSL Element",
   "label.cpm.psl.rename.desc": "Enter a display name for this PSL element.",
   "label.cpm.psl.filter.all": "All",

@@ -286,7 +286,7 @@ public class ModelDefinition {
 		pslRuntimePositions.put(cube.getId(), new Vec3f(matrix[3], matrix[7], matrix[11]));
 	}
 
-	public void tickPslRuntime() {
+	public void tickPslRuntime(com.tom.cpm.shared.animation.AnimationState animState) {
 		if(isEditor() || pslSystem == null || pslSystem.isEmpty())return;
 		IPslRuntime runtime = MinecraftClientAccess.get().getPslRuntime();
 		if(runtime == null)return;
@@ -294,7 +294,8 @@ public class ModelDefinition {
 		float dt = lastPslRuntimeNanos == 0 ? 1 / 20f : Math.min(0.1f, (now - lastPslRuntimeNanos) / 1_000_000_000f);
 		if(lastPslRuntimeNanos != 0 && dt < 0.005f)return;
 		lastPslRuntimeNanos = now;
-		pslSystem.tick(null, runtime, id -> pslRuntimePositions.getOrDefault(id, Vec3f.ZERO), dt);
+		com.tom.cpm.shared.psl.PslTriggerState triggerState = animState != null ? com.tom.cpm.shared.psl.PslTriggerStateImpl.from(animState, getAnimations(), MinecraftClientAccess.get().getPlayerRenderManager().getAnimationEngine()) : null;
+		pslSystem.tick(triggerState, runtime, id -> pslRuntimePositions.getOrDefault(id, Vec3f.ZERO), dt);
 	}
 
 	public void resetAnimationPos() {

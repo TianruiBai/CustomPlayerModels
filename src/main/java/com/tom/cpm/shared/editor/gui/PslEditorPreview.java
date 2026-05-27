@@ -22,7 +22,7 @@ import com.tom.cpm.shared.psl.sound.SoundEmitter;
 
 public class PslEditorPreview {
 	private final Editor editor;
-	private final IPslRuntime runtime = new PreviewRuntime();
+	final IPslRuntime runtime = new PreviewRuntime();
 	private long lastNanos;
 
 	public PslEditorPreview(Editor editor) {
@@ -56,7 +56,8 @@ public class PslEditorPreview {
 		List<ParticleEmitter> emitters = editor.pslSystem.getElementsOfType(PslElementType.PARTICLE);
 		for(ParticleEmitter emitter : emitters) {
 			for(ParticleInstance particle : editor.pslSystem.getParticleInstances(emitter)) {
-				float size = Math.max(0.025f, particle.scale * 0.035f);
+				// Model-space units are 1/16 block; scale up for visibility
+				float size = Math.max(0.5f, particle.scale * 0.8f);
 				float r = ((particle.color >> 16) & 0xff) / 255f;
 				float g = ((particle.color >> 8) & 0xff) / 255f;
 				float b = (particle.color & 0xff) / 255f;
@@ -87,7 +88,7 @@ public class PslEditorPreview {
 		}
 	}
 
-	private Vec3f targetPosition(int elementId) {
+	Vec3f targetPosition(int elementId) {
 		ModelElement element = PslUiUtil.findElement(editor, elementId);
 		if(element != null && element.matrixPosition != null) {
 			float[] matrix = element.matrixPosition.toArray();

@@ -237,7 +237,7 @@ public class Editor {
 	/** PSL (Particle · Physics · Sound · Light) system. Null until first PSL element is added. */
 	public PslSystem pslSystem;
 	public final PslEditorPreview pslPreview = new PslEditorPreview(this);
-	public boolean pslPreviewEnabled;
+	public boolean pslPreviewEnabled = true;
 	public boolean pslPreviewPlaying = true;
 
 	/** Currently selected PSL element in the editor. */

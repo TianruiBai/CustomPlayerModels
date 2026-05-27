@@ -152,6 +152,31 @@ public class PslSystem {
 		tick(null, runtime, positionLookup, dt, true);
 	}
 
+	public void tickSinglePreview(PslElement target, IPslRuntime runtime, Function<Integer, Vec3f> positionLookup, float dt) {
+		if(runtime == null || target == null)return;
+		ensureRuntimeState();
+		tickCounter++;
+		Vec3f worldPos = runtime.toWorldPosition(positionLookup.apply(target.getElementId()));
+		switch (target.getType()) {
+			case PARTICLE:
+				particleRuntimes.computeIfAbsent(target.getId(), id -> new ParticleRuntime()).tick((ParticleEmitter) target, worldPos, dt, runtime);
+				break;
+			case SOUND:
+				runtime.playSound((SoundEmitter) target, worldPos);
+				break;
+			case LIGHT:
+				updateDynamicLight((LightEmitter) target, true, worldPos, runtime);
+				break;
+			case PHYSICS: {
+				List<PhysicsBone> bones = getElementsOfType(PslElementType.PHYSICS);
+				physicsRuntime.simulate(bones, dt, id -> runtime.toWorldPosition(positionLookup.apply(id)));
+				break;
+			}
+			default:
+				break;
+		}
+	}
+
 	private void tick(PslTriggerState state, IPslRuntime runtime, Function<Integer, Vec3f> positionLookup, float dt, boolean forceActive) {
 		if(runtime == null || elements.isEmpty())return;
 		ensureRuntimeState();

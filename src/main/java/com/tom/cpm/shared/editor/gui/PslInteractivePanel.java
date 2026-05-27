@@ -39,7 +39,7 @@ public class PslInteractivePanel extends Panel {
 		this.editor = e.getEditor();
 		this.frm = e;
 		formWidth = Math.min(620, Math.max(360, width - 14));
-		setBounds(new Box(0, 0, formWidth, 158));
+		setBounds(new Box(0, 0, formWidth, 196));
 		setBackgroundColor(gui.getColors().panel_background);
 		new FlowLayout(this, 4, 2);
 
@@ -99,6 +99,7 @@ public class PslInteractivePanel extends Panel {
 		previewCheckbox.setBounds(new Box(4, 1, 150, 16));
 		previewCheckbox.setAction(() -> {
 			editor.pslPreviewEnabled = !editor.pslPreviewEnabled;
+			previewCheckbox.setSelected(editor.pslPreviewEnabled);
 			if(!editor.pslPreviewEnabled)editor.pslPreview.reset();
 			editor.updateGui.accept(null);
 		});
@@ -107,6 +108,7 @@ public class PslInteractivePanel extends Panel {
 		previewPlayCheckbox.setBounds(new Box(160, 1, 150, 16));
 		previewPlayCheckbox.setAction(() -> {
 			editor.pslPreviewPlaying = !editor.pslPreviewPlaying;
+			previewPlayCheckbox.setSelected(editor.pslPreviewPlaying);
 			editor.updateGui.accept(null);
 		});
 		previewRow.addElement(previewPlayCheckbox);
@@ -116,8 +118,17 @@ public class PslInteractivePanel extends Panel {
 			editor.pslPreview.reset();
 			editor.updateGui.accept(null);
 		});
-		resetPreviewButton.setBounds(new Box(4, 0, 306, 18));
+		resetPreviewButton.setBounds(new Box(4, 0, 150, 18));
 		addElement(resetPreviewButton);
+
+		Button playSelectedButton = new Button(gui, gui.i18nFormat("button.cpm.psl.preview.playSelected"), () -> {
+			if(editor.pslSystem != null && editor.selectedPslElement != null) {
+				editor.pslSystem.tickSinglePreview(editor.selectedPslElement, editor.pslPreview.runtime, editor.pslPreview::targetPosition, 1/20f);
+				editor.updateGui.accept(null);
+			}
+		});
+		playSelectedButton.setBounds(new Box(160, 0, 150, 18));
+		addElement(playSelectedButton);
 
 		resetTriggerButton = new Button(gui, gui.i18nFormat("button.cpm.psl.resetTrigger"), this::resetTrigger);
 		resetTriggerButton.setBounds(new Box(4, 0, 306, 18));

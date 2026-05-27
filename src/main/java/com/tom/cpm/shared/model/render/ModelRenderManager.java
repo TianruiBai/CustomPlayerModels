@@ -160,7 +160,7 @@ public abstract class ModelRenderManager<D, S, P, MB> implements IPlayerRenderMa
 
 	public void tickPslRuntime(MB model, String arg) {
 		getHolderSafe(model, arg, h -> {
-			if(h.def != null)h.def.tickPslRuntime();
+			if(h.def != null)h.def.tickPslRuntime(h.animState);
 		}, false);
 	}
 
