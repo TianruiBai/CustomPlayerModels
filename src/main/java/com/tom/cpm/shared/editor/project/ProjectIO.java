@@ -19,9 +19,10 @@ import com.tom.cpm.shared.editor.project.loaders.PropertiesLoaderV1;
 import com.tom.cpm.shared.editor.project.loaders.TagsLoaderV1;
 import com.tom.cpm.shared.editor.project.loaders.TemplateLoaderV1;
 import com.tom.cpm.shared.editor.project.loaders.TexturesLoaderV1;
+import com.tom.cpm.shared.psl.io.PslProjectLoader;
 
 public class ProjectIO {
-	public static final int projectFileVersion = 1;
+	public static final int projectFileVersion = 2;
 
 	public static Map<Integer, ProjectIO> loaders;
 	public Map<String, ProjectPartLoader> partLoaders;
@@ -59,6 +60,7 @@ public class ProjectIO {
 		l.add(new TemplateLoaderV1());
 		l.add(new TexturesLoaderV1());
 		l.add(new TagsLoaderV1());
+		l.add(new PslProjectLoader());
 	}
 
 	public ProjectIO(ProjectIO pl) {

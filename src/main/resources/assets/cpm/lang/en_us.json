@@ -416,6 +416,8 @@
   "tab.cpm.animation": "Animations",
   "tab.cpm.animation.setup": "Setup",
   "tab.cpm.animation.test": "Test",
+  "tab.cpm.psl": "PSL",
+  "label.cpm.psl.placeholder": "PSL Editor — Coming in Phase 2",
   "tab.cpm.settings.general": "General",
   "tab.cpm.settings.editor": "Editor",
   "tab.cpm.settings.safety": "Safety",

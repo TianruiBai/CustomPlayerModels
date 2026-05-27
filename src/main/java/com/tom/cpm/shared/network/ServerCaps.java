@@ -14,6 +14,7 @@ public enum ServerCaps {
 	CPM_BUILT_IN_SERVER,
 	CPM_CHUNKED_TRANSFER,
 	CPM_TIME_BOUND_KEYS,
+	PSL_SYSTEM,
 	;
 	public static final ServerCaps[] VALUES = values();
 }

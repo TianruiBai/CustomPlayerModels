@@ -81,6 +81,7 @@ import com.tom.cpm.shared.model.SkinType;
 import com.tom.cpm.shared.model.TextureSheetType;
 import com.tom.cpm.shared.model.render.PerFaceUV.Rot;
 import com.tom.cpm.shared.model.render.RenderMode;
+import com.tom.cpm.shared.psl.PslSystem;
 import com.tom.cpm.shared.skin.TextureProvider;
 import com.tom.cpm.shared.skin.TextureType;
 import com.tom.cpm.shared.util.Log;
@@ -231,6 +232,9 @@ public class Editor {
 	public final List<TextureSlot> textureSlots = new ArrayList<>();
 	/** Index into {@link #textureSlots} of the currently active texture. */
 	public int activeTextureSlot = 0;
+
+	/** PSL (Particle · Physics · Sound · Light) system. Null until first PSL element is added. */
+	public PslSystem pslSystem;
 
 	public Editor() {
 		this.definition = new EditorDefinition(this);

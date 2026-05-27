@@ -205,6 +205,7 @@ public class EditorGui extends Frame {
 		initModelPanel(width, height);
 		initTexturePanel(width, height);
 		initAnimPanel(width, height);
+		initPslPanel(width, height);
 
 		Label title = new Label(gui, "");
 		editor.setNameDisplay.add(title::setText);
@@ -426,6 +427,17 @@ public class EditorGui extends Frame {
 		timelinePanel.setLayoutListener(updateAnimLayout);
 		editor.showTimeline.add(v -> updateAnimLayout.run());
 		updateAnimLayout.run();
+	}
+
+	private void initPslPanel(int width, int height) {
+		Panel mainPanel = new Panel(gui);
+		mainPanel.setBounds(new Box(0, 0, width, height - 20));
+
+		Label placeholder = new Label(gui, gui.i18nFormat("label.cpm.psl.placeholder"));
+		placeholder.setBounds(new Box(10, 10, 200, 20));
+		mainPanel.addElement(placeholder);
+
+		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.psl"), mainPanel, () -> viewType = ViewType.PSL));
 	}
 
 	private void newModel(SkinType type) {
@@ -1094,6 +1106,7 @@ public class EditorGui extends Frame {
 	public static enum ViewType {
 		MODEL,
 		TEXTURE,
-		ANIMATION
+		ANIMATION,
+		PSL
 	}
 }
