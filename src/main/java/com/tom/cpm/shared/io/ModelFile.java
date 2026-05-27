@@ -14,7 +14,6 @@ public class ModelFile {
 	private Link link;
 	private byte[] dataBlock, overflowLocal;
 	private ImageBlock icon;
-	private byte[] pslBlock;
 
 	private ModelFile() {
 	}
@@ -47,13 +46,6 @@ public class ModelFile {
 		if(block.getWidth() > 256 || block.getHeight() > 256)
 			throw new IOException("Texture size too large");
 		mf.icon = block;
-		// Read optional PSL block (present in v2+ models)
-		try {
-			mf.pslBlock = h.readByteArray();
-		} catch (Exception e) {
-			// PSL block is optional — ignore if missing/corrupt
-			mf.pslBlock = null;
-		}
 		cis.checkSum();
 		return mf;
 	}
@@ -94,13 +86,5 @@ public class ModelFile {
 
 	public boolean convertable() {
 		return dataBlock.length <= 2048;
-	}
-
-	public byte[] getPslBlock() {
-		return pslBlock;
-	}
-
-	public void setPslBlock(byte[] pslBlock) {
-		this.pslBlock = pslBlock;
 	}
 }

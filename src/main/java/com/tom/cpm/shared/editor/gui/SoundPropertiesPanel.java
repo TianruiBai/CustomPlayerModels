@@ -52,7 +52,7 @@ public class SoundPropertiesPanel extends Panel {
 		attenuationSpinner = mkSpin(1); attenuationSpinner.setDp(0);
 		attenuationSpinner.addChangeListener(() -> {
 			int idx = (int) attenuationSpinner.getValue();
-			if (idx >= 0 && idx < Attenuation.VALUES.length) get().setAttenuation(Attenuation.VALUES[idx]);
+			if (idx >= 0 && idx < Attenuation.VALUES.length) { get().setAttenuation(Attenuation.VALUES[idx]); editor.markDirty(); }
 		});
 		addElement(attenuationSpinner);
 
@@ -63,7 +63,7 @@ public class SoundPropertiesPanel extends Panel {
 		categorySpinner = mkSpin(0); categorySpinner.setDp(0);
 		categorySpinner.addChangeListener(() -> {
 			int idx = (int) categorySpinner.getValue();
-			if (idx >= 0 && idx < SoundCategory.VALUES.length) get().setCategory(SoundCategory.VALUES[idx]);
+			if (idx >= 0 && idx < SoundCategory.VALUES.length) { get().setCategory(SoundCategory.VALUES[idx]); editor.markDirty(); }
 		});
 		addElement(categorySpinner);
 
@@ -72,12 +72,12 @@ public class SoundPropertiesPanel extends Panel {
 
 		loopCb = new Checkbox(gui, gui.i18nFormat("label.cpm.psl.sound.loop"));
 		loopCb.setBounds(new Box(2, 0, 80, 16));
-		loopCb.setAction(() -> { if (get() != null) get().setLoop(loopCb.isSelected()); });
+		loopCb.setAction(() -> { if (get() != null) { get().setLoop(loopCb.isSelected()); editor.markDirty(); } });
 		addElement(loopCb);
 
 		oneShotCb = new Checkbox(gui, gui.i18nFormat("label.cpm.psl.sound.oneShot"));
 		oneShotCb.setBounds(new Box(84, 0, 80, 16));
-		oneShotCb.setAction(() -> { if (get() != null) get().setOneShot(oneShotCb.isSelected()); });
+		oneShotCb.setAction(() -> { if (get() != null) { get().setOneShot(oneShotCb.isSelected()); editor.markDirty(); } });
 		addElement(oneShotCb);
 	}
 
@@ -105,7 +105,7 @@ public class SoundPropertiesPanel extends Panel {
 
 	private TextField mkTf(java.util.function.Consumer<String> c) {
 		TextField tf = new TextField(gui); tf.setBounds(new Box(2, 0, 164, 18));
-		tf.setEventListener(() -> { if (get() != null) c.accept(tf.getText()); });
+		tf.setEventListener(() -> { if (get() != null) { c.accept(tf.getText()); editor.markDirty(); } });
 		addElement(tf); return tf;
 	}
 
@@ -113,7 +113,7 @@ public class SoundPropertiesPanel extends Panel {
 
 	private Spinner addSpin(float def, int dp, java.util.function.Consumer<Float> c) {
 		Spinner s = mkSpin(def); s.setDp(dp);
-		s.addChangeListener(() -> { if (get() != null) c.accept(s.getValue()); });
+		s.addChangeListener(() -> { if (get() != null) { c.accept(s.getValue()); editor.markDirty(); } });
 		return s;
 	}
 }

@@ -47,7 +47,7 @@ public class LightPropertiesPanel extends Panel {
 
 		flickerCb = new Checkbox(gui, gui.i18nFormat("label.cpm.psl.light.flicker"));
 		flickerCb.setBounds(new Box(2, 0, 164, 16));
-		flickerCb.setAction(() -> { if (get() != null) get().setFlicker(flickerCb.isSelected()); });
+		flickerCb.setAction(() -> { if (get() != null) { get().setFlicker(flickerCb.isSelected()); editor.markDirty(); } });
 		addElement(flickerCb);
 
 		addLbl("label.cpm.psl.light.flickerSpeed");
@@ -57,12 +57,12 @@ public class LightPropertiesPanel extends Panel {
 
 		dynamicCb = new Checkbox(gui, gui.i18nFormat("label.cpm.psl.light.dynamic"));
 		dynamicCb.setBounds(new Box(2, 0, 164, 16));
-		dynamicCb.setAction(() -> { if (get() != null) get().setDynamic(dynamicCb.isSelected()); });
+		dynamicCb.setAction(() -> { if (get() != null) { get().setDynamic(dynamicCb.isSelected()); editor.markDirty(); } });
 		addElement(dynamicCb);
 
 		shadowsCb = new Checkbox(gui, gui.i18nFormat("label.cpm.psl.light.shadows"));
 		shadowsCb.setBounds(new Box(2, 0, 164, 16));
-		shadowsCb.setAction(() -> { if (get() != null) get().setCastShadows(shadowsCb.isSelected()); });
+		shadowsCb.setAction(() -> { if (get() != null) { get().setCastShadows(shadowsCb.isSelected()); editor.markDirty(); } });
 		addElement(shadowsCb);
 	}
 
@@ -77,6 +77,7 @@ public class LightPropertiesPanel extends Panel {
 		int g = Math.max(0, Math.min(255, (int) colorG.getValue()));
 		int b = Math.max(0, Math.min(255, (int) colorB.getValue()));
 		l.setColor((r << 16) | (g << 8) | b);
+		editor.markDirty();
 	}
 
 	public void refresh() {
@@ -98,13 +99,13 @@ public class LightPropertiesPanel extends Panel {
 
 	private Spinner addSpin(float def, int dp, java.util.function.Consumer<Float> c) {
 		Spinner s = new Spinner(gui); s.setBounds(new Box(2, 0, 164, 18)); s.setDp(dp); s.setValue(def);
-		s.addChangeListener(() -> { if (get() != null) c.accept(s.getValue()); });
+		s.addChangeListener(() -> { if (get() != null) { c.accept(s.getValue()); editor.markDirty(); } });
 		addElement(s); return s;
 	}
 
 	private Spinner smallSpin(int x, float def, java.util.function.Consumer<Float> c) {
 		Spinner s = new Spinner(gui); s.setBounds(new Box(x, 0, 38, 18)); s.setDp(0); s.setValue(def);
-		s.addChangeListener(() -> { if (get() != null) c.accept(s.getValue()); });
+		s.addChangeListener(() -> { if (get() != null) { c.accept(s.getValue()); editor.markDirty(); } });
 		return s;
 	}
 }

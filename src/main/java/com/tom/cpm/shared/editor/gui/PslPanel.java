@@ -1,13 +1,10 @@
 package com.tom.cpm.shared.editor.gui;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Random;
 
 import com.tom.cpl.gui.IGui;
 import com.tom.cpl.gui.elements.Button;
 import com.tom.cpl.gui.elements.Checkbox;
-import com.tom.cpl.gui.elements.GuiElement;
 import com.tom.cpl.gui.elements.Label;
 import com.tom.cpl.gui.elements.Panel;
 import com.tom.cpl.gui.elements.PopupMenu;
@@ -32,6 +29,7 @@ public class PslPanel extends Panel {
 	private EditorGui frm;
 	private FlowLayout layout;
 	private Checkbox showP, showPh, showS, showL, showM;
+	private boolean filterParticles = true, filterPhysics = true, filterSounds = true, filterLights = true, filterMidi = true;
 	private static final Random ID_GEN = new Random();
 
 	public PslPanel(IGui gui, EditorGui e) {
@@ -42,39 +40,20 @@ public class PslPanel extends Panel {
 		setBackgroundColor(gui.getColors().panel_background);
 		layout = new FlowLayout(this, 4, 1);
 
-		// Filter row
-		Panel fRow = new Panel(gui);
-		fRow.setBounds(new Box(0, 0, 170, 18));
-		showP = mkFilter(fRow, "P", "label.cpm.psl.type.particle", 2);
-		showPh = mkFilter(fRow, "Ph", "label.cpm.psl.type.physics", 24);
-		showS = mkFilter(fRow, "S", "label.cpm.psl.type.sound", 50);
-		showL = mkFilter(fRow, "L", "label.cpm.psl.type.light", 72);
-		showM = mkFilter(fRow, "M", "label.cpm.psl.type.midi", 94);
-		addElement(fRow);
-
-		// Add/Del buttons
-		Panel btnRow = new Panel(gui);
-		btnRow.setBounds(new Box(0, 0, 170, 20));
-		Button addBtn = new Button(gui, "+", () -> showAdd());
-		addBtn.setBounds(new Box(2, 0, 80, 18));
-		addBtn.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.add")));
-		btnRow.addElement(addBtn);
-		Button delBtn = new Button(gui, "-", () -> del());
-		delBtn.setBounds(new Box(84, 0, 80, 18));
-		delBtn.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.delete")));
-		btnRow.addElement(delBtn);
-		addElement(btnRow);
-
 		// Rebuild when gui updates
 		editor.updateGui.add(this::rebuild);
+		rebuild();
 	}
 
-	private Checkbox mkFilter(Panel p, String t, String key, int x) {
+	private Checkbox mkFilter(Panel p, String t, String key, int x, boolean selected, java.util.function.Consumer<Boolean> setter) {
 		Checkbox c = new Checkbox(gui, t);
-		c.setSelected(true);
+		c.setSelected(selected);
 		c.setBounds(new Box(x, 1, 22, 14));
 		c.setTooltip(new Tooltip(frm, gui.i18nFormat(key)));
-		c.setAction(() -> rebuild());
+		c.setAction(() -> {
+			setter.accept(c.isSelected());
+			rebuild();
+		});
 		p.addElement(c);
 		return c;
 	}
@@ -118,7 +97,7 @@ public class PslPanel extends Panel {
 		sys().addElement(el);
 		editor.selectedPslElement = el;
 		editor.markDirty();
-		rebuild();
+		editor.updateGui.accept(null);
 	}
 
 	private String dname(PslElementType t) {
@@ -133,31 +112,28 @@ public class PslPanel extends Panel {
 	}
 
 	private void rebuild() {
-		// CPM panels don't support removeElement — we hide all children and rebuild text
-		// Using a simpler approach: label-based list with visibility toggle
-		// But labels don't have click handlers... Use buttons.
-
-		// Actually, the simplest approach that works: clear and re-add children
-		// Panel.getElements() returns a list we can clear
 		getElements().clear();
 
-		// Re-add static controls
+		Label title = new Label(gui, gui.i18nFormat("label.cpm.psl.elements"));
+		title.setBounds(new Box(5, 0, 160, 12));
+		addElement(title);
+
 		Panel fRow = new Panel(gui);
 		fRow.setBounds(new Box(0, 0, 170, 18));
-		showP = mkFilter(fRow, "P", "label.cpm.psl.type.particle", 2);
-		showPh = mkFilter(fRow, "Ph", "label.cpm.psl.type.physics", 24);
-		showS = mkFilter(fRow, "S", "label.cpm.psl.type.sound", 50);
-		showL = mkFilter(fRow, "L", "label.cpm.psl.type.light", 72);
-		showM = mkFilter(fRow, "M", "label.cpm.psl.type.midi", 94);
+		showP = mkFilter(fRow, "P", "label.cpm.psl.type.particle", 2, filterParticles, v -> filterParticles = v);
+		showPh = mkFilter(fRow, "Ph", "label.cpm.psl.type.physics", 24, filterPhysics, v -> filterPhysics = v);
+		showS = mkFilter(fRow, "S", "label.cpm.psl.type.sound", 50, filterSounds, v -> filterSounds = v);
+		showL = mkFilter(fRow, "L", "label.cpm.psl.type.light", 72, filterLights, v -> filterLights = v);
+		showM = mkFilter(fRow, "M", "label.cpm.psl.type.midi", 94, filterMidi, v -> filterMidi = v);
 		addElement(fRow);
 
 		Panel btnRow = new Panel(gui);
 		btnRow.setBounds(new Box(0, 0, 170, 20));
-		Button addBtn = new Button(gui, "+", () -> showAdd());
+		Button addBtn = new Button(gui, gui.i18nFormat("button.cpm.psl.add"), () -> showAdd());
 		addBtn.setBounds(new Box(2, 0, 80, 18));
 		addBtn.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.add")));
 		btnRow.addElement(addBtn);
-		Button delBtn = new Button(gui, "-", () -> del());
+		Button delBtn = new Button(gui, gui.i18nFormat("button.cpm.psl.delete"), () -> del());
 		delBtn.setBounds(new Box(84, 0, 80, 18));
 		delBtn.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.delete")));
 		btnRow.addElement(delBtn);
@@ -168,12 +144,11 @@ public class PslPanel extends Panel {
 		if (s != null) {
 			for (PslElement el : s.getElements()) {
 				if (!vis(el.getType())) continue;
-				String txt = (el.getName() != null ? el.getName() : el.getType().name())
-					+ " [" + ch(el.getType()) + "]";
+				String marker = el == editor.selectedPslElement ? "> " : "  ";
+				String txt = marker + "[" + ch(el.getType()) + "] " + (el.getName() != null ? el.getName() : el.getType().name());
 				Button b = new Button(gui, txt, () -> {
 					editor.selectedPslElement = el;
 					editor.updateGui.accept(null);
-					rebuild();
 				});
 				b.setBounds(new Box(2, y, 164, 16));
 				b.setTooltip(new Tooltip(frm, el.getTrigger().toString()));
@@ -191,11 +166,11 @@ public class PslPanel extends Panel {
 
 	private boolean vis(PslElementType t) {
 		switch (t) {
-			case PARTICLE: return showP != null && showP.isSelected();
-			case PHYSICS: return showPh != null && showPh.isSelected();
-			case SOUND: return showS != null && showS.isSelected();
-			case LIGHT: return showL != null && showL.isSelected();
-			case MIDI: return showM != null && showM.isSelected();
+			case PARTICLE: return filterParticles;
+			case PHYSICS: return filterPhysics;
+			case SOUND: return filterSounds;
+			case LIGHT: return filterLights;
+			case MIDI: return filterMidi;
 			default: return true;
 		}
 	}

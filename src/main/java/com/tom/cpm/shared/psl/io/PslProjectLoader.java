@@ -70,6 +70,7 @@ public class PslProjectLoader implements ProjectPartLoader {
 	}
 
 	private void loadTypeList(PslSystem system, JsonList list, PslElementType type) {
+		if (list == null) return;
 		list.forEachMap(map -> {
 			try {
 				PslElement elem = createElement(type);
@@ -231,7 +232,7 @@ public class PslProjectLoader implements ProjectPartLoader {
 			map.put("id", elem.getId());
 			if (elem.getName() != null) map.put("name", elem.getName());
 			map.put("elementId", elem.getElementId());
-			map.put("trigger", saveTrigger(elem.getTrigger()));
+			map.put("trigger", saveTrigger(elem.getTrigger()).asMap());
 
 			saveElementData(elem, map);
 
@@ -271,12 +272,12 @@ public class PslProjectLoader implements ProjectPartLoader {
 			map.put("spriteTexW", p.getSpriteTexW());
 			map.put("spriteTexH", p.getSpriteTexH());
 			map.put("emitterType", p.getEmitterType().name());
-			map.put("emitterSize", vec3fToMap(p.getEmitterSize()));
+			map.put("emitterSize", vec3fToMap(p.getEmitterSize()).asMap());
 			map.put("rate", p.getRate());
 			map.put("maxParticles", p.getMaxParticles());
 			map.put("lifeMin", p.getLifeMin());
 			map.put("lifeMax", p.getLifeMax());
-			map.put("velocity", vec3fToMap(p.getVelocity()));
+			map.put("velocity", vec3fToMap(p.getVelocity()).asMap());
 			map.put("velocityVariation", p.getVelocityVariation());
 			map.put("gravity", p.getGravity());
 			map.put("scaleStart", p.getScaleStart());

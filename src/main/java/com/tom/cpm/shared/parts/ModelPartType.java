@@ -28,6 +28,7 @@ public enum ModelPartType {
 	ROOT_INFO(ModelPartRootInfo::new),
 	ANIMATION_NEW(ModelPartAnimationNew::new),
 	TEXTURE_SLOT(ModelPartTextureSlot::new),
+	PSL(ModelPartPsl::new),
 	;
 	public static final ModelPartType[] VALUES = values();
 	private final IModelPart.Factory factory;

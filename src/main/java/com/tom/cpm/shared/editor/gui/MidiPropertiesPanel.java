@@ -42,7 +42,7 @@ public class MidiPropertiesPanel extends Panel {
 
 		addLbl("label.cpm.psl.midi.transpose");
 		transposeSpinner = mkSpin(0); transposeSpinner.setDp(0);
-		transposeSpinner.addChangeListener(() -> { if (get() != null) get().setTranspose((int) transposeSpinner.getValue()); });
+		transposeSpinner.addChangeListener(() -> { if (get() != null) { get().setTranspose((int) transposeSpinner.getValue()); editor.markDirty(); } });
 		addElement(transposeSpinner);
 
 		addLbl("label.cpm.psl.midi.loopDelay");
@@ -52,13 +52,13 @@ public class MidiPropertiesPanel extends Panel {
 		categorySpinner = mkSpin(1); categorySpinner.setDp(0);
 		categorySpinner.addChangeListener(() -> {
 			int idx = (int) categorySpinner.getValue();
-			if (idx >= 0 && idx < SoundCategory.VALUES.length) get().setCategory(SoundCategory.VALUES[idx]);
+			if (idx >= 0 && idx < SoundCategory.VALUES.length) { get().setCategory(SoundCategory.VALUES[idx]); editor.markDirty(); }
 		});
 		addElement(categorySpinner);
 
 		addLbl("label.cpm.psl.midi.polyphony");
 		polyphonySpinner = mkSpin(8); polyphonySpinner.setDp(0);
-		polyphonySpinner.addChangeListener(() -> { if (get() != null) get().setPolyphony((int) polyphonySpinner.getValue()); });
+		polyphonySpinner.addChangeListener(() -> { if (get() != null) { get().setPolyphony((int) polyphonySpinner.getValue()); editor.markDirty(); } });
 		addElement(polyphonySpinner);
 
 		addLbl("label.cpm.psl.midi.noteFalloff");
@@ -66,7 +66,7 @@ public class MidiPropertiesPanel extends Panel {
 
 		loopCb = new Checkbox(gui, gui.i18nFormat("label.cpm.psl.midi.loop"));
 		loopCb.setBounds(new Box(2, 0, 164, 16));
-		loopCb.setAction(() -> { if (get() != null) get().setLoop(loopCb.isSelected()); });
+		loopCb.setAction(() -> { if (get() != null) { get().setLoop(loopCb.isSelected()); editor.markDirty(); } });
 		addElement(loopCb);
 	}
 
@@ -92,7 +92,7 @@ public class MidiPropertiesPanel extends Panel {
 
 	private TextField mkTf(java.util.function.Consumer<String> c) {
 		TextField tf = new TextField(gui); tf.setBounds(new Box(2, 0, 164, 18));
-		tf.setEventListener(() -> { if (get() != null) c.accept(tf.getText()); });
+		tf.setEventListener(() -> { if (get() != null) { c.accept(tf.getText()); editor.markDirty(); } });
 		addElement(tf); return tf;
 	}
 
@@ -100,7 +100,7 @@ public class MidiPropertiesPanel extends Panel {
 
 	private Spinner addSpin(float def, int dp, java.util.function.Consumer<Float> c) {
 		Spinner s = mkSpin(def); s.setDp(dp);
-		s.addChangeListener(() -> { if (get() != null) c.accept(s.getValue()); });
+		s.addChangeListener(() -> { if (get() != null) { c.accept(s.getValue()); editor.markDirty(); } });
 		return s;
 	}
 }

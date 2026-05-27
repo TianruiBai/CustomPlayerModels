@@ -45,6 +45,13 @@ public class ParticlePropertiesPanel extends Panel {
 		addLabel("label.cpm.psl.particle.texture");
 		textureField = new TextField(gui);
 		textureField.setBounds(new Box(2, 0, 164, 18));
+		textureField.setEventListener(() -> {
+			ParticleEmitter emitter = get();
+			if(emitter != null) {
+				emitter.setTextureName(textureField.getText());
+				editor.markDirty();
+			}
+		});
 		addElement(textureField);
 
 		// Emitter type
@@ -109,12 +116,12 @@ public class ParticlePropertiesPanel extends Panel {
 		// Checkboxes
 		collisionCb = new Checkbox(gui, gui.i18nFormat("label.cpm.psl.particle.collision"));
 		collisionCb.setBounds(new Box(2, 0, 164, 16));
-		collisionCb.setAction(() -> { if (get() != null) get().setCollision(collisionCb.isSelected()); });
+		collisionCb.setAction(() -> { if (get() != null) { get().setCollision(collisionCb.isSelected()); editor.markDirty(); } });
 		addElement(collisionCb);
 
 		respectGfxCb = new Checkbox(gui, gui.i18nFormat("label.cpm.psl.particle.respectGfx"));
 		respectGfxCb.setBounds(new Box(2, 0, 164, 16));
-		respectGfxCb.setAction(() -> { if (get() != null) get().setRespectGraphicsSetting(respectGfxCb.isSelected()); });
+		respectGfxCb.setAction(() -> { if (get() != null) { get().setRespectGraphicsSetting(respectGfxCb.isSelected()); editor.markDirty(); } });
 		addElement(respectGfxCb);
 	}
 
@@ -159,7 +166,7 @@ public class ParticlePropertiesPanel extends Panel {
 		s.setBounds(new Box(2, 0, 164, 18));
 		s.setDp(dp);
 		s.setValue(def);
-		s.addChangeListener(() -> { if (get() != null) onChange.accept(s.getValue()); });
+		s.addChangeListener(() -> { if (get() != null) { onChange.accept(s.getValue()); editor.markDirty(); } });
 		addElement(s);
 		return s;
 	}
@@ -169,7 +176,7 @@ public class ParticlePropertiesPanel extends Panel {
 		s.setBounds(new Box(2, 0, 164, 18));
 		s.setDp(0);
 		s.setValue(def);
-		s.addChangeListener(() -> { if (get() != null) onChange.accept((int) s.getValue()); });
+		s.addChangeListener(() -> { if (get() != null) { onChange.accept((int) s.getValue()); editor.markDirty(); } });
 		addElement(s);
 		return s;
 	}
@@ -179,7 +186,7 @@ public class ParticlePropertiesPanel extends Panel {
 		s.setBounds(new Box(x, 0, 38, 18));
 		s.setDp(1);
 		s.setValue(def);
-		s.addChangeListener(() -> { if (get() != null) onChange.accept(s.getValue()); });
+		s.addChangeListener(() -> { if (get() != null) { onChange.accept(s.getValue()); editor.markDirty(); } });
 		return s;
 	}
 }

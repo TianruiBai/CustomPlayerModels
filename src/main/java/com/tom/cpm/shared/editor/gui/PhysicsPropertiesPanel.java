@@ -40,7 +40,7 @@ public class PhysicsPropertiesPanel extends Panel {
 		simTypeSpinner = mkSpin(0); simTypeSpinner.setDp(0);
 		simTypeSpinner.addChangeListener(() -> {
 			int idx = (int) simTypeSpinner.getValue();
-			if (idx >= 0 && idx < SimType.VALUES.length) get().setSimType(SimType.VALUES[idx]);
+			if (idx >= 0 && idx < SimType.VALUES.length) { get().setSimType(SimType.VALUES[idx]); editor.markDirty(); }
 		});
 		addElement(simTypeSpinner);
 
@@ -79,7 +79,7 @@ public class PhysicsPropertiesPanel extends Panel {
 
 		inheritCb = new Checkbox(gui, gui.i18nFormat("label.cpm.psl.physics.inherit"));
 		inheritCb.setBounds(new Box(2, 0, 164, 16));
-		inheritCb.setAction(() -> { if (get() != null) get().setInheritAnimation(inheritCb.isSelected()); });
+		inheritCb.setAction(() -> { if (get() != null) { get().setInheritAnimation(inheritCb.isSelected()); editor.markDirty(); } });
 		addElement(inheritCb);
 	}
 
@@ -125,7 +125,7 @@ public class PhysicsPropertiesPanel extends Panel {
 
 	private Spinner addSpinFloat(float def, java.util.function.Consumer<Float> c) {
 		Spinner s = mkSpin(def);
-		s.addChangeListener(() -> { if (get() != null) c.accept(s.getValue()); });
+		s.addChangeListener(() -> { if (get() != null) { c.accept(s.getValue()); editor.markDirty(); } });
 		return s;
 	}
 
@@ -134,7 +134,7 @@ public class PhysicsPropertiesPanel extends Panel {
 		s.setBounds(new Box(2, 0, 164, 18));
 		s.setDp(0);
 		s.setValue(def);
-		s.addChangeListener(() -> { if (get() != null) c.accept((int) s.getValue()); });
+		s.addChangeListener(() -> { if (get() != null) { c.accept((int) s.getValue()); editor.markDirty(); } });
 		addElement(s);
 		return s;
 	}
@@ -144,7 +144,7 @@ public class PhysicsPropertiesPanel extends Panel {
 		s.setBounds(new Box(x, 0, 38, 18));
 		s.setDp(1);
 		s.setValue(def);
-		s.addChangeListener(() -> { if (get() != null) c.accept(s.getValue()); });
+		s.addChangeListener(() -> { if (get() != null) { c.accept(s.getValue()); editor.markDirty(); } });
 		return s;
 	}
 }

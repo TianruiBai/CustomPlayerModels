@@ -33,6 +33,7 @@ import com.tom.cpm.shared.parts.ModelPartAnimatedTexture;
 import com.tom.cpm.shared.parts.ModelPartCloneable;
 import com.tom.cpm.shared.parts.ModelPartCollection;
 import com.tom.cpm.shared.parts.ModelPartCubes;
+import com.tom.cpm.shared.parts.ModelPartPsl;
 import com.tom.cpm.shared.parts.ModelPartRenderEffect;
 import com.tom.cpm.shared.parts.ModelPartRootInfo;
 import com.tom.cpm.shared.parts.ModelPartTags;
@@ -88,6 +89,9 @@ public class ExporterImpl {
 		parts.addAll(otherParts2);
 		if(!e.animations.isEmpty()) {
 			parts.add(new ModelPartAnimationNew(e));
+		}
+		if(e.pslSystem != null && !e.pslSystem.isEmpty()) {
+			parts.add(new ModelPartPsl(e.pslSystem));
 		}
 		e.textures.forEach((type, tex) -> {
 			if(type.editable) {
