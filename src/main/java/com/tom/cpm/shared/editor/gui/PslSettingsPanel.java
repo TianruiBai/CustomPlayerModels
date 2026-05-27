@@ -1,5 +1,6 @@
 package com.tom.cpm.shared.editor.gui;
 
+import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -15,7 +16,10 @@ import com.tom.cpl.gui.elements.TextField;
 import com.tom.cpl.gui.util.FlowLayout;
 import com.tom.cpl.math.Box;
 import com.tom.cpl.math.Vec3f;
+import com.tom.cpl.util.Image;
+import com.tom.cpl.util.ImageIO;
 import com.tom.cpl.util.NamedElement;
+import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.editor.gui.popup.ColorButton;
 import com.tom.cpm.shared.psl.PslElement;
@@ -166,16 +170,41 @@ public class PslSettingsPanel extends Panel {
 		String id = emitter.isMinecraftParticle() ? emitter.getMinecraftParticle() : emitter.getTextureName();
 		addReadout(row, 0, formWidth - 136, "label.cpm.psl.particle.asset", id != null ? id : gui.i18nFormat("label.cpm.psl.target.none"));
 		Button select = new Button(gui, gui.i18nFormat("button.cpm.psl.selectParticle"), () -> {
-			frm.openPopup(new PslParticlePickerPopup(frm, editor, (source, value) -> {
-				emitter.setParticleSource(source);
-				if(source == ParticleSource.MINECRAFT_BUILTIN)emitter.setMinecraftParticle(value);
-				else emitter.setTextureName(value);
+			frm.openPopup(new PslParticlePickerPopup(frm, editor, emitter.getParticleSource(), id, (source, value) -> {
+				setParticleAsset(emitter, source, value);
 				editor.markDirty();
 				editor.updateGui.accept(null);
 			}));
 		});
 		select.setBounds(new Box(formWidth - 126, 2, 118, 18));
 		row.addElement(select);
+	}
+
+	private void setParticleAsset(ParticleEmitter emitter, ParticleSource source, String value) {
+		emitter.setParticleSource(source);
+		if(source == ParticleSource.MINECRAFT_BUILTIN)emitter.setMinecraftParticle(value);
+		else emitter.setTextureName(value);
+		Image image = loadParticleAssetImage(source, value);
+		if(image != null && image.getWidth() > 0 && image.getHeight() > 0) {
+			emitter.setSpriteU(0);
+			emitter.setSpriteV(0);
+			emitter.setSpriteWidth(image.getWidth());
+			emitter.setSpriteHeight(image.getHeight());
+			emitter.setSpriteTexW(image.getWidth());
+			emitter.setSpriteTexH(image.getHeight());
+		}
+	}
+
+	private Image loadParticleAssetImage(ParticleSource source, String value) {
+		try {
+			if(source == ParticleSource.CUSTOM_SPRITE) {
+				byte[] data = editor.project.getEntry(value);
+				return data != null ? ImageIO.read(new ByteArrayInputStream(data)) : null;
+			}
+			return MinecraftClientAccess.get().getPslRuntime().loadParticleImage(value);
+		} catch (Exception ignored) {
+			return null;
+		}
 	}
 
 	private void previewSoundRow(SoundEmitter sound) {

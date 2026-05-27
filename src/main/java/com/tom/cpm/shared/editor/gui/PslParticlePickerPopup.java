@@ -1,5 +1,6 @@
 package com.tom.cpm.shared.editor.gui;
 
+import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -15,7 +16,10 @@ import com.tom.cpl.gui.elements.PopupPanel;
 import com.tom.cpl.gui.elements.ScrollPanel;
 import com.tom.cpl.gui.elements.TextField;
 import com.tom.cpl.math.Box;
+import com.tom.cpl.util.Image;
+import com.tom.cpl.util.ImageIO;
 import com.tom.cpm.shared.editor.Editor;
+import com.tom.cpm.shared.psl.particle.ParticleEmitter;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter.ParticleSource;
 
 public class PslParticlePickerPopup extends PopupPanel {
@@ -24,12 +28,20 @@ public class PslParticlePickerPopup extends PopupPanel {
 	private final List<Entry> allEntries = new ArrayList<>();
 	private final Panel listPanel;
 	private final TextField search;
+	private final ParticleSource initialSource;
+	private final String initialId;
 	private Entry selected;
 
 	public PslParticlePickerPopup(Frame frame, Editor editor, BiConsumer<ParticleSource, String> accept) {
+		this(frame, editor, null, null, accept);
+	}
+
+	public PslParticlePickerPopup(Frame frame, Editor editor, ParticleSource initialSource, String initialId, BiConsumer<ParticleSource, String> accept) {
 		super(frame.getGui());
 		this.editor = editor;
 		this.accept = accept;
+		this.initialSource = initialSource;
+		this.initialId = initialId;
 		setBounds(new Box(0, 0, 430, 265));
 
 		Label title = new Label(gui, gui.i18nFormat("label.cpm.psl.particlePicker"));
@@ -78,7 +90,15 @@ public class PslParticlePickerPopup extends PopupPanel {
 		for(String id : PslParticleCatalog.minecraftParticles()) {
 			allEntries.add(new Entry(ParticleSource.MINECRAFT_BUILTIN, id));
 		}
-		if(!allEntries.isEmpty())selected = allEntries.get(0);
+		if(initialSource != null && initialId != null) {
+			for(Entry entry : allEntries) {
+				if(entry.source == initialSource && entry.id.equals(initialId)) {
+					selected = entry;
+					break;
+				}
+			}
+		}
+		if(selected == null && !allEntries.isEmpty())selected = allEntries.get(0);
 	}
 
 	private void refreshList() {
@@ -118,15 +138,40 @@ public class PslParticlePickerPopup extends PopupPanel {
 			if(selected == null)return;
 			gui.drawText(bounds.x + 8, bounds.y + 8, selected.source == ParticleSource.CUSTOM_SPRITE ? "Project Sprite" : "Minecraft Particle", gui.getColors().label_text_color);
 			gui.drawText(bounds.x + 8, bounds.y + 22, selected.displayName(), gui.getColors().label_text_color);
-			int cx = bounds.x + bounds.w / 2;
-			int cy = bounds.y + 100;
-			long time = System.currentTimeMillis() / 80L;
-			int color = selected.source == ParticleSource.CUSTOM_SPRITE ? 0xff8bd3ff : 0xffffb347;
-			for(int i = 0; i < 18; i++) {
-				float a = (time + i * 17) * 0.18f;
-				int x = cx + (int)(Math.cos(a) * (14 + i % 5 * 4));
-				int y = cy + (int)(Math.sin(a * 0.7f) * (10 + i % 4 * 3));
-				gui.drawBox(x, y, 3, 3, color);
+
+			// Load the real texture for this particle
+			Image tex = null;
+			if(selected.source == ParticleSource.CUSTOM_SPRITE) {
+				byte[] data = editor.project.getEntry(selected.id);
+				if(data != null) {
+					try {
+						tex = ImageIO.read(new ByteArrayInputStream(data));
+					} catch (Exception ignored) {}
+				}
+			} else {
+				try {
+					tex = com.tom.cpm.shared.MinecraftClientAccess.get().getPslRuntime().loadParticleImage(selected.id);
+				} catch (Exception ignored) {}
+			}
+
+			if(tex != null) {
+				ParticleEmitter synth = new ParticleEmitter();
+				int texW = tex.getWidth();
+				int texH = tex.getHeight();
+				synth.setParticleSource(selected.source);
+				if(selected.source == ParticleSource.CUSTOM_SPRITE)synth.setTextureName(selected.id);
+				else synth.setMinecraftParticle(selected.id);
+				synth.setSpriteU(0);
+				synth.setSpriteV(0);
+				synth.setSpriteWidth(texW);
+				synth.setSpriteHeight(texH);
+				synth.setSpriteTexW(texW);
+				synth.setSpriteTexH(texH);
+				PslParticlePreviewStyle.drawGuiTexturePreview(gui, bounds.x + 8, bounds.y + 38, bounds.w - 16, bounds.h - 46, tex, synth);
+			} else {
+				String msg = gui.i18nFormat("label.cpm.psl.noPreview");
+				int tw = gui.textWidth(msg);
+				gui.drawText(bounds.x + (bounds.w - tw) / 2, bounds.y + bounds.h / 2, msg, gui.getColors().label_text_color);
 			}
 		}
 	}

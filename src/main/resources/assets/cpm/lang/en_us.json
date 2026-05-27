@@ -487,6 +487,7 @@
   "label.cpm.psl.trigger.paramMax": "Max Value",
   "label.cpm.psl.trigger.event": "Event Name",
   "label.cpm.psl.particlePicker": "Particle Browser",
+  "label.cpm.psl.noPreview": "No preview available",
   "label.cpm.psl.asset.empty": "No matching assets.",
   "label.cpm.psl.particle.source": "Particle Source",
   "label.cpm.psl.particle.asset": "Particle: %s",

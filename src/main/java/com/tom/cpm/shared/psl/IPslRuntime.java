@@ -3,6 +3,7 @@ package com.tom.cpm.shared.psl;
 import java.io.InputStream;
 
 import com.tom.cpl.math.Vec3f;
+import com.tom.cpl.util.Image;
 import com.tom.cpm.shared.psl.sound.SoundEmitter;
 
 /**
@@ -105,4 +106,15 @@ public interface IPslRuntime {
 	 * Used for particle collision.
 	 */
 	boolean checkBlockCollision(float x, float y, float z);
+
+	/**
+	 * Load a particle texture image by its resource identifier.
+	 * For custom sprites the id is a project path like "particles/sparkle.png".
+	 * For Minecraft built-in particles the id is a namespaced key like "minecraft:flame".
+	 * @param particleId the particle resource identifier
+	 * @return an Image or null if the texture cannot be loaded
+	 */
+	default Image loadParticleImage(String particleId) {
+		return null;
+	}
 }

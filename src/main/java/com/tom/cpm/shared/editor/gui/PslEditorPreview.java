@@ -1,12 +1,20 @@
 package com.tom.cpm.shared.editor.gui;
 
+import java.io.ByteArrayInputStream;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.tom.cpl.math.BoundingBox;
 import com.tom.cpl.math.MatrixStack;
+import com.tom.cpl.math.Vec2i;
 import com.tom.cpl.math.Vec3f;
+import com.tom.cpl.math.Vec4f;
 import com.tom.cpl.render.VBuffers;
 import com.tom.cpl.render.VertexBuffer;
+import com.tom.cpl.util.Image;
+import com.tom.cpl.util.ImageIO;
+import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.model.render.BoxRender;
@@ -19,11 +27,13 @@ import com.tom.cpm.shared.psl.particle.ParticleInstance;
 import com.tom.cpm.shared.psl.physics.PhysicsBone;
 import com.tom.cpm.shared.psl.physics.PhysicsState;
 import com.tom.cpm.shared.psl.sound.SoundEmitter;
+import com.tom.cpm.shared.skin.TextureProvider;
 
 public class PslEditorPreview {
 	private final Editor editor;
 	final IPslRuntime runtime = new PreviewRuntime();
 	private long lastNanos;
+	private final Map<String, TextureProvider> textureCache = new HashMap<>();
 
 	public PslEditorPreview(Editor editor) {
 		this.editor = editor;
@@ -32,6 +42,11 @@ public class PslEditorPreview {
 	public void reset() {
 		lastNanos = 0;
 		if(editor.pslSystem != null)editor.pslSystem.clearRuntimeState();
+		for(TextureProvider tp : textureCache.values()) {
+			if(tp != null)tp.free();
+		}
+		textureCache.clear();
+		PslParticlePreviewStyle.TextureCache.clear();
 	}
 
 	public void render(MatrixStack stack, VBuffers buffers, ViewportPanel panel) {
@@ -39,10 +54,11 @@ public class PslEditorPreview {
 		float dt = updateDelta();
 		if(editor.pslPreviewPlaying)editor.pslSystem.tickPreview(runtime, this::targetPosition, dt);
 
-		VertexBuffer buffer = buffers.getBuffer(panel.getRenderTypes(), RenderMode.OUTLINE);
-		renderParticles(stack, buffer);
-		renderLights(stack, buffer);
-		renderPhysics(stack, buffer);
+		VertexBuffer particleBuffer = buffers.getBuffer(panel.getRenderTypes(), RenderMode.COLOR);
+		VertexBuffer markerBuffer = buffers.getBuffer(panel.getRenderTypes(), RenderMode.OUTLINE);
+		renderParticles(stack, particleBuffer);
+		renderLights(stack, markerBuffer);
+		renderPhysics(stack, markerBuffer);
 	}
 
 	private float updateDelta() {
@@ -55,15 +71,55 @@ public class PslEditorPreview {
 	private void renderParticles(MatrixStack stack, VertexBuffer buffer) {
 		List<ParticleEmitter> emitters = editor.pslSystem.getElementsOfType(PslElementType.PARTICLE);
 		for(ParticleEmitter emitter : emitters) {
-			for(ParticleInstance particle : editor.pslSystem.getParticleInstances(emitter)) {
-				// Model-space units are 1/16 block; scale up for visibility
-				float size = Math.max(0.5f, particle.scale * 0.8f);
-				float r = ((particle.color >> 16) & 0xff) / 255f;
-				float g = ((particle.color >> 8) & 0xff) / 255f;
-				float b = (particle.color & 0xff) / 255f;
-				BoxRender.drawBoundingBox(stack, buffer, BoundingBox.create(particle.position.x - size, particle.position.y - size, particle.position.z - size, size * 2, size * 2, size * 2), r, g, b, Math.max(0.25f, particle.alpha));
+			List<ParticleInstance> instances = editor.pslSystem.getParticleInstances(emitter);
+			if(instances.isEmpty())continue;
+
+			TextureProvider tex = getTexture(emitter);
+			if(tex != null) {
+				tex.bind();
+				for(ParticleInstance particle : instances) {
+					float size = Math.max(0.35f, particle.scale * 0.45f);
+					PslParticlePreviewStyle.drawWorldTexturedSprite(stack, buffer, emitter, particle.position, size, particle.alpha, particle.rotation * 0.017453292f);
+				}
+			} else {
+				// Minimal colored-quad fallback — real texture preferred
+				for(ParticleInstance particle : instances) {
+					float size = Math.max(0.35f, particle.scale * 0.45f);
+					PslParticlePreviewStyle.drawWorldFallbackSprite(stack, buffer, particle.position, size, particle.color, particle.alpha, particle.rotation * 0.017453292f);
+				}
 			}
 		}
+	}
+
+	private TextureProvider getTexture(ParticleEmitter emitter) {
+		String key = emitter.isMinecraftParticle() ? "mc:" + emitter.getMinecraftParticle() : "proj:" + emitter.getTextureName();
+		if(textureCache.containsKey(key))return textureCache.get(key);
+
+		Image img = null;
+		if(emitter.isMinecraftParticle()) {
+			try {
+				img = MinecraftClientAccess.get().getPslRuntime().loadParticleImage(emitter.getMinecraftParticle());
+			} catch (Exception ignored) {}
+		} else {
+			String texName = emitter.getTextureName();
+			if(texName != null && !texName.isEmpty()) {
+				byte[] data = editor.project.getEntry(texName);
+				if(data != null) {
+					try {
+						img = ImageIO.read(new ByteArrayInputStream(data));
+					} catch (Exception ignored) {}
+				}
+			}
+		}
+
+		if(img != null) {
+			TextureProvider tp = new TextureProvider(img, new Vec2i(img.getWidth(), img.getHeight()));
+			textureCache.put(key, tp);
+			return tp;
+		}
+		// Cache the miss so we don't retry every frame
+		textureCache.put(key, null);
+		return null;
 	}
 
 	private void renderLights(MatrixStack stack, VertexBuffer buffer) {
@@ -91,8 +147,9 @@ public class PslEditorPreview {
 	Vec3f targetPosition(int elementId) {
 		ModelElement element = PslUiUtil.findElement(editor, elementId);
 		if(element != null && element.matrixPosition != null) {
-			float[] matrix = element.matrixPosition.toArray();
-			return new Vec3f(matrix[3], matrix[7], matrix[11]);
+			Vec4f pos = new Vec4f(0, 0, 1, 1);
+			pos.transform(element.matrixPosition);
+			return new Vec3f(pos.x, pos.y, pos.z);
 		}
 		return Vec3f.ZERO;
 	}

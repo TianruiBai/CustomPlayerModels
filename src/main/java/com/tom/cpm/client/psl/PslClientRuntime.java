@@ -1,14 +1,26 @@
 package com.tom.cpm.client.psl;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.Reader;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.particle.ParticleDescription;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
+import net.minecraft.client.renderer.texture.TextureAtlas;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.particles.SimpleParticleType;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.GsonHelper;
 import net.minecraft.world.entity.player.Player;
 
+import com.mojang.blaze3d.platform.NativeImage;
+
 import com.tom.cpl.math.Vec3f;
+import com.tom.cpl.util.Image;
+import com.tom.cpl.util.ImageIO;
 import com.tom.cpm.client.ClientBase;
 import com.tom.cpm.shared.psl.IPslRuntime;
 import com.tom.cpm.shared.psl.sound.SoundEmitter;
@@ -115,5 +127,90 @@ public class PslClientRuntime implements IPslRuntime {
 		if (mc.level == null) return false;
 		var blockPos = new net.minecraft.core.BlockPos((int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z));
 		return !mc.level.getBlockState(blockPos).isAir();
+	}
+
+	@Override
+	public Image loadParticleImage(String particleId) {
+		if (particleId == null || particleId.isEmpty()) return null;
+		try {
+			ResourceLocation particleIdRl = ResourceLocation.parse(particleId);
+			TextureAtlas atlas = getParticleAtlas();
+			if(atlas != null) {
+				Image fromDescription = loadFromParticleDefinition(atlas, particleIdRl);
+				if(fromDescription != null)return fromDescription;
+
+				Image directSprite = loadAtlasSprite(atlas, particleIdRl);
+				if(directSprite != null)return directSprite;
+			}
+		} catch (Exception ignored) {
+		}
+
+		// Fallback for resource packs or custom ids that expose an individual PNG.
+		try {
+			ResourceLocation rl = ResourceLocation.parse(particleId);
+			ResourceLocation texRl = ResourceLocation.fromNamespaceAndPath(rl.getNamespace(),
+				"textures/particle/" + rl.getPath() + ".png");
+			var opt = mc.getResourceManager().getResource(texRl);
+			if (opt.isPresent()) {
+				try (InputStream is = opt.get().open()) {
+					return ImageIO.read(is);
+				}
+			}
+		} catch (IOException ignored) {
+		} catch (Exception ignored) {
+		}
+		return null;
+	}
+
+	private TextureAtlas getParticleAtlas() {
+		AbstractTexture tex = mc.getTextureManager().getTexture(TextureAtlas.LOCATION_PARTICLES);
+		return tex instanceof TextureAtlas atlas ? atlas : null;
+	}
+
+	private Image loadFromParticleDefinition(TextureAtlas atlas, ResourceLocation particleId) {
+		ResourceLocation definitionPath = ResourceLocation.fromNamespaceAndPath(particleId.getNamespace(), "particles/" + particleId.getPath() + ".json");
+		try {
+			var resource = mc.getResourceManager().getResource(definitionPath);
+			if(resource.isEmpty())return null;
+			try (Reader reader = resource.get().openAsReader()) {
+				ParticleDescription description = ParticleDescription.fromJson(GsonHelper.parse(reader));
+				for(ResourceLocation spriteId : description.getTextures()) {
+					Image image = loadAtlasSprite(atlas, spriteId);
+					if(image != null)return image;
+				}
+			}
+		} catch (Exception ignored) {
+		}
+		return null;
+	}
+
+	private Image loadAtlasSprite(TextureAtlas atlas, ResourceLocation spriteId) {
+		try {
+			TextureAtlasSprite sprite = atlas.getSprite(spriteId);
+			if(sprite == null || sprite.contents() == null)return null;
+			if(MissingTextureAtlasSprite.getLocation().equals(sprite.contents().name()))return null;
+			NativeImage ni = sprite.contents().getOriginalImage();
+			if(ni != null && ni.getWidth() > 0 && ni.getHeight() > 0)return nativeImageToCpm(ni);
+		} catch (Exception ignored) {
+		}
+		return null;
+	}
+
+	/** Convert a NativeImage (ABGR) to a CPM Image (ARGB). */
+	private static Image nativeImageToCpm(NativeImage ni) {
+		int w = ni.getWidth();
+		int h = ni.getHeight();
+		Image img = new Image(w, h);
+		for (int y = 0; y < h; y++) {
+			for (int x = 0; x < w; x++) {
+				int rgba = ni.getPixelRGBA(x, y);
+				int a = (rgba >> 24) & 0xFF;
+				int b = (rgba >> 16) & 0xFF;
+				int g = (rgba >> 8) & 0xFF;
+				int r = rgba & 0xFF;
+				img.setRGB(x, y, (a << 24) | (r << 16) | (g << 8) | b);
+			}
+		}
+		return img;
 	}
 }
