@@ -459,6 +459,10 @@ public class EditorGui extends Frame {
 		particleProps.setBounds(new Box(2, 2, 146, fullH - 4));
 		propsPanel.addElement(particleProps);
 
+		PhysicsPropertiesPanel physicsProps = new PhysicsPropertiesPanel(gui, this);
+		physicsProps.setBounds(new Box(2, 2, 146, fullH - 4));
+		propsPanel.addElement(physicsProps);
+
 		PslTriggerEditor triggerEditor = new PslTriggerEditor(gui, this);
 		triggerEditor.setBounds(new Box(2, fullH - 130, 146, 120));
 		propsPanel.addElement(triggerEditor);
@@ -467,13 +471,12 @@ public class EditorGui extends Frame {
 
 		// Refresh property panels when selection changes
 		editor.updateGui.add(() -> {
-			boolean hasSelection = editor.selectedPslElement != null;
-			// Determine type and show appropriate panel
-			if (hasSelection && editor.selectedPslElement instanceof com.tom.cpm.shared.psl.particle.ParticleEmitter) {
-				particleProps.setVisible(true);
-				particleProps.refresh();
-			} else {
-				particleProps.setVisible(false);
+			boolean hasSel = editor.selectedPslElement != null;
+			particleProps.setVisible(hasSel && editor.selectedPslElement instanceof com.tom.cpm.shared.psl.particle.ParticleEmitter);
+			physicsProps.setVisible(hasSel && editor.selectedPslElement instanceof com.tom.cpm.shared.psl.physics.PhysicsBone);
+			if (hasSel) {
+				if (editor.selectedPslElement instanceof com.tom.cpm.shared.psl.particle.ParticleEmitter) particleProps.refresh();
+				if (editor.selectedPslElement instanceof com.tom.cpm.shared.psl.physics.PhysicsBone) physicsProps.refresh();
 			}
 			triggerEditor.refresh();
 		});
