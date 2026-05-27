@@ -430,14 +430,53 @@ public class EditorGui extends Frame {
 	}
 
 	private void initPslPanel(int width, int height) {
+		int fullH = height - 20;
 		Panel mainPanel = new Panel(gui);
-		mainPanel.setBounds(new Box(0, 0, width, height - 20));
+		mainPanel.setBounds(new Box(0, 0, width, fullH));
 
-		Label placeholder = new Label(gui, gui.i18nFormat("label.cpm.psl.placeholder"));
-		placeholder.setBounds(new Box(10, 10, 200, 20));
-		mainPanel.addElement(placeholder);
+		// Left: PSL element list
+		ScrollPanel sp = new ScrollPanel(gui);
+		sp.setDisplay(new PslPanel(gui, this));
+		sp.setBounds(new Box(0, 0, 170, fullH));
+		sp.setScrollBarSide(true);
+		mainPanel.addElement(sp);
 
 		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.psl"), mainPanel, () -> viewType = ViewType.PSL));
+
+		// Center: Viewport
+		ViewportPanel view = new ViewportPanel(this, editor);
+		view.setBounds(new Box(170, 0, width - 320, fullH));
+		mainPanel.addElement(view);
+		editor.displayViewport.add(view::setEnabled);
+
+		// Right: Properties panel (context-sensitive based on selected PSL element type)
+		Panel propsPanel = new Panel(gui);
+		propsPanel.setBounds(new Box(width - 150, 0, 150, fullH));
+		propsPanel.setBackgroundColor(gui.getColors().panel_background);
+
+		// Stack property editors — only one visible at a time
+		ParticlePropertiesPanel particleProps = new ParticlePropertiesPanel(gui, this);
+		particleProps.setBounds(new Box(2, 2, 146, fullH - 4));
+		propsPanel.addElement(particleProps);
+
+		PslTriggerEditor triggerEditor = new PslTriggerEditor(gui, this);
+		triggerEditor.setBounds(new Box(2, fullH - 130, 146, 120));
+		propsPanel.addElement(triggerEditor);
+
+		mainPanel.addElement(propsPanel);
+
+		// Refresh property panels when selection changes
+		editor.updateGui.add(() -> {
+			boolean hasSelection = editor.selectedPslElement != null;
+			// Determine type and show appropriate panel
+			if (hasSelection && editor.selectedPslElement instanceof com.tom.cpm.shared.psl.particle.ParticleEmitter) {
+				particleProps.setVisible(true);
+				particleProps.refresh();
+			} else {
+				particleProps.setVisible(false);
+			}
+			triggerEditor.refresh();
+		});
 	}
 
 	private void newModel(SkinType type) {

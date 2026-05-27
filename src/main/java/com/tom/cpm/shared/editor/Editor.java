@@ -236,6 +236,9 @@ public class Editor {
 	/** PSL (Particle · Physics · Sound · Light) system. Null until first PSL element is added. */
 	public PslSystem pslSystem;
 
+	/** Currently selected PSL element in the editor. */
+	public com.tom.cpm.shared.psl.PslElement selectedPslElement;
+
 	public Editor() {
 		this.definition = new EditorDefinition(this);
 		textures.put(TextureSheetType.SKIN, new ETextures(this, TextureSheetType.SKIN, stitcher -> templates.forEach(e -> e.stitch(stitcher))));

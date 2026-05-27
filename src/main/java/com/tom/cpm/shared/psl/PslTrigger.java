@@ -46,12 +46,20 @@ public class PslTrigger {
 		this.type = type;
 	}
 
-	public TriggerType getType() {
-		return type;
-	}
-
 	public void setType(TriggerType type) {
 		this.type = type;
+		// Clear old type-specific fields
+		this.animName = null;
+		this.gestureName = null;
+		this.vanillaPoseName = null;
+		this.paramName = null;
+		this.paramMin = 0;
+		this.paramMax = 0;
+		this.eventName = null;
+	}
+
+	public TriggerType getType() {
+		return type;
 	}
 
 	public String getAnimName() {
