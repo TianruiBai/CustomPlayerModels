@@ -84,6 +84,7 @@ public class ModelDefinition {
 	public ModelPartCloneable cloneable;
 	private Throwable error;
 	public IAllTags modelTagManager;
+	public com.tom.cpm.shared.psl.PslSystem pslSystem;
 
 	public ModelDefinition(ModelDefinitionLoader<?> loader, Player<?> player) {
 		this.loader = loader;

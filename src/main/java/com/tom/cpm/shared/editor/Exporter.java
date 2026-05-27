@@ -156,6 +156,7 @@ public class Exporter {
 	public static void exportModel(Editor e, UI gui, File f, ModelDescription desc, boolean skinCompat) {
 		ModelWriter wr = new ModelWriter(gui, f, skinCompat);
 		wr.setDesc(desc.name, desc.desc, desc.icon);
+		setupPslExport(e, wr);
 		exportSkin0(e, gui, new Result(wr::getOut, () -> {
 			if(wr.finish())
 				gui.displayMessagePopup(gui.i18nFormat("label.cpm.export_success"), gui.i18nFormat("label.cpm.export_success.desc", f.getName()));
@@ -170,6 +171,7 @@ public class Exporter {
 		models.mkdirs();
 		ModelWriter wr = new ModelWriter(gui, new File(models, TestIngameManager.TEST_MODEL_NAME), false);
 		wr.setDesc("Test model", "", null);
+		setupPslExport(e, wr);
 		return exportSkin0(e, gui, new Result(wr::getOut, wr::finish,
 				(d, c) -> {
 					Link l = new Link("local:test" + System.nanoTime());
@@ -460,6 +462,7 @@ public class Exporter {
 		private String name, desc;
 		private Link l;
 		private Image icon;
+		private byte[] pslBlock;
 
 		public ModelWriter(UI gui, File out, boolean skinCompat) {
 			this.gui = gui;
@@ -483,6 +486,10 @@ public class Exporter {
 			this.l = l;
 		}
 
+		public void setPslBlock(byte[] pslBlock) {
+			this.pslBlock = pslBlock;
+		}
+
 		public boolean finish() {
 			try (FileOutputStream fout = new FileOutputStream(out)){
 				fout.write(ModelDefinitionLoader.HEADER);
@@ -503,6 +510,12 @@ public class Exporter {
 				} else {
 					h.writeVarInt(0);
 				}
+				// Write PSL block (optional)
+				if (pslBlock != null && pslBlock.length > 0) {
+					h.writeByteArray(pslBlock);
+				} else {
+					h.writeVarInt(0);
+				}
 				cos.close();
 				return true;
 			} catch (ExportException ex) {
@@ -511,6 +524,22 @@ public class Exporter {
 				gui.onGuiException("Error while exporting", ex, false);
 			}
 			return false;
+		}
+	}
+
+	/**
+	 * Serialize PSL data from the editor and attach it to the ModelWriter.
+	 */
+	private static void setupPslExport(Editor e, ModelWriter wr) {
+		if (e.pslSystem != null && !e.pslSystem.isEmpty()) {
+			try {
+				byte[] pslData = com.tom.cpm.shared.psl.io.PslIO.write(e.pslSystem);
+				if (pslData.length > 0) {
+					wr.setPslBlock(pslData);
+				}
+			} catch (Exception ex) {
+				com.tom.cpm.shared.util.Log.error("Failed to serialize PSL data for export", ex);
+			}
 		}
 	}
 
