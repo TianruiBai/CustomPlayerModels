@@ -186,11 +186,13 @@ public abstract class ClientBase {
 	}
 
 	public void playerRenderPre(Player player, MultiBufferSource buffer, PlayerModel model) {
+		mc.getClientPslRuntime().beginPlayer(player);
 		manager.bindPlayer(player, buffer, model);
 	}
 
 	public void playerRenderPost(MultiBufferSource buffer, PlayerModel model) {
 		manager.unbindFlush(model);
+		mc.getClientPslRuntime().endPlayer();
 	}
 
 	public void renderHand(MultiBufferSource buffer, PlayerModel model) {

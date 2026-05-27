@@ -155,8 +155,10 @@ public class ParticleRuntime {
 		p.color = def.getColorStart();
 		p.rotation = def.getRotationStart();
 
-		if(def.isMinecraftParticle()) {
+		if(def.isMinecraftParticle() && runtime.useBuiltinParticleRenderer()) {
 			runtime.spawnBuiltinParticle(def.getMinecraftParticle(), p.position.x, p.position.y, p.position.z, p.velocity.x, p.velocity.y, p.velocity.z);
+		} else if(!def.isMinecraftParticle() && !runtime.useSharedParticleRenderer()) {
+			runtime.spawnBuiltinParticle("minecraft:poof", p.position.x, p.position.y, p.position.z, p.velocity.x, p.velocity.y, p.velocity.z);
 		} else {
 			activeParticles.add(p);
 		}

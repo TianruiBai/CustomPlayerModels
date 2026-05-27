@@ -1,10 +1,13 @@
 package com.tom.cpm.shared.editor.gui;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 
 import com.tom.cpl.gui.IGui;
 import com.tom.cpl.gui.elements.Button;
 import com.tom.cpl.gui.elements.Checkbox;
+import com.tom.cpl.gui.elements.DropDownBox;
 import com.tom.cpl.gui.elements.Label;
 import com.tom.cpl.gui.elements.Panel;
 import com.tom.cpl.gui.elements.Spinner;
@@ -12,6 +15,7 @@ import com.tom.cpl.gui.elements.TextField;
 import com.tom.cpl.gui.util.FlowLayout;
 import com.tom.cpl.math.Box;
 import com.tom.cpl.math.Vec3f;
+import com.tom.cpl.util.NamedElement;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.editor.gui.popup.ColorButton;
 import com.tom.cpm.shared.psl.PslElement;
@@ -72,21 +76,21 @@ public class PslSettingsPanel extends Panel {
 				"label.cpm.psl.particle.blend", p.getBlendMode().ordinal(), BlendMode.VALUES, v -> p.setBlendMode(BlendMode.VALUES[v]));
 
 		section("label.cpm.psl.section.emission");
-		numberRow("label.cpm.psl.particle.rate", p.getRate(), 1, p::setRate, "label.cpm.psl.particle.maxParticles", p.getMaxParticles(), 0, v -> p.setMaxParticles((int) v.floatValue()));
-		numberRow("label.cpm.psl.particle.lifeMin", p.getLifeMin(), 1, p::setLifeMin, "label.cpm.psl.particle.lifeMax", p.getLifeMax(), 1, p::setLifeMax);
-		vec3("label.cpm.psl.particle.emitterSize", p.getEmitterSize());
+		constrainedNumberRow("label.cpm.psl.particle.rate", p.getRate(), 1, 0f, null, p::setRate, "label.cpm.psl.particle.maxParticles", p.getMaxParticles(), 0, 1f, null, v -> p.setMaxParticles((int) v.floatValue()));
+		constrainedNumberRow("label.cpm.psl.particle.lifeMin", p.getLifeMin(), 1, 0f, null, v -> p.setLifeMin(Math.min(v, p.getLifeMax())), "label.cpm.psl.particle.lifeMax", p.getLifeMax(), 1, 0f, null, v -> p.setLifeMax(Math.max(v, p.getLifeMin())));
+		vec3("label.cpm.psl.particle.emitterSize", p.getEmitterSize(), 0f, null, null);
 
 		section("label.cpm.psl.section.motion");
 		enumRow("label.cpm.psl.particle.pathMode", p.getPathMode().ordinal(), PathMode.VALUES, v -> p.setPathMode(PathMode.VALUES[v]), null, 0, null, null);
 		text("label.cpm.psl.particle.pathAnimation", p.getPathAnimation(), p::setPathAnimation);
 		checkRow("label.cpm.psl.particle.inheritTargetMotion", p.isInheritTargetMotion(), p::setInheritTargetMotion, null, false, null);
 		vec3("label.cpm.psl.particle.velocity", p.getVelocity());
-		numberRow("label.cpm.psl.particle.velocityVar", p.getVelocityVariation(), 2, p::setVelocityVariation, "label.cpm.psl.particle.gravity", p.getGravity(), 2, p::setGravity);
+		constrainedNumberRow("label.cpm.psl.particle.velocityVar", p.getVelocityVariation(), 2, 0f, null, p::setVelocityVariation, "label.cpm.psl.particle.gravity", p.getGravity(), 2, 0f, null, p::setGravity);
 		checkRow("label.cpm.psl.particle.collision", p.isCollision(), p::setCollision, "label.cpm.psl.particle.respectGfx", p.isRespectGraphicsSetting(), p::setRespectGraphicsSetting);
 
 		section("label.cpm.psl.section.appearance");
-		numberRow("label.cpm.psl.particle.scaleStart", p.getScaleStart(), 2, p::setScaleStart, "label.cpm.psl.particle.scaleEnd", p.getScaleEnd(), 2, p::setScaleEnd);
-		numberRow("label.cpm.psl.particle.alphaStart", p.getAlphaStart(), 2, p::setAlphaStart, "label.cpm.psl.particle.alphaEnd", p.getAlphaEnd(), 2, p::setAlphaEnd);
+		constrainedNumberRow("label.cpm.psl.particle.scaleStart", p.getScaleStart(), 2, 0f, null, p::setScaleStart, "label.cpm.psl.particle.scaleEnd", p.getScaleEnd(), 2, 0f, null, p::setScaleEnd);
+		constrainedNumberRow("label.cpm.psl.particle.alphaStart", p.getAlphaStart(), 2, 0f, 1f, p::setAlphaStart, "label.cpm.psl.particle.alphaEnd", p.getAlphaEnd(), 2, 0f, 1f, p::setAlphaEnd);
 		numberRow("label.cpm.psl.particle.rotationStart", p.getRotationStart(), 1, p::setRotationStart, "label.cpm.psl.particle.rotationEnd", p.getRotationEnd(), 1, p::setRotationEnd);
 		colorRow("label.cpm.psl.particle.colorStart", p.getColorStart(), c -> p.setColorStart(c));
 		colorRow("label.cpm.psl.particle.colorEnd", p.getColorEnd(), c -> p.setColorEnd(c));
@@ -96,18 +100,18 @@ public class PslSettingsPanel extends Panel {
 		section("label.cpm.psl.section.source");
 		Panel target = row();
 		addReadout(target, 0, fieldWidth(), "label.cpm.psl.parent", PslUiUtil.describeTarget(editor, b.getParentElementId()));
-		addNumber(target, fieldWidth(), fieldWidth(), "label.cpm.psl.physics.parentId", b.getParentElementId(), 0, v -> b.setParentElementId((int) v.floatValue()));
+		addNumber(target, fieldWidth(), fieldWidth(), "label.cpm.psl.physics.parentId", b.getParentElementId(), 0, 0f, null, v -> b.setParentElementId((int) v.floatValue()));
 		enumRow("label.cpm.psl.physics.simType", b.getSimType().ordinal(), SimType.VALUES, v -> b.setSimType(SimType.VALUES[v]), null, 0, null, null);
 		checkRow("label.cpm.psl.physics.inherit", b.isInheritAnimation(), b::setInheritAnimation, null, false, null);
 
 		section("label.cpm.psl.section.simulation");
-		numberRow("label.cpm.psl.physics.gravity", b.getGravity(), 2, b::setGravity, "label.cpm.psl.physics.damping", b.getDamping(), 2, b::setDamping);
-		numberRow("label.cpm.psl.physics.stiffness", b.getStiffness(), 2, b::setStiffness, "label.cpm.psl.physics.mass", b.getMass(), 2, b::setMass);
-		numberRow("label.cpm.psl.physics.wind", b.getWindInfluence(), 2, b::setWindInfluence, "label.cpm.psl.physics.iterations", b.getIterations(), 0, v -> b.setIterations((int) v.floatValue()));
+		constrainedNumberRow("label.cpm.psl.physics.gravity", b.getGravity(), 2, 0f, null, b::setGravity, "label.cpm.psl.physics.damping", b.getDamping(), 2, 0f, 1f, b::setDamping);
+		constrainedNumberRow("label.cpm.psl.physics.stiffness", b.getStiffness(), 2, 0f, 1f, b::setStiffness, "label.cpm.psl.physics.mass", b.getMass(), 2, 0.01f, null, b::setMass);
+		constrainedNumberRow("label.cpm.psl.physics.wind", b.getWindInfluence(), 2, 0f, 1f, b::setWindInfluence, "label.cpm.psl.physics.iterations", b.getIterations(), 0, 1f, 10f, v -> b.setIterations((int) v.floatValue()));
 
 		section("label.cpm.psl.section.constraints");
-		numberRow("label.cpm.psl.physics.collision", b.getCollisionRadius(), 2, b::setCollisionRadius, "label.cpm.psl.physics.maxStretch", b.getMaxStretch(), 2, b::setMaxStretch);
-		vec3("label.cpm.psl.physics.limits", new Vec3f(b.getLimitAngleX(), b.getLimitAngleY(), b.getLimitAngleZ()), v -> {
+		constrainedNumberRow("label.cpm.psl.physics.collision", b.getCollisionRadius(), 2, 0f, null, b::setCollisionRadius, "label.cpm.psl.physics.maxStretch", b.getMaxStretch(), 2, 1f, null, b::setMaxStretch);
+		vec3("label.cpm.psl.physics.limits", new Vec3f(b.getLimitAngleX(), b.getLimitAngleY(), b.getLimitAngleZ()), 0f, 180f, v -> {
 			b.setLimitAngleX(v.x);
 			b.setLimitAngleY(v.y);
 			b.setLimitAngleZ(v.z);
@@ -123,9 +127,9 @@ public class PslSettingsPanel extends Panel {
 		checkRow("label.cpm.psl.sound.loop", s.isLoop(), s::setLoop, "label.cpm.psl.sound.oneShot", s.isOneShot(), s::setOneShot);
 
 		section("label.cpm.psl.section.playback");
-		numberRow("label.cpm.psl.sound.volume", s.getVolume(), 2, s::setVolume, "label.cpm.psl.sound.pitch", s.getPitch(), 2, s::setPitch);
-		numberRow("label.cpm.psl.sound.pitchVar", s.getPitchVariation(), 2, s::setPitchVariation, "label.cpm.psl.sound.cooldown", s.getCooldown(), 2, s::setCooldown);
-		numberRow("label.cpm.psl.sound.loopDelay", s.getLoopDelay(), 2, s::setLoopDelay, "label.cpm.psl.sound.maxDist", s.getMaxDistance(), 1, s::setMaxDistance);
+		constrainedNumberRow("label.cpm.psl.sound.volume", s.getVolume(), 2, 0f, 1f, s::setVolume, "label.cpm.psl.sound.pitch", s.getPitch(), 2, 0.5f, 2f, s::setPitch);
+		constrainedNumberRow("label.cpm.psl.sound.pitchVar", s.getPitchVariation(), 2, 0f, null, s::setPitchVariation, "label.cpm.psl.sound.cooldown", s.getCooldown(), 2, 0f, null, s::setCooldown);
+		constrainedNumberRow("label.cpm.psl.sound.loopDelay", s.getLoopDelay(), 2, 0f, null, s::setLoopDelay, "label.cpm.psl.sound.maxDist", s.getMaxDistance(), 1, 0f, null, s::setMaxDistance);
 	}
 
 	private void midi(MidiEmitter m) {
@@ -135,20 +139,20 @@ public class PslSettingsPanel extends Panel {
 		checkRow("label.cpm.psl.midi.loop", m.isLoop(), m::setLoop, null, false, null);
 
 		section("label.cpm.psl.section.playback");
-		numberRow("label.cpm.psl.midi.tempo", m.getTempo(), 2, m::setTempo, "label.cpm.psl.midi.volume", m.getVolume(), 2, m::setVolume);
-		numberRow("label.cpm.psl.midi.transpose", m.getTranspose(), 0, v -> m.setTranspose((int) v.floatValue()), "label.cpm.psl.midi.polyphony", m.getPolyphony(), 0, v -> m.setPolyphony((int) v.floatValue()));
-		numberRow("label.cpm.psl.midi.loopDelay", m.getLoopDelay(), 2, m::setLoopDelay, "label.cpm.psl.midi.noteFalloff", m.getNoteFalloff(), 2, m::setNoteFalloff);
+		constrainedNumberRow("label.cpm.psl.midi.tempo", m.getTempo(), 2, 0.5f, 2f, m::setTempo, "label.cpm.psl.midi.volume", m.getVolume(), 2, 0f, 1f, m::setVolume);
+		constrainedNumberRow("label.cpm.psl.midi.transpose", m.getTranspose(), 0, -24f, 24f, v -> m.setTranspose((int) v.floatValue()), "label.cpm.psl.midi.polyphony", m.getPolyphony(), 0, 1f, 32f, v -> m.setPolyphony((int) v.floatValue()));
+		constrainedNumberRow("label.cpm.psl.midi.loopDelay", m.getLoopDelay(), 2, 0f, null, m::setLoopDelay, "label.cpm.psl.midi.noteFalloff", m.getNoteFalloff(), 2, 0f, null, m::setNoteFalloff);
 	}
 
 	private void light(LightEmitter l) {
 		section("label.cpm.psl.section.emission");
 		colorRow("label.cpm.psl.light.color", l.getColor(), l::setColor);
-		numberRow("label.cpm.psl.light.intensity", l.getIntensity(), 2, l::setIntensity, "label.cpm.psl.light.radius", l.getRadius(), 1, l::setRadius);
+		constrainedNumberRow("label.cpm.psl.light.intensity", l.getIntensity(), 2, 0f, 1f, l::setIntensity, "label.cpm.psl.light.radius", l.getRadius(), 1, 1f, 15f, l::setRadius);
 		checkRow("label.cpm.psl.light.dynamic", l.isDynamic(), l::setDynamic, "label.cpm.psl.light.shadows", l.isCastShadows(), l::setCastShadows);
 
 		section("label.cpm.psl.section.animation");
 		checkRow("label.cpm.psl.light.flicker", l.isFlicker(), l::setFlicker, null, false, null);
-		numberRow("label.cpm.psl.light.flickerSpeed", l.getFlickerSpeed(), 2, l::setFlickerSpeed, "label.cpm.psl.light.flickerAmount", l.getFlickerAmount(), 2, l::setFlickerAmount);
+		constrainedNumberRow("label.cpm.psl.light.flickerSpeed", l.getFlickerSpeed(), 2, 0f, null, l::setFlickerSpeed, "label.cpm.psl.light.flickerAmount", l.getFlickerAmount(), 2, 0f, 1f, l::setFlickerAmount);
 	}
 
 	private void section(String key) {
@@ -215,21 +219,31 @@ public class PslSettingsPanel extends Panel {
 	}
 
 	private void numberRow(String keyA, float valueA, int dpA, Consumer<Float> setterA, String keyB, float valueB, int dpB, Consumer<Float> setterB) {
+		constrainedNumberRow(keyA, valueA, dpA, null, null, setterA, keyB, valueB, dpB, null, null, setterB);
+	}
+
+	private void constrainedNumberRow(String keyA, float valueA, int dpA, Float minA, Float maxA, Consumer<Float> setterA, String keyB, float valueB, int dpB, Float minB, Float maxB, Consumer<Float> setterB) {
 		Panel row = row();
-		addNumber(row, 0, fieldWidth(), keyA, valueA, dpA, setterA);
-		if(keyB != null)addNumber(row, fieldWidth(), fieldWidth(), keyB, valueB, dpB, setterB);
+		addNumber(row, 0, fieldWidth(), keyA, valueA, dpA, minA, maxA, setterA);
+		if(keyB != null)addNumber(row, fieldWidth(), fieldWidth(), keyB, valueB, dpB, minB, maxB, setterB);
 	}
 
 	private Spinner addNumber(Panel row, int x, int width, String key, float value, int dp, Consumer<Float> setter) {
+		return addNumber(row, x, width, key, value, dp, null, null, setter);
+	}
+
+	private Spinner addNumber(Panel row, int x, int width, String key, float value, int dp, Float min, Float max, Consumer<Float> setter) {
 		Label label = new Label(gui, gui.i18nFormat(key));
 		label.setBounds(new Box(x + 4, 5, 96, 12));
 		row.addElement(label);
 		Spinner spinner = new Spinner(gui);
 		spinner.setDp(dp);
-		spinner.setValue(value);
+		spinner.setValue(clamp(value, min, max));
 		spinner.setBounds(new Box(x + 104, 2, width - 110, 18));
 		spinner.addChangeListener(() -> {
-			setter.accept(spinner.getValue());
+			float clamped = clamp(spinner.getValue(), min, max);
+			setSpinnerValue(spinner, clamped);
+			setter.accept(clamped);
 			editor.markDirty();
 		});
 		row.addElement(spinner);
@@ -246,20 +260,18 @@ public class PslSettingsPanel extends Panel {
 		Label label = new Label(gui, gui.i18nFormat(key));
 		label.setBounds(new Box(x + 4, 5, 80, 12));
 		row.addElement(label);
-		Spinner spinner = new Spinner(gui);
-		spinner.setDp(0);
-		spinner.setValue(value);
-		spinner.setBounds(new Box(x + 86, 2, 42, 18));
-		row.addElement(spinner);
-		Label valueLabel = new Label(gui, enumName(values, value));
-		valueLabel.setBounds(new Box(x + 132, 5, width - 136, 12));
-		row.addElement(valueLabel);
-		spinner.addChangeListener(() -> {
-			int idx = Math.max(0, Math.min(values.length - 1, (int) spinner.getValue()));
-			setter.accept(idx);
-			valueLabel.setText(enumName(values, idx));
+		List<NamedElement<Enum<?>>> options = new ArrayList<>();
+		for(Enum<?> enumValue : values)options.add(new NamedElement<>(enumValue, e -> enumName(values, e.ordinal())));
+		DropDownBox<NamedElement<Enum<?>>> dropDown = new DropDownBox<>(frm, options);
+		dropDown.setSelected(options.get(Math.max(0, Math.min(options.size() - 1, value))));
+		dropDown.setBounds(new Box(x + 86, 2, width - 92, 18));
+		dropDown.setAction(() -> {
+			NamedElement<Enum<?>> selected = dropDown.getSelected();
+			if(selected == null)return;
+			setter.accept(selected.getElem().ordinal());
 			editor.markDirty();
 		});
+		row.addElement(dropDown);
 	}
 
 	private String enumName(Enum<?>[] values, int value) {
@@ -279,28 +291,37 @@ public class PslSettingsPanel extends Panel {
 		checkbox.setSelected(value);
 		checkbox.setBounds(new Box(x, 3, width, 16));
 		checkbox.setAction(() -> {
-			setter.accept(checkbox.isSelected());
+			boolean selected = !checkbox.isSelected();
+			checkbox.setSelected(selected);
+			setter.accept(selected);
 			editor.markDirty();
 		});
 		row.addElement(checkbox);
 	}
 
 	private void vec3(String key, Vec3f vec) {
-		vec3(key, vec, null);
+		vec3(key, vec, null, null, null);
 	}
 
 	private void vec3(String key, Vec3f vec, Consumer<Vec3f> setter) {
+		vec3(key, vec, null, null, setter);
+	}
+
+	private void vec3(String key, Vec3f vec, Float min, Float max, Consumer<Vec3f> setter) {
 		Panel row = row();
 		Label label = new Label(gui, gui.i18nFormat(key));
 		label.setBounds(new Box(4, 5, 116, 12));
 		row.addElement(label);
-		Spinner x = axis(row, 124, vec.x);
-		Spinner y = axis(row, 204, vec.y);
-		Spinner z = axis(row, 284, vec.z);
+		Spinner x = axis(row, 124, clamp(vec.x, min, max));
+		Spinner y = axis(row, 204, clamp(vec.y, min, max));
+		Spinner z = axis(row, 284, clamp(vec.z, min, max));
 		Runnable update = () -> {
-			vec.x = x.getValue();
-			vec.y = y.getValue();
-			vec.z = z.getValue();
+			vec.x = clamp(x.getValue(), min, max);
+			vec.y = clamp(y.getValue(), min, max);
+			vec.z = clamp(z.getValue(), min, max);
+			setSpinnerValue(x, vec.x);
+			setSpinnerValue(y, vec.y);
+			setSpinnerValue(z, vec.z);
 			if(setter != null)setter.accept(vec);
 			editor.markDirty();
 		};
@@ -338,6 +359,9 @@ public class PslSettingsPanel extends Panel {
 			int rv = clampColor(r.getValue());
 			int gv = clampColor(g.getValue());
 			int bv = clampColor(b.getValue());
+			setSpinnerValue(r, rv);
+			setSpinnerValue(g, gv);
+			setSpinnerValue(b, bv);
 			setter.accept((rv << 16) | (gv << 8) | bv);
 			editor.markDirty();
 		};
@@ -357,6 +381,16 @@ public class PslSettingsPanel extends Panel {
 
 	private int clampColor(float value) {
 		return Math.max(0, Math.min(255, (int) value));
+	}
+
+	private float clamp(float value, Float min, Float max) {
+		if(min != null && value < min)return min;
+		if(max != null && value > max)return max;
+		return value;
+	}
+
+	private void setSpinnerValue(Spinner spinner, float value) {
+		if(Math.abs(spinner.getValue() - value) > 0.0001f)spinner.setValue(value);
 	}
 
 	private void addReadout(Panel row, int x, int width, String key, String value) {

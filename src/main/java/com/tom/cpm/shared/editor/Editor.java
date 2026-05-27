@@ -52,6 +52,7 @@ import com.tom.cpm.shared.editor.elements.ModelElement;
 import com.tom.cpm.shared.editor.elements.MultiSelector;
 import com.tom.cpm.shared.editor.elements.RootGroups;
 import com.tom.cpm.shared.editor.gui.ModeDisplayType;
+import com.tom.cpm.shared.editor.gui.PslEditorPreview;
 import com.tom.cpm.shared.editor.gui.RenderUtil;
 import com.tom.cpm.shared.editor.gui.ViewportPanel;
 import com.tom.cpm.shared.editor.project.ProjectFile;
@@ -235,6 +236,9 @@ public class Editor {
 
 	/** PSL (Particle · Physics · Sound · Light) system. Null until first PSL element is added. */
 	public PslSystem pslSystem;
+	public final PslEditorPreview pslPreview = new PslEditorPreview(this);
+	public boolean pslPreviewEnabled;
+	public boolean pslPreviewPlaying = true;
 
 	/** Currently selected PSL element in the editor. */
 	public com.tom.cpm.shared.psl.PslElement selectedPslElement;
@@ -1043,6 +1047,7 @@ public class Editor {
 		if(drawBoundingBox.get()) {
 			RenderUtil.renderBounds(stack, buf.getBuffer(panel.getRenderTypes(), RenderMode.OUTLINE), getRenderedPose(), applyScaling, scalingElem);
 		}
+		pslPreview.render(stack, buf, panel);
 	}
 
 	public VanillaPose getRenderedPose() {

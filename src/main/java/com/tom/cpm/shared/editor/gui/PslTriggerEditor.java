@@ -1,12 +1,17 @@
 package com.tom.cpm.shared.editor.gui;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import com.tom.cpl.gui.IGui;
+import com.tom.cpl.gui.elements.DropDownBox;
 import com.tom.cpl.gui.elements.Label;
 import com.tom.cpl.gui.elements.Panel;
 import com.tom.cpl.gui.elements.Spinner;
 import com.tom.cpl.gui.elements.TextField;
 import com.tom.cpl.gui.util.FlowLayout;
 import com.tom.cpl.math.Box;
+import com.tom.cpl.util.NamedElement;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.psl.PslElement;
 import com.tom.cpm.shared.psl.PslTrigger;
@@ -20,7 +25,8 @@ public class PslTriggerEditor extends Panel {
 	private FlowLayout layout;
 	private int formWidth;
 
-	private Spinner typeSpinner;
+	private DropDownBox<NamedElement<TriggerType>> typeDropDown;
+	private List<NamedElement<TriggerType>> triggerTypes;
 	private TextField animField, gestureField, poseField, paramField, eventField;
 	private Spinner paramMinSpinner, paramMaxSpinner;
 	private Label animLbl, gestureLbl, poseLbl, paramLbl, eventLbl, paramMinLbl, paramMaxLbl;
@@ -41,8 +47,15 @@ public class PslTriggerEditor extends Panel {
 		tLbl.setBounds(new Box(2, 0, formWidth - 6, 12));
 		addElement(tLbl);
 
-		typeSpinner = mkSpinner(0, v -> chType(v.intValue()));
-		typeSpinner.setDp(0);
+		triggerTypes = new ArrayList<>();
+		for(TriggerType type : TriggerType.VALUES)triggerTypes.add(new NamedElement<>(type, Enum::name));
+		typeDropDown = new DropDownBox<>(e, triggerTypes);
+		typeDropDown.setBounds(new Box(2, 0, Math.min(220, formWidth - 6), 18));
+		typeDropDown.setAction(() -> {
+			NamedElement<TriggerType> selected = typeDropDown.getSelected();
+			if(selected != null)chType(selected.getElem().ordinal());
+		});
+		addElement(typeDropDown);
 
 		animLbl = mkLbl("label.cpm.psl.trigger.animName");
 		animField = mkTf(v -> trg().setAnimName(v));
@@ -105,7 +118,7 @@ public class PslTriggerEditor extends Panel {
 		setVisible(true);
 
 		PslTrigger t = el.getTrigger();
-		typeSpinner.setValue(t.getType().ordinal());
+		typeDropDown.setSelected(triggerTypes.get(t.getType().ordinal()));
 
 		allOff();
 		switch (t.getType()) {

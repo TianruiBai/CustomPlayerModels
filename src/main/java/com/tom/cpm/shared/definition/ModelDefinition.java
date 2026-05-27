@@ -55,6 +55,7 @@ import com.tom.cpm.shared.parts.ModelPartDefinitionLink;
 import com.tom.cpm.shared.parts.ModelPartLink;
 import com.tom.cpm.shared.parts.ModelPartSkin;
 import com.tom.cpm.shared.parts.ModelPartSkinLink;
+import com.tom.cpm.shared.psl.IPslRuntime;
 import com.tom.cpm.shared.skin.TextureProvider;
 import com.tom.cpm.shared.skin.TextureType;
 import com.tom.cpm.shared.util.Log;
@@ -85,6 +86,8 @@ public class ModelDefinition {
 	private Throwable error;
 	public IAllTags modelTagManager;
 	public com.tom.cpm.shared.psl.PslSystem pslSystem;
+	private final Map<Integer, Vec3f> pslRuntimePositions = new HashMap<>();
+	private long lastPslRuntimeNanos;
 
 	public ModelDefinition(ModelDefinitionLoader<?> loader, Player<?> player) {
 		this.loader = loader;
@@ -235,6 +238,7 @@ public class ModelDefinition {
 
 	public void cleanup() {
 		resolveState = ModelLoadingState.CLEANED_UP;
+		if(pslSystem != null)pslSystem.clearRuntimeState();
 		if(loader == null)return;
 		if(cubes != null)
 			cubes.forEach(c -> {
@@ -274,6 +278,23 @@ public class ModelDefinition {
 
 	public RenderedCube getElementById(int id) {
 		return cubeMap.get(id);
+	}
+
+	public void recordPslElementPosition(RenderedCube cube, MatrixStack stack) {
+		if(pslSystem == null || cube == null || stack == null)return;
+		float[] matrix = stack.getLast().getMatrix().toArray();
+		pslRuntimePositions.put(cube.getId(), new Vec3f(matrix[3], matrix[7], matrix[11]));
+	}
+
+	public void tickPslRuntime() {
+		if(isEditor() || pslSystem == null || pslSystem.isEmpty())return;
+		IPslRuntime runtime = MinecraftClientAccess.get().getPslRuntime();
+		if(runtime == null)return;
+		long now = System.nanoTime();
+		float dt = lastPslRuntimeNanos == 0 ? 1 / 20f : Math.min(0.1f, (now - lastPslRuntimeNanos) / 1_000_000_000f);
+		if(lastPslRuntimeNanos != 0 && dt < 0.005f)return;
+		lastPslRuntimeNanos = now;
+		pslSystem.tick(null, runtime, id -> pslRuntimePositions.getOrDefault(id, Vec3f.ZERO), dt);
 	}
 
 	public void resetAnimationPos() {

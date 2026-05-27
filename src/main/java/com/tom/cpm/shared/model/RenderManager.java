@@ -110,6 +110,7 @@ public class RenderManager<G, P, M, D> {
 
 	public void unbindFlush(M model) {
 		renderManager.flushBatch(model, null);
+		renderManager.tickPslRuntime(model, null);
 		unbind(model);
 	}
 

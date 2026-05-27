@@ -2,7 +2,21 @@ package com.tom.cpm.shared.psl;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+
+import com.tom.cpl.math.Vec3f;
+import com.tom.cpm.shared.psl.light.LightEmitter;
+import com.tom.cpm.shared.psl.light.LightRuntime;
+import com.tom.cpm.shared.psl.particle.ParticleEmitter;
+import com.tom.cpm.shared.psl.particle.ParticleInstance;
+import com.tom.cpm.shared.psl.particle.ParticleRuntime;
+import com.tom.cpm.shared.psl.physics.PhysicsBone;
+import com.tom.cpm.shared.psl.physics.PhysicsRuntime;
+import com.tom.cpm.shared.psl.sound.SoundEmitter;
+import com.tom.cpm.shared.psl.sound.SoundRuntime;
 
 /**
  * Core system managing all PSL (Particle · Physics · Sound · Light) elements for a model.
@@ -12,6 +26,12 @@ public class PslSystem {
 
 	private final List<PslElement> elements = new ArrayList<>();
 	private boolean dirty;
+	private transient Map<Long, ParticleRuntime> particleRuntimes;
+	private transient Map<Long, SoundRuntime> soundRuntimes;
+	private transient PhysicsRuntime physicsRuntime;
+	private transient LightRuntime lightRuntime;
+	private transient Map<Long, Boolean> activeDynamicLights;
+	private transient long tickCounter;
 
 	/**
 	 * Add a PSL element to the system.
@@ -26,7 +46,10 @@ public class PslSystem {
 	 */
 	public boolean removeElement(long id) {
 		boolean removed = elements.removeIf(e -> e.getId() == id);
-		if (removed) dirty = true;
+		if (removed) {
+			dirty = true;
+			clearRuntimeState();
+		}
 		return removed;
 	}
 
@@ -70,6 +93,7 @@ public class PslSystem {
 			this.elements.addAll(elements);
 		}
 		dirty = true;
+		clearRuntimeState();
 	}
 
 	/**
@@ -78,6 +102,7 @@ public class PslSystem {
 	public void clear() {
 		elements.clear();
 		dirty = true;
+		clearRuntimeState();
 	}
 
 	/**
@@ -113,6 +138,102 @@ public class PslSystem {
 	 * This is a placeholder for Phase 2+ runtime integration.
 	 */
 	public void tick(PslTriggerState state, IPslRuntime runtime) {
-		// Phase 2+: Iterate active elements and drive their runtimes
+		tick(state, runtime, id -> Vec3f.ZERO, 1 / 20f);
+	}
+
+	/**
+	 * Tick active PSL elements with a target-position lookup supplied by the renderer/editor.
+	 */
+	public void tick(PslTriggerState state, IPslRuntime runtime, Function<Integer, Vec3f> positionLookup, float dt) {
+		tick(state, runtime, positionLookup, dt, false);
+	}
+
+	public void tickPreview(IPslRuntime runtime, Function<Integer, Vec3f> positionLookup, float dt) {
+		tick(null, runtime, positionLookup, dt, true);
+	}
+
+	private void tick(PslTriggerState state, IPslRuntime runtime, Function<Integer, Vec3f> positionLookup, float dt, boolean forceActive) {
+		if(runtime == null || elements.isEmpty())return;
+		ensureRuntimeState();
+		tickCounter++;
+
+		List<PhysicsBone> physicsBones = getElementsOfType(PslElementType.PHYSICS);
+		if(!physicsBones.isEmpty()) {
+			physicsRuntime.simulate(physicsBones, dt, id -> runtime.toWorldPosition(positionLookup.apply(id)));
+			physicsRuntime.resolveCollisions(physicsBones);
+		}
+
+		for(PslElement element : elements) {
+			boolean active = forceActive || element.isActive(state);
+			Vec3f worldPos = runtime.toWorldPosition(positionLookup.apply(element.getElementId()));
+			switch (element.getType()) {
+				case PARTICLE:
+					if(active)particleRuntimes.computeIfAbsent(element.getId(), id -> new ParticleRuntime()).tick((ParticleEmitter) element, worldPos, dt, runtime);
+					break;
+				case SOUND: {
+					SoundRuntime soundRuntime = soundRuntimes.computeIfAbsent(element.getId(), id -> new SoundRuntime());
+					SoundEmitter sound = (SoundEmitter) element;
+					if(soundRuntime.shouldPlay(sound, tickCounter, active)) {
+						runtime.playSound(sound, worldPos);
+						soundRuntime.markTriggered(tickCounter);
+					} else if(!active) {
+						soundRuntime.reset();
+					}
+					break;
+				}
+				case LIGHT:
+					updateDynamicLight((LightEmitter) element, active, worldPos, runtime);
+					break;
+				default:
+					break;
+			}
+		}
+	}
+
+	public List<ParticleInstance> getParticleInstances(ParticleEmitter emitter) {
+		if(particleRuntimes == null || emitter == null)return Collections.emptyList();
+		ParticleRuntime runtime = particleRuntimes.get(emitter.getId());
+		return runtime != null ? runtime.getActiveParticles() : Collections.emptyList();
+	}
+
+	public PhysicsRuntime getPhysicsRuntime() {
+		ensureRuntimeState();
+		return physicsRuntime;
+	}
+
+	public void clearRuntimeState() {
+		if(particleRuntimes != null)particleRuntimes.values().forEach(ParticleRuntime::clear);
+		if(soundRuntimes != null)soundRuntimes.values().forEach(SoundRuntime::reset);
+		if(physicsRuntime != null)physicsRuntime.clear();
+		if(activeDynamicLights != null)activeDynamicLights.clear();
+		tickCounter = 0;
+	}
+
+	private void ensureRuntimeState() {
+		if(particleRuntimes == null)particleRuntimes = new HashMap<>();
+		if(soundRuntimes == null)soundRuntimes = new HashMap<>();
+		if(physicsRuntime == null)physicsRuntime = new PhysicsRuntime();
+		if(lightRuntime == null)lightRuntime = new LightRuntime();
+		if(activeDynamicLights == null)activeDynamicLights = new HashMap<>();
+	}
+
+	private void updateDynamicLight(LightEmitter light, boolean active, Vec3f worldPos, IPslRuntime runtime) {
+		if(!runtime.isDynamicLightSupported())return;
+		boolean wasActive = activeDynamicLights.getOrDefault(light.getId(), false);
+		if(!light.isDynamic()) {
+			if(wasActive)runtime.unregisterDynamicLight((int)(light.getId() & 0x7fffffff));
+			activeDynamicLights.put(light.getId(), false);
+			return;
+		}
+		float intensity = lightRuntime.getCurrentIntensity(light, tickCounter, active);
+		int runtimeId = (int)(light.getId() & 0x7fffffff);
+		if(intensity > 0.01f) {
+			if(wasActive)runtime.updateDynamicLight(runtimeId, worldPos.x, worldPos.y, worldPos.z);
+			else runtime.registerDynamicLight(runtimeId, worldPos.x, worldPos.y, worldPos.z, light.getColor(), intensity * 15, light.getRadius());
+			activeDynamicLights.put(light.getId(), true);
+		} else if(wasActive) {
+			runtime.unregisterDynamicLight(runtimeId);
+			activeDynamicLights.put(light.getId(), false);
+		}
 	}
 }

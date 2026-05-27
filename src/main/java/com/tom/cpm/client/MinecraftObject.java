@@ -41,13 +41,16 @@ import com.tom.cpm.shared.model.SkinType;
 import com.tom.cpm.shared.model.render.RenderMode;
 import com.tom.cpm.shared.network.NetH;
 import com.tom.cpm.shared.network.NetHandler;
+import com.tom.cpm.shared.psl.IPslRuntime;
 import com.tom.cpm.shared.util.MojangAPI;
 import com.tom.cpm.shared.util.SkinLayerCodec;
+import com.tom.cpm.client.psl.PslClientRuntime;
 
 public class MinecraftObject implements MinecraftClientAccess {
 	private final Minecraft mc;
 	private final ModelDefinitionLoader<GameProfile> loader;
 	private final PlayerRenderManager prm;
+	private final PslClientRuntime pslRuntime;
 	private AllTagManagers tags;
 	public RenderTypeBuilder<ResourceLocation, RenderType> renderBuilder;
 
@@ -65,6 +68,7 @@ public class MinecraftObject implements MinecraftClientAccess {
 		MinecraftObjectHolder.setClientObject(this);
 		loader = new ModelDefinitionLoader<>(PlayerProfile::new, GameProfile::getId, GameProfile::getName);
 		prm = new PlayerRenderManager();
+		pslRuntime = new PslClientRuntime();
 		renderBuilder = new RenderTypeBuilder<>();
 		renderBuilder.register(RenderMode.DEFAULT, RenderType::entityTranslucent, 0);
 		renderBuilder.register(RenderMode.GLOW, CustomRenderTypes::glowingEyes, 1);
@@ -80,6 +84,15 @@ public class MinecraftObject implements MinecraftClientAccess {
 	@Override
 	public PlayerRenderManager getPlayerRenderManager() {
 		return prm;
+	}
+
+	@Override
+	public IPslRuntime getPslRuntime() {
+		return pslRuntime;
+	}
+
+	public PslClientRuntime getClientPslRuntime() {
+		return pslRuntime;
 	}
 
 	@Override

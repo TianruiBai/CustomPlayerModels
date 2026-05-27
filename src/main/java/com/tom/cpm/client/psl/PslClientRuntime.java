@@ -6,8 +6,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.particles.SimpleParticleType;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.player.Player;
 
+import com.tom.cpl.math.Vec3f;
+import com.tom.cpm.client.ClientBase;
 import com.tom.cpm.shared.psl.IPslRuntime;
+import com.tom.cpm.shared.psl.sound.SoundEmitter;
 
 /**
  * NeoForge 1.21 client implementation of IPslRuntime.
@@ -16,9 +20,19 @@ import com.tom.cpm.shared.psl.IPslRuntime;
 public class PslClientRuntime implements IPslRuntime {
 
 	private final Minecraft mc;
+	private final SoundPlayer soundPlayer = new SoundPlayer();
+	private Player currentPlayer;
 
 	public PslClientRuntime() {
 		this.mc = Minecraft.getInstance();
+	}
+
+	public void beginPlayer(Player player) {
+		currentPlayer = player;
+	}
+
+	public void endPlayer() {
+		currentPlayer = null;
 	}
 
 	@Override
@@ -39,8 +53,7 @@ public class PslClientRuntime implements IPslRuntime {
 
 	@Override
 	public boolean isShaderPackActive() {
-		// Phase 5+: Detect Iris/OptiFine shader packs
-		return false;
+		return ClientBase.irisLoaded;
 	}
 
 	@Override
@@ -71,9 +84,30 @@ public class PslClientRuntime implements IPslRuntime {
 			var type = BuiltInRegistries.PARTICLE_TYPE.get(ResourceLocation.parse(particleId));
 			if(type instanceof SimpleParticleType) {
 				mc.level.addParticle((SimpleParticleType) type, x, y, z, vx, vy, vz);
+			} else {
+				spawnFallbackParticle(x, y, z, vx, vy, vz);
 			}
 		} catch (Exception ignored) {
+			spawnFallbackParticle(x, y, z, vx, vy, vz);
 		}
+	}
+
+	private void spawnFallbackParticle(float x, float y, float z, float vx, float vy, float vz) {
+		var fallback = BuiltInRegistries.PARTICLE_TYPE.get(ResourceLocation.parse("minecraft:poof"));
+		if(fallback instanceof SimpleParticleType)mc.level.addParticle((SimpleParticleType) fallback, x, y, z, vx, vy, vz);
+	}
+
+	@Override
+	public Vec3f toWorldPosition(Vec3f modelPosition) {
+		Vec3f pos = modelPosition != null ? modelPosition : Vec3f.ZERO;
+		Player player = currentPlayer != null ? currentPlayer : mc.player;
+		if(player == null)return pos;
+		return new Vec3f((float)player.getX() + pos.x, (float)player.getY() + 1.4f + pos.y, (float)player.getZ() + pos.z);
+	}
+
+	@Override
+	public void playSound(SoundEmitter emitter, Vec3f worldPosition) {
+		soundPlayer.play(emitter, worldPosition);
 	}
 
 	@Override

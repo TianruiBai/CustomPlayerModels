@@ -20,6 +20,7 @@ import com.tom.cpm.shared.model.ScaleData;
 import com.tom.cpm.shared.model.SkinType;
 import com.tom.cpm.shared.network.ModelEventType;
 import com.tom.cpm.shared.network.NetHandler;
+import com.tom.cpm.shared.psl.IPslRuntime;
 import com.tom.cpm.shared.util.MojangAPI;
 
 public interface MinecraftClientAccess {
@@ -64,6 +65,10 @@ public interface MinecraftClientAccess {
 	List<Object> getPlayers();
 	Proxy getProxy();
 	RenderTypeBuilder<?, ?> getRenderBuilder();
+
+	default IPslRuntime getPslRuntime() {
+		return null;
+	}
 
 	default Runnable openSingleplayer() {
 		throw new UnsupportedOperationException();

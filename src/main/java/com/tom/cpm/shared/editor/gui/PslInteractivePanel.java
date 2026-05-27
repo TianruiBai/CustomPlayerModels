@@ -23,8 +23,11 @@ public class PslInteractivePanel extends Panel {
 	private final Button useParentButton;
 	private final Button showParentButton;
 	private final Button resetTriggerButton;
+	private final Button resetPreviewButton;
 	private final Checkbox gizmoCheckbox;
 	private final Checkbox outlineCheckbox;
+	private final Checkbox previewCheckbox;
+	private final Checkbox previewPlayCheckbox;
 	private final int formWidth;
 
 	public PslInteractivePanel(IGui gui, EditorGui e) {
@@ -36,7 +39,7 @@ public class PslInteractivePanel extends Panel {
 		this.editor = e.getEditor();
 		this.frm = e;
 		formWidth = Math.min(620, Math.max(360, width - 14));
-		setBounds(new Box(0, 0, formWidth, 130));
+		setBounds(new Box(0, 0, formWidth, 158));
 		setBackgroundColor(gui.getColors().panel_background);
 		new FlowLayout(this, 4, 2);
 
@@ -90,6 +93,32 @@ public class PslInteractivePanel extends Panel {
 		viewRow.addElement(outlineCheckbox);
 		addElement(viewRow);
 
+		Panel previewRow = new Panel(gui);
+		previewRow.setBounds(new Box(0, 0, formWidth, 18));
+		previewCheckbox = new Checkbox(gui, gui.i18nFormat("label.cpm.psl.preview.enabled"));
+		previewCheckbox.setBounds(new Box(4, 1, 150, 16));
+		previewCheckbox.setAction(() -> {
+			editor.pslPreviewEnabled = !editor.pslPreviewEnabled;
+			if(!editor.pslPreviewEnabled)editor.pslPreview.reset();
+			editor.updateGui.accept(null);
+		});
+		previewRow.addElement(previewCheckbox);
+		previewPlayCheckbox = new Checkbox(gui, gui.i18nFormat("label.cpm.psl.preview.playing"));
+		previewPlayCheckbox.setBounds(new Box(160, 1, 150, 16));
+		previewPlayCheckbox.setAction(() -> {
+			editor.pslPreviewPlaying = !editor.pslPreviewPlaying;
+			editor.updateGui.accept(null);
+		});
+		previewRow.addElement(previewPlayCheckbox);
+		addElement(previewRow);
+
+		resetPreviewButton = new Button(gui, gui.i18nFormat("button.cpm.psl.preview.reset"), () -> {
+			editor.pslPreview.reset();
+			editor.updateGui.accept(null);
+		});
+		resetPreviewButton.setBounds(new Box(4, 0, 306, 18));
+		addElement(resetPreviewButton);
+
 		resetTriggerButton = new Button(gui, gui.i18nFormat("button.cpm.psl.resetTrigger"), this::resetTrigger);
 		resetTriggerButton.setBounds(new Box(4, 0, 306, 18));
 		resetTriggerButton.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.resetTrigger")));
@@ -108,6 +137,10 @@ public class PslInteractivePanel extends Panel {
 		resetTriggerButton.setEnabled(hasSelection);
 		gizmoCheckbox.setSelected(editor.displayGizmo.get());
 		outlineCheckbox.setSelected(editor.showOutlines.get());
+		previewCheckbox.setSelected(editor.pslPreviewEnabled);
+		previewPlayCheckbox.setSelected(editor.pslPreviewPlaying);
+		previewPlayCheckbox.setEnabled(editor.pslPreviewEnabled);
+		resetPreviewButton.setEnabled(editor.pslPreviewEnabled);
 
 		boolean physics = element instanceof PhysicsBone;
 		parentLabel.setVisible(physics);

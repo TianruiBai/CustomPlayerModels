@@ -158,6 +158,12 @@ public abstract class ModelRenderManager<D, S, P, MB> implements IPlayerRenderMa
 		getHolderSafe(model, arg, RedirectHolder::flushBatch, false);
 	}
 
+	public void tickPslRuntime(MB model, String arg) {
+		getHolderSafe(model, arg, h -> {
+			if(h.def != null)h.def.tickPslRuntime();
+		}, false);
+	}
+
 	public void copyModelForArmor(P from, P to) {
 		this.posSet.set(to, this.px.apply(from), this.py.apply(from), this.pz.apply(from));
 		this.rotSet.set(to, this.rx.apply(from), this.ry.apply(from), this.rz.apply(from));
@@ -558,6 +564,7 @@ public abstract class ModelRenderManager<D, S, P, MB> implements IPlayerRenderMa
 
 		public default void render(RenderedCube elem, MatrixStack matrixStackIn, VBuffers buf, float red, float green, float blue, float alpha, boolean doRenderRoot, boolean doRenderElems) {
 			RedirectHolder<?, ?, ?, P> holder = getHolder();
+			holder.def.recordPslElementPosition(elem, matrixStackIn);
 			if(holder.def instanceof IExtraRenderDefinition && buf != null) {
 				((IExtraRenderDefinition)holder.def).render(this, matrixStackIn, buf, holder.renderTypes, elem, doRenderElems);
 			}

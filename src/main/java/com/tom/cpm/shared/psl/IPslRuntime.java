@@ -3,6 +3,7 @@ package com.tom.cpm.shared.psl;
 import java.io.InputStream;
 
 import com.tom.cpl.math.Vec3f;
+import com.tom.cpm.shared.psl.sound.SoundEmitter;
 
 /**
  * Platform-agnostic runtime interface for PSL operations.
@@ -70,6 +71,25 @@ public interface IPslRuntime {
 	 * Custom CPM sprite particles are simulated/rendered by the shared particle runtime instead.
 	 */
 	default void spawnBuiltinParticle(String particleId, float x, float y, float z, float vx, float vy, float vz) {
+	}
+
+	/** Convert a model-local PSL position into the runtime's coordinate space. */
+	default Vec3f toWorldPosition(Vec3f modelPosition) {
+		return modelPosition != null ? modelPosition : Vec3f.ZERO;
+	}
+
+	/** True when Minecraft's native particle engine should handle built-in particle ids. */
+	default boolean useBuiltinParticleRenderer() {
+		return true;
+	}
+
+	/** True when the shared particle list is going to be drawn by the caller. */
+	default boolean useSharedParticleRenderer() {
+		return false;
+	}
+
+	/** Play an attached SFX at the resolved world position. */
+	default void playSound(SoundEmitter emitter, Vec3f worldPosition) {
 	}
 
 	/**
