@@ -463,6 +463,14 @@ public class EditorGui extends Frame {
 		physicsProps.setBounds(new Box(2, 2, 146, fullH - 4));
 		propsPanel.addElement(physicsProps);
 
+		SoundPropertiesPanel soundProps = new SoundPropertiesPanel(gui, this);
+		soundProps.setBounds(new Box(2, 2, 146, fullH - 4));
+		propsPanel.addElement(soundProps);
+
+		MidiPropertiesPanel midiProps = new MidiPropertiesPanel(gui, this);
+		midiProps.setBounds(new Box(2, 2, 146, fullH - 4));
+		propsPanel.addElement(midiProps);
+
 		PslTriggerEditor triggerEditor = new PslTriggerEditor(gui, this);
 		triggerEditor.setBounds(new Box(2, fullH - 130, 146, 120));
 		propsPanel.addElement(triggerEditor);
@@ -472,11 +480,16 @@ public class EditorGui extends Frame {
 		// Refresh property panels when selection changes
 		editor.updateGui.add(() -> {
 			boolean hasSel = editor.selectedPslElement != null;
-			particleProps.setVisible(hasSel && editor.selectedPslElement instanceof com.tom.cpm.shared.psl.particle.ParticleEmitter);
-			physicsProps.setVisible(hasSel && editor.selectedPslElement instanceof com.tom.cpm.shared.psl.physics.PhysicsBone);
+			var sel = editor.selectedPslElement;
+			particleProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.particle.ParticleEmitter);
+			physicsProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.physics.PhysicsBone);
+			soundProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.sound.SoundEmitter);
+			midiProps.setVisible(hasSel && sel instanceof com.tom.cpm.shared.psl.sound.MidiEmitter);
 			if (hasSel) {
-				if (editor.selectedPslElement instanceof com.tom.cpm.shared.psl.particle.ParticleEmitter) particleProps.refresh();
-				if (editor.selectedPslElement instanceof com.tom.cpm.shared.psl.physics.PhysicsBone) physicsProps.refresh();
+				if (sel instanceof com.tom.cpm.shared.psl.particle.ParticleEmitter) particleProps.refresh();
+				if (sel instanceof com.tom.cpm.shared.psl.physics.PhysicsBone) physicsProps.refresh();
+				if (sel instanceof com.tom.cpm.shared.psl.sound.SoundEmitter) soundProps.refresh();
+				if (sel instanceof com.tom.cpm.shared.psl.sound.MidiEmitter) midiProps.refresh();
 			}
 			triggerEditor.refresh();
 		});
