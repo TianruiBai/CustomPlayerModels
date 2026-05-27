@@ -18,6 +18,7 @@ import com.tom.cpm.shared.psl.PslTrigger.TriggerType;
 public class PslTriggerEditor extends Panel {
 	private Editor editor;
 	private FlowLayout layout;
+	private int formWidth;
 
 	private Spinner typeSpinner;
 	private TextField animField, gestureField, poseField, paramField, eventField;
@@ -25,14 +26,19 @@ public class PslTriggerEditor extends Panel {
 	private Label animLbl, gestureLbl, poseLbl, paramLbl, eventLbl, paramMinLbl, paramMaxLbl;
 
 	public PslTriggerEditor(IGui gui, EditorGui e) {
+		this(gui, e, 360);
+	}
+
+	public PslTriggerEditor(IGui gui, EditorGui e, int width) {
 		super(gui);
 		this.editor = e.getEditor();
-		setBounds(new Box(0, 0, 170, 160));
+		this.formWidth = Math.min(620, Math.max(360, width - 14));
+		setBounds(new Box(0, 0, formWidth, 160));
 		setBackgroundColor(gui.getColors().panel_background);
 		layout = new FlowLayout(this, 3, 1);
 
 		Label tLbl = new Label(gui, gui.i18nFormat("label.cpm.psl.trigger.type"));
-		tLbl.setBounds(new Box(2, 0, 164, 12));
+		tLbl.setBounds(new Box(2, 0, formWidth - 6, 12));
 		addElement(tLbl);
 
 		typeSpinner = mkSpinner(0, v -> chType(v.intValue()));
@@ -70,14 +76,14 @@ public class PslTriggerEditor extends Panel {
 
 	private Label mkLbl(String key) {
 		Label l = new Label(gui, gui.i18nFormat(key));
-		l.setBounds(new Box(2, 0, 164, 10));
+		l.setBounds(new Box(2, 0, formWidth - 6, 10));
 		addElement(l);
 		return l;
 	}
 
 	private TextField mkTf(java.util.function.Consumer<String> c) {
 		TextField tf = new TextField(gui);
-		tf.setBounds(new Box(2, 0, 164, 18));
+		tf.setBounds(new Box(2, 0, formWidth - 6, 18));
 		tf.setEventListener(() -> { c.accept(tf.getText()); editor.markDirty(); });
 		addElement(tf);
 		return tf;
@@ -85,7 +91,7 @@ public class PslTriggerEditor extends Panel {
 
 	private Spinner mkSpinner(float def, java.util.function.Consumer<Float> c) {
 		Spinner s = new Spinner(gui);
-		s.setBounds(new Box(2, 0, 164, 18));
+		s.setBounds(new Box(2, 0, Math.min(180, formWidth - 6), 18));
 		s.setDp(2);
 		s.setValue(def);
 		s.addChangeListener(() -> { c.accept(s.getValue()); editor.markDirty(); });

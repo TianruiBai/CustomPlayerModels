@@ -4,7 +4,7 @@ import java.util.Random;
 
 import com.tom.cpl.gui.IGui;
 import com.tom.cpl.gui.elements.Button;
-import com.tom.cpl.gui.elements.Checkbox;
+import com.tom.cpl.gui.elements.InputPopup;
 import com.tom.cpl.gui.elements.Label;
 import com.tom.cpl.gui.elements.Panel;
 import com.tom.cpl.gui.elements.PopupMenu;
@@ -28,8 +28,7 @@ public class PslPanel extends Panel {
 	private Editor editor;
 	private EditorGui frm;
 	private FlowLayout layout;
-	private Checkbox showP, showPh, showS, showL, showM;
-	private boolean filterParticles = true, filterPhysics = true, filterSounds = true, filterLights = true, filterMidi = true;
+	private PslElementType activeFilter;
 	private static final Random ID_GEN = new Random();
 
 	public PslPanel(IGui gui, EditorGui e) {
@@ -45,17 +44,16 @@ public class PslPanel extends Panel {
 		rebuild();
 	}
 
-	private Checkbox mkFilter(Panel p, String t, String key, int x, boolean selected, java.util.function.Consumer<Boolean> setter) {
-		Checkbox c = new Checkbox(gui, t);
-		c.setSelected(selected);
-		c.setBounds(new Box(x, 1, 22, 14));
-		c.setTooltip(new Tooltip(frm, gui.i18nFormat(key)));
-		c.setAction(() -> {
-			setter.accept(c.isSelected());
+	private Button mkFilter(Panel p, String t, String key, int x, int w, PslElementType filter) {
+		Button b = new Button(gui, t, () -> {
+			activeFilter = filter;
 			rebuild();
 		});
-		p.addElement(c);
-		return c;
+		b.setBounds(new Box(x, 0, w, 18));
+		b.setEnabled(activeFilter != filter);
+		b.setTooltip(new Tooltip(frm, gui.i18nFormat(key)));
+		p.addElement(b);
+		return b;
 	}
 
 	private void showAdd() {
@@ -77,6 +75,16 @@ public class PslPanel extends Panel {
 		}
 	}
 
+	private void rename() {
+		PslElement selected = editor.selectedPslElement;
+		if(selected == null)return;
+		frm.openPopup(new InputPopup(frm, gui.i18nFormat("label.cpm.psl.rename"), gui.i18nFormat("label.cpm.psl.rename.desc"), name -> {
+			selected.setName(name);
+			editor.markDirty();
+			editor.updateGui.accept(null);
+		}, null));
+	}
+
 	private PslSystem sys() {
 		if (editor.pslSystem == null) editor.pslSystem = new PslSystem();
 		return editor.pslSystem;
@@ -96,6 +104,7 @@ public class PslPanel extends Panel {
 		el.setName(dname(t));
 		sys().addElement(el);
 		editor.selectedPslElement = el;
+		activeFilter = t;
 		editor.markDirty();
 		editor.updateGui.accept(null);
 	}
@@ -120,22 +129,29 @@ public class PslPanel extends Panel {
 
 		Panel fRow = new Panel(gui);
 		fRow.setBounds(new Box(0, 0, 170, 18));
-		showP = mkFilter(fRow, "P", "label.cpm.psl.type.particle", 2, filterParticles, v -> filterParticles = v);
-		showPh = mkFilter(fRow, "Ph", "label.cpm.psl.type.physics", 24, filterPhysics, v -> filterPhysics = v);
-		showS = mkFilter(fRow, "S", "label.cpm.psl.type.sound", 50, filterSounds, v -> filterSounds = v);
-		showL = mkFilter(fRow, "L", "label.cpm.psl.type.light", 72, filterLights, v -> filterLights = v);
-		showM = mkFilter(fRow, "M", "label.cpm.psl.type.midi", 94, filterMidi, v -> filterMidi = v);
+		mkFilter(fRow, gui.i18nFormat("label.cpm.psl.filter.all"), "label.cpm.psl.filter.all", 2, 36, null);
+		mkFilter(fRow, "P", "label.cpm.psl.type.particle", 40, 24, PslElementType.PARTICLE);
+		mkFilter(fRow, "H", "label.cpm.psl.type.physics", 66, 24, PslElementType.PHYSICS);
+		mkFilter(fRow, "S", "label.cpm.psl.type.sound", 92, 24, PslElementType.SOUND);
+		mkFilter(fRow, "L", "label.cpm.psl.type.light", 118, 24, PslElementType.LIGHT);
+		mkFilter(fRow, "M", "label.cpm.psl.type.midi", 144, 24, PslElementType.MIDI);
 		addElement(fRow);
 
 		Panel btnRow = new Panel(gui);
 		btnRow.setBounds(new Box(0, 0, 170, 20));
 		Button addBtn = new Button(gui, gui.i18nFormat("button.cpm.psl.add"), () -> showAdd());
-		addBtn.setBounds(new Box(2, 0, 80, 18));
+		addBtn.setBounds(new Box(2, 0, 52, 18));
 		addBtn.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.add")));
 		btnRow.addElement(addBtn);
+		Button renameBtn = new Button(gui, gui.i18nFormat("button.cpm.psl.rename"), () -> rename());
+		renameBtn.setBounds(new Box(56, 0, 56, 18));
+		renameBtn.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.rename")));
+		renameBtn.setEnabled(editor.selectedPslElement != null);
+		btnRow.addElement(renameBtn);
 		Button delBtn = new Button(gui, gui.i18nFormat("button.cpm.psl.delete"), () -> del());
-		delBtn.setBounds(new Box(84, 0, 80, 18));
+		delBtn.setBounds(new Box(114, 0, 52, 18));
 		delBtn.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.delete")));
+		delBtn.setEnabled(editor.selectedPslElement != null);
 		btnRow.addElement(delBtn);
 		addElement(btnRow);
 
@@ -145,13 +161,14 @@ public class PslPanel extends Panel {
 			for (PslElement el : s.getElements()) {
 				if (!vis(el.getType())) continue;
 				String marker = el == editor.selectedPslElement ? "> " : "  ";
-				String txt = marker + "[" + ch(el.getType()) + "] " + (el.getName() != null ? el.getName() : el.getType().name());
+				String name = el.getName() != null && !el.getName().isEmpty() ? el.getName() : el.getType().name();
+				String txt = marker + ch(el.getType()) + " " + name;
 				Button b = new Button(gui, txt, () -> {
 					editor.selectedPslElement = el;
 					editor.updateGui.accept(null);
 				});
 				b.setBounds(new Box(2, y, 164, 16));
-				b.setTooltip(new Tooltip(frm, el.getTrigger().toString()));
+				b.setTooltip(new Tooltip(frm, gui.i18nFormat("label.cpm.psl.target", PslUiUtil.describeTarget(editor, el.getElementId())) + "\\" + el.getTrigger().toString()));
 				addElement(b);
 				y += 18;
 			}
@@ -165,14 +182,7 @@ public class PslPanel extends Panel {
 	}
 
 	private boolean vis(PslElementType t) {
-		switch (t) {
-			case PARTICLE: return filterParticles;
-			case PHYSICS: return filterPhysics;
-			case SOUND: return filterSounds;
-			case LIGHT: return filterLights;
-			case MIDI: return filterMidi;
-			default: return true;
-		}
+		return activeFilter == null || activeFilter == t;
 	}
 
 	private char ch(PslElementType t) {

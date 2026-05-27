@@ -21,24 +21,30 @@ public class PslElementPropertiesPanel extends Panel {
 	private final Spinner elementIdSpinner;
 	private final Label typeLabel, targetDisplayLabel;
 	private final Button useSelectedButton, showTargetButton;
+	private final int formWidth;
 
 	public PslElementPropertiesPanel(IGui gui, EditorGui e) {
+		this(gui, e, 360);
+	}
+
+	public PslElementPropertiesPanel(IGui gui, EditorGui e, int width) {
 		super(gui);
 		editor = e.getEditor();
-		setBounds(new Box(0, 0, 240, 112));
+		formWidth = Math.min(620, Math.max(360, width - 14));
+		setBounds(new Box(0, 0, formWidth, 112));
 		setBackgroundColor(gui.getColors().panel_background);
 		new FlowLayout(this, 3, 1);
 
 		typeLabel = new Label(gui, "");
-		typeLabel.setBounds(new Box(2, 0, 234, 12));
+		typeLabel.setBounds(new Box(2, 0, formWidth - 6, 12));
 		addElement(typeLabel);
 
 		Label nameLabel = new Label(gui, gui.i18nFormat("label.cpm.psl.common.name"));
-		nameLabel.setBounds(new Box(2, 0, 234, 12));
+		nameLabel.setBounds(new Box(2, 0, formWidth - 6, 12));
 		addElement(nameLabel);
 
 		nameField = new TextField(gui);
-		nameField.setBounds(new Box(2, 0, 234, 18));
+		nameField.setBounds(new Box(2, 0, formWidth - 6, 18));
 		nameField.setEventListener(() -> {
 			PslElement element = editor.selectedPslElement;
 			if(element != null) {
@@ -50,18 +56,18 @@ public class PslElementPropertiesPanel extends Panel {
 		addElement(nameField);
 
 		Label targetLabel = new Label(gui, gui.i18nFormat("label.cpm.psl.common.elementId"));
-		targetLabel.setBounds(new Box(2, 0, 234, 12));
+		targetLabel.setBounds(new Box(2, 0, formWidth - 6, 12));
 		addElement(targetLabel);
 
 		targetDisplayLabel = new Label(gui, "");
-		targetDisplayLabel.setBounds(new Box(2, 0, 234, 12));
+		targetDisplayLabel.setBounds(new Box(2, 0, formWidth - 6, 12));
 		addElement(targetDisplayLabel);
 
 		Panel targetRow = new Panel(gui);
-		targetRow.setBounds(new Box(0, 0, 240, 18));
+		targetRow.setBounds(new Box(0, 0, formWidth, 18));
 
 		elementIdSpinner = new Spinner(gui);
-		elementIdSpinner.setBounds(new Box(2, 0, 74, 18));
+		elementIdSpinner.setBounds(new Box(2, 0, 96, 18));
 		elementIdSpinner.setDp(0);
 		elementIdSpinner.addChangeListener(() -> {
 			PslElement element = editor.selectedPslElement;
@@ -74,12 +80,12 @@ public class PslElementPropertiesPanel extends Panel {
 		targetRow.addElement(elementIdSpinner);
 
 		useSelectedButton = new Button(gui, gui.i18nFormat("button.cpm.psl.useSelected"), this::useSelectedTarget);
-		useSelectedButton.setBounds(new Box(80, 0, 76, 18));
+		useSelectedButton.setBounds(new Box(104, 0, 116, 18));
 		useSelectedButton.setTooltip(new Tooltip(e, gui.i18nFormat("tooltip.cpm.psl.useSelected")));
 		targetRow.addElement(useSelectedButton);
 
 		showTargetButton = new Button(gui, gui.i18nFormat("button.cpm.psl.showTarget"), this::showTarget);
-		showTargetButton.setBounds(new Box(160, 0, 76, 18));
+		showTargetButton.setBounds(new Box(224, 0, 116, 18));
 		showTargetButton.setTooltip(new Tooltip(e, gui.i18nFormat("tooltip.cpm.psl.showTarget")));
 		targetRow.addElement(showTargetButton);
 		addElement(targetRow);

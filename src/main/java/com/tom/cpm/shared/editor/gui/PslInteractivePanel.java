@@ -25,58 +25,64 @@ public class PslInteractivePanel extends Panel {
 	private final Button resetTriggerButton;
 	private final Checkbox gizmoCheckbox;
 	private final Checkbox outlineCheckbox;
+	private final int formWidth;
 
 	public PslInteractivePanel(IGui gui, EditorGui e) {
+		this(gui, e, 360);
+	}
+
+	public PslInteractivePanel(IGui gui, EditorGui e, int width) {
 		super(gui);
 		this.editor = e.getEditor();
 		this.frm = e;
-		setBounds(new Box(0, 0, 240, 130));
+		formWidth = Math.min(620, Math.max(360, width - 14));
+		setBounds(new Box(0, 0, formWidth, 130));
 		setBackgroundColor(gui.getColors().panel_background);
 		new FlowLayout(this, 4, 2);
 
 		targetLabel = new Label(gui, "");
-		targetLabel.setBounds(new Box(4, 0, 230, 12));
+		targetLabel.setBounds(new Box(4, 0, formWidth - 8, 12));
 		addElement(targetLabel);
 
 		Panel targetRow = new Panel(gui);
-		targetRow.setBounds(new Box(0, 0, 240, 18));
+		targetRow.setBounds(new Box(0, 0, formWidth, 18));
 		useSelectedButton = new Button(gui, gui.i18nFormat("button.cpm.psl.useSelected"), this::useSelectedTarget);
-		useSelectedButton.setBounds(new Box(4, 0, 112, 18));
+		useSelectedButton.setBounds(new Box(4, 0, 150, 18));
 		useSelectedButton.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.useSelected")));
 		targetRow.addElement(useSelectedButton);
 		showTargetButton = new Button(gui, gui.i18nFormat("button.cpm.psl.showTarget"), this::showTarget);
-		showTargetButton.setBounds(new Box(120, 0, 112, 18));
+		showTargetButton.setBounds(new Box(160, 0, 150, 18));
 		showTargetButton.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.showTarget")));
 		targetRow.addElement(showTargetButton);
 		addElement(targetRow);
 
 		parentLabel = new Label(gui, "");
-		parentLabel.setBounds(new Box(4, 0, 230, 12));
+		parentLabel.setBounds(new Box(4, 0, formWidth - 8, 12));
 		addElement(parentLabel);
 
 		Panel parentRow = new Panel(gui);
-		parentRow.setBounds(new Box(0, 0, 240, 18));
+		parentRow.setBounds(new Box(0, 0, formWidth, 18));
 		useParentButton = new Button(gui, gui.i18nFormat("button.cpm.psl.useParent"), this::useSelectedParent);
-		useParentButton.setBounds(new Box(4, 0, 112, 18));
+		useParentButton.setBounds(new Box(4, 0, 150, 18));
 		useParentButton.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.useParent")));
 		parentRow.addElement(useParentButton);
 		showParentButton = new Button(gui, gui.i18nFormat("button.cpm.psl.showParent"), this::showParent);
-		showParentButton.setBounds(new Box(120, 0, 112, 18));
+		showParentButton.setBounds(new Box(160, 0, 150, 18));
 		showParentButton.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.showParent")));
 		parentRow.addElement(showParentButton);
 		addElement(parentRow);
 
 		Panel viewRow = new Panel(gui);
-		viewRow.setBounds(new Box(0, 0, 240, 18));
+		viewRow.setBounds(new Box(0, 0, formWidth, 18));
 		gizmoCheckbox = new Checkbox(gui, gui.i18nFormat("label.cpm.display.displayGizmo"));
-		gizmoCheckbox.setBounds(new Box(4, 1, 112, 16));
+		gizmoCheckbox.setBounds(new Box(4, 1, 150, 16));
 		gizmoCheckbox.setAction(() -> {
 			editor.displayGizmo.toggle();
 			editor.updateGui.accept(null);
 		});
 		viewRow.addElement(gizmoCheckbox);
 		outlineCheckbox = new Checkbox(gui, gui.i18nFormat("label.cpm.display.showOutlines"));
-		outlineCheckbox.setBounds(new Box(120, 1, 112, 16));
+		outlineCheckbox.setBounds(new Box(160, 1, 150, 16));
 		outlineCheckbox.setAction(() -> {
 			editor.showOutlines.toggle();
 			editor.updateGui.accept(null);
@@ -85,7 +91,7 @@ public class PslInteractivePanel extends Panel {
 		addElement(viewRow);
 
 		resetTriggerButton = new Button(gui, gui.i18nFormat("button.cpm.psl.resetTrigger"), this::resetTrigger);
-		resetTriggerButton.setBounds(new Box(4, 0, 228, 18));
+		resetTriggerButton.setBounds(new Box(4, 0, 306, 18));
 		resetTriggerButton.setTooltip(new Tooltip(frm, gui.i18nFormat("tooltip.cpm.psl.resetTrigger")));
 		addElement(resetTriggerButton);
 	}
