@@ -114,6 +114,14 @@ public interface IPslRuntime {
 	boolean checkBlockCollision(float x, float y, float z);
 
 	/**
+	 * Get the current wind direction vector (world-space, typically magnitude ≤ 1).
+	 * Used by particle emitters with windInfluence > 0.
+	 */
+	default Vec3f getWindDirection() {
+		return Vec3f.ZERO;
+	}
+
+	/**
 	 * Load a particle texture image by its resource identifier.
 	 * For custom sprites the id is a project path like "particles/sparkle.png".
 	 * For Minecraft built-in particles the id is a namespaced key like "minecraft:flame".

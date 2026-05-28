@@ -74,7 +74,14 @@ public class ParticleRuntime {
 			// Velocity integration with gravity
 			p.velocity.y -= def.getGravity() * 9.8f * dt; // gravity in m/s²
 
-			// Apply velocity
+		// Wind influence
+		if (def.getWindInfluence() > 0.001f) {
+			Vec3f wind = runtime.getWindDirection();
+			float wi = def.getWindInfluence();
+			p.velocity.x += wind.x * wi * dt;
+			p.velocity.y += wind.y * wi * dt;
+			p.velocity.z += wind.z * wi * dt;
+		}
 			p.position.x += p.velocity.x * dt;
 			p.position.y += p.velocity.y * dt;
 			p.position.z += p.velocity.z * dt;
@@ -90,11 +97,18 @@ public class ParticleRuntime {
 			float progress = p.age / p.maxAge;
 			p.scale = lerp(def.getScaleStart(), def.getScaleEnd(), progress);
 			p.alpha = lerp(def.getAlphaStart(), def.getAlphaEnd(), progress);
-			p.rotation = lerp(def.getRotationStart(), def.getRotationEnd(), progress);
 
-			// Interpolate color
-			p.color = lerpColor(def.getColorStart(), def.getColorEnd(), progress);
-
+		// Rotation
+		switch (def.getRotationMode()) {
+			case NONE:
+				break;
+			case LINEAR:
+				p.rotation = lerp(def.getRotationStart(), def.getRotationEnd(), progress);
+				break;
+			case SPIN:
+				p.rotation += p.rotationSpeed * dt;
+				break;
+		}
 			if(def.getPathMode() == ParticleEmitter.PathMode.ANIMATION_PATH) {
 				Vec3f nextOffset = copy(runtime.sampleParticlePath(def.getPathAnimation(), progress));
 				p.position.x += nextOffset.x - p.pathOffset.x;
@@ -108,7 +122,12 @@ public class ParticleRuntime {
 	private void spawnParticle(ParticleEmitter def, Vec3f worldPos, IPslRuntime runtime) {
 		ParticleInstance p = new ParticleInstance();
 
-		// Position: emitter origin + random offset within emitter volume
+		// Position: emitter origin + configured offset + random offset within emitter volume
+		Vec3f emitterPos = new Vec3f(
+			worldPos.x + def.getOffset().x,
+			worldPos.y + def.getOffset().y,
+			worldPos.z + def.getOffset().z
+		);
 		Vec3f offset = Vec3f.ZERO;
 		switch (def.getEmitterType()) {
 			case POINT:
@@ -133,7 +152,7 @@ public class ParticleRuntime {
 				break;
 		}
 
-		p.position = new Vec3f(worldPos.x + offset.x, worldPos.y + offset.y, worldPos.z + offset.z);
+		p.position = new Vec3f(emitterPos.x + offset.x, emitterPos.y + offset.y, emitterPos.z + offset.z);
 		if(def.getPathMode() == ParticleEmitter.PathMode.ANIMATION_PATH) {
 			p.pathOffset = copy(runtime.sampleParticlePath(def.getPathAnimation(), 0));
 			p.position.x += p.pathOffset.x;
@@ -155,7 +174,17 @@ public class ParticleRuntime {
 		p.scale = def.getScaleStart();
 		p.alpha = def.getAlphaStart();
 		p.color = def.getColorStart();
-		p.rotation = def.getRotationStart();
+
+		// Initial rotation
+		float baseRotation = def.getRotationStart();
+		if (def.isRandomRotationStart()) {
+			baseRotation = random.nextFloat() * 360f;
+		}
+		p.rotation = baseRotation;
+		p.rotationSpeed = def.getRotationSpeed();
+		if (def.getRotationMode() == ParticleEmitter.RotationMode.LINEAR) {
+			p.rotation = baseRotation;
+		}
 
 		if(def.isMinecraftParticle() && runtime.useBuiltinParticleRenderer()) {
 			runtime.spawnBuiltinParticle(def.getMinecraftParticle(), p.position.x, p.position.y, p.position.z, p.velocity.x, p.velocity.y, p.velocity.z);

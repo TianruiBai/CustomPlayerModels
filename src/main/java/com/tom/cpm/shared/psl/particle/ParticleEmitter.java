@@ -53,6 +53,17 @@ public class ParticleEmitter extends PslElement {
 		public static final PathMode[] VALUES = values();
 	}
 
+	public enum RotationMode {
+		/** No rotation – particle always faces the camera. */
+		NONE,
+		/** Interpolate rotation from rotationStart to rotationEnd over lifetime. */
+		LINEAR,
+		/** Continuous spin at rotationSpeed degrees/second. */
+		SPIN,
+		;
+		public static final RotationMode[] VALUES = values();
+	}
+
 	private ParticleSource particleSource = ParticleSource.CUSTOM_SPRITE;
 	private String textureName;
 	private String minecraftParticle = "minecraft:flame";
@@ -79,6 +90,9 @@ public class ParticleEmitter extends PslElement {
 	private float alphaEnd;
 	private float rotationStart;
 	private float rotationEnd = 360;
+	private RotationMode rotationMode = RotationMode.NONE;
+	private float rotationSpeed;
+	private boolean randomRotationStart;
 	private boolean collision;
 	private BillboardMode billboard = BillboardMode.CENTER;
 	private BlendMode blendMode = BlendMode.ALPHA;
@@ -86,6 +100,8 @@ public class ParticleEmitter extends PslElement {
 	private PathMode pathMode = PathMode.ATTACHED;
 	private String pathAnimation;
 	private boolean inheritTargetMotion = true;
+	private Vec3f offset = new Vec3f(0, 0, 0);
+	private float windInfluence;
 
 	public ParticleEmitter() {
 	}
@@ -138,6 +154,13 @@ public class ParticleEmitter extends PslElement {
 		out.writeVarInt(pathMode.ordinal());
 		out.writeUTF(pathAnimation != null ? pathAnimation : "");
 		out.writeBoolean(inheritTargetMotion);
+		out.writeFloat(offset.x);
+		out.writeFloat(offset.y);
+		out.writeFloat(offset.z);
+		out.writeFloat(windInfluence);
+		out.writeVarInt(rotationMode.ordinal());
+		out.writeFloat(rotationSpeed);
+		out.writeBoolean(randomRotationStart);
 	}
 
 	@Override
@@ -179,12 +202,22 @@ public class ParticleEmitter extends PslElement {
 			pathAnimation = in.readUTF();
 			if (pathAnimation.isEmpty()) pathAnimation = null;
 			inheritTargetMotion = in.readBoolean();
+			offset = new Vec3f(in.readFloat(), in.readFloat(), in.readFloat());
+			windInfluence = in.readFloat();
+			rotationMode = readEnum(RotationMode.VALUES, in.readVarInt(), RotationMode.NONE);
+			rotationSpeed = in.readFloat();
+			randomRotationStart = in.readBoolean();
 		} catch (IOException ignored) {
 			particleSource = ParticleSource.CUSTOM_SPRITE;
 			minecraftParticle = "minecraft:flame";
 			pathMode = PathMode.ATTACHED;
 			pathAnimation = null;
 			inheritTargetMotion = true;
+			offset = new Vec3f(0, 0, 0);
+			windInfluence = 0;
+			rotationMode = RotationMode.NONE;
+			rotationSpeed = 0;
+			randomRotationStart = false;
 		}
 	}
 
@@ -261,4 +294,14 @@ public class ParticleEmitter extends PslElement {
 	public void setPathAnimation(String pathAnimation) { this.pathAnimation = pathAnimation; }
 	public boolean isInheritTargetMotion() { return inheritTargetMotion; }
 	public void setInheritTargetMotion(boolean inheritTargetMotion) { this.inheritTargetMotion = inheritTargetMotion; }
+	public Vec3f getOffset() { return offset; }
+	public void setOffset(Vec3f offset) { this.offset = offset; }
+	public float getWindInfluence() { return windInfluence; }
+	public void setWindInfluence(float windInfluence) { this.windInfluence = windInfluence; }
+	public RotationMode getRotationMode() { return rotationMode; }
+	public void setRotationMode(RotationMode rotationMode) { this.rotationMode = rotationMode != null ? rotationMode : RotationMode.NONE; }
+	public float getRotationSpeed() { return rotationSpeed; }
+	public void setRotationSpeed(float rotationSpeed) { this.rotationSpeed = rotationSpeed; }
+	public boolean isRandomRotationStart() { return randomRotationStart; }
+	public void setRandomRotationStart(boolean randomRotationStart) { this.randomRotationStart = randomRotationStart; }
 }

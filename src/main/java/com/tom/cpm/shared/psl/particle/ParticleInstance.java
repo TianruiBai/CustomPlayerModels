@@ -16,4 +16,5 @@ public class ParticleInstance {
 	public int color = 0xFFFFFFFF;
 	public float alpha = 1;
 	public float rotation;
+	public float rotationSpeed;
 }

@@ -160,6 +160,11 @@ public class PslProjectLoader implements ProjectPartLoader {
 			p.setPathMode(parseEnum(ParticleEmitter.PathMode.VALUES, map.getString("pathMode", "ATTACHED")));
 			p.setPathAnimation(map.getString("pathAnimation", null));
 			p.setInheritTargetMotion(map.getBoolean("inheritTargetMotion", true));
+			p.setOffset(parseVec3f(map.getMap("offset")));
+			p.setWindInfluence(map.getFloat("windInfluence", 0));
+			p.setRotationMode(parseEnum(ParticleEmitter.RotationMode.VALUES, map.getString("rotationMode", "NONE")));
+			p.setRotationSpeed(map.getFloat("rotationSpeed", 0));
+			p.setRandomRotationStart(map.getBoolean("randomRotationStart", false));
 		} else if (elem instanceof PhysicsBone) {
 			PhysicsBone b = (PhysicsBone) elem;
 			b.setParentElementId(map.getInt("parentElementId", -1));
@@ -304,6 +309,11 @@ public class PslProjectLoader implements ProjectPartLoader {
 			map.put("pathMode", p.getPathMode().name());
 			if (p.getPathAnimation() != null) map.put("pathAnimation", p.getPathAnimation());
 			map.put("inheritTargetMotion", p.isInheritTargetMotion());
+			map.put("offset", vec3fToMap(p.getOffset()).asMap());
+			map.put("windInfluence", p.getWindInfluence());
+			map.put("rotationMode", p.getRotationMode().name());
+			map.put("rotationSpeed", p.getRotationSpeed());
+			map.put("randomRotationStart", p.isRandomRotationStart());
 		} else if (elem instanceof PhysicsBone) {
 			PhysicsBone b = (PhysicsBone) elem;
 			map.put("parentElementId", b.getParentElementId());

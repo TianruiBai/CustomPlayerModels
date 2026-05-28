@@ -94,6 +94,7 @@ public class PslSettingsPanel extends Panel {
 		constrainedNumberRow("label.cpm.psl.particle.rate", p.getRate(), 1, 0f, null, p::setRate, "label.cpm.psl.particle.maxParticles", p.getMaxParticles(), 0, 1f, null, v -> p.setMaxParticles((int) v.floatValue()));
 		constrainedNumberRow("label.cpm.psl.particle.lifeMin", p.getLifeMin(), 1, 0f, null, v -> p.setLifeMin(Math.min(v, p.getLifeMax())), "label.cpm.psl.particle.lifeMax", p.getLifeMax(), 1, 0f, null, v -> p.setLifeMax(Math.max(v, p.getLifeMin())));
 		vec3("label.cpm.psl.particle.emitterSize", p.getEmitterSize(), 0f, null, null);
+		vec3("label.cpm.psl.particle.offset", p.getOffset());
 
 		section("label.cpm.psl.section.motion");
 		enumRow("label.cpm.psl.particle.pathMode", p.getPathMode().ordinal(), PathMode.VALUES, v -> p.setPathMode(PathMode.VALUES[v]), null, 0, null, null);
@@ -101,12 +102,15 @@ public class PslSettingsPanel extends Panel {
 		checkRow("label.cpm.psl.particle.inheritTargetMotion", p.isInheritTargetMotion(), p::setInheritTargetMotion, null, false, null);
 		vec3("label.cpm.psl.particle.velocity", p.getVelocity());
 		constrainedNumberRow("label.cpm.psl.particle.velocityVar", p.getVelocityVariation(), 2, 0f, null, p::setVelocityVariation, "label.cpm.psl.particle.gravity", p.getGravity(), 2, 0f, null, p::setGravity);
+		constrainedNumberRow("label.cpm.psl.particle.windInfluence", p.getWindInfluence(), 2, (Float)0f, (Float)1f, (java.util.function.Consumer<Float>)p::setWindInfluence, (String)null, 0f, 0, (Float)null, (Float)null, (java.util.function.Consumer<Float>)null);
 		checkRow("label.cpm.psl.particle.collision", p.isCollision(), p::setCollision, "label.cpm.psl.particle.respectGfx", p.isRespectGraphicsSetting(), p::setRespectGraphicsSetting);
 
 		section("label.cpm.psl.section.appearance");
 		constrainedNumberRow("label.cpm.psl.particle.scaleStart", p.getScaleStart(), 2, 0f, null, p::setScaleStart, "label.cpm.psl.particle.scaleEnd", p.getScaleEnd(), 2, 0f, null, p::setScaleEnd);
 		constrainedNumberRow("label.cpm.psl.particle.alphaStart", p.getAlphaStart(), 2, 0f, 1f, p::setAlphaStart, "label.cpm.psl.particle.alphaEnd", p.getAlphaEnd(), 2, 0f, 1f, p::setAlphaEnd);
-		numberRow("label.cpm.psl.particle.rotationStart", p.getRotationStart(), 1, p::setRotationStart, "label.cpm.psl.particle.rotationEnd", p.getRotationEnd(), 1, p::setRotationEnd);
+		enumRow("label.cpm.psl.particle.rotationMode", p.getRotationMode().ordinal(), ParticleEmitter.RotationMode.VALUES, v -> p.setRotationMode(ParticleEmitter.RotationMode.VALUES[v]), null, 0, null, null);
+		constrainedNumberRow("label.cpm.psl.particle.rotationStart", p.getRotationStart(), 1, null, null, p::setRotationStart, "label.cpm.psl.particle.rotationEnd", p.getRotationEnd(), 1, null, null, p::setRotationEnd);
+		constrainedNumberRow("label.cpm.psl.particle.rotationSpeed", p.getRotationSpeed(), 1, (Float)0f, (Float)null, (java.util.function.Consumer<Float>)p::setRotationSpeed, "label.cpm.psl.particle.randomRotationStart", p.isRandomRotationStart() ? 1f : 0f, 0, (Float)0f, (Float)1f, (java.util.function.Consumer<Float>)(v -> p.setRandomRotationStart(v >= 0.5f)));
 		colorRow("label.cpm.psl.particle.colorStart", p.getColorStart(), c -> p.setColorStart(c));
 		colorRow("label.cpm.psl.particle.colorEnd", p.getColorEnd(), c -> p.setColorEnd(c));
 	}

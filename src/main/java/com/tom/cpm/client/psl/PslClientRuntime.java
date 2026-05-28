@@ -185,6 +185,16 @@ public class PslClientRuntime implements IPslRuntime {
 	}
 
 	@Override
+	public Vec3f getWindDirection() {
+		// Gentle ambient wind that shifts slowly over time
+		double t = System.currentTimeMillis() * 0.001;
+		float wx = (float) Math.sin(t * 0.3) * 0.5f;
+		float wy = (float) Math.cos(t * 0.7) * 0.15f;
+		float wz = (float) Math.cos(t * 0.5) * 0.4f;
+		return new Vec3f(wx, wy, wz);
+	}
+
+	@Override
 	public void playSound(SoundEmitter emitter, Vec3f worldPosition) {
 		soundPlayer.play(emitter, worldPosition);
 	}
