@@ -28,6 +28,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.GsonHelper;
 
 import com.tom.cpl.util.Image;
+import com.tom.cpm.client.CustomRenderTypes;
 import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter.BlendMode;
@@ -50,9 +51,10 @@ public class ParticleRenderer {
 		ParticleTexture texture = getParticleTexture(def);
 		if (texture == null) return;
 
+		// Use depth-test-but-no-depth-write render type so particles don't z-fight with the model
 		RenderType renderType = def.getBlendMode() == BlendMode.ADDITIVE
-			? RenderType.entityTranslucentEmissive(texture.location)
-			: RenderType.entityTranslucent(texture.location);
+			? CustomRenderTypes.pslParticleAdditive(texture.location)
+			: CustomRenderTypes.pslParticle(texture.location);
 
 		VertexConsumer vc = bufferSource.getBuffer(renderType);
 		float cx = (float) camera.getPosition().x;

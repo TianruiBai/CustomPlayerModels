@@ -120,6 +120,7 @@ public class PslProjectLoader implements ProjectPartLoader {
 		trigger.setParamMin(map.getFloat("paramMin", 0));
 		trigger.setParamMax(map.getFloat("paramMax", 0));
 		trigger.setEventName(map.getString("eventName", null));
+		trigger.setLayerToggleName(map.getString("layerToggleName", null));
 		return trigger;
 	}
 
@@ -263,6 +264,7 @@ public class PslProjectLoader implements ProjectPartLoader {
 			map.put("paramMax", trigger.getParamMax());
 		}
 		if (trigger.getEventName() != null) map.put("eventName", trigger.getEventName());
+		if (trigger.getLayerToggleName() != null) map.put("layerToggleName", trigger.getLayerToggleName());
 		return map;
 	}
 

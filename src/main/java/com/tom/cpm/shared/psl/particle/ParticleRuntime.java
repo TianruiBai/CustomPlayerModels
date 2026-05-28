@@ -50,7 +50,9 @@ public class ParticleRuntime {
 			spawnTimer -= spawnInterval;
 			spawnParticle(def, worldPos, runtime);
 		}
-		if (spawnTimer > spawnInterval) spawnTimer = 0; // clamp
+		// Cap the timer to spawnInterval so we don't lose accumulated credit,
+		// but also don't allow infinite backlog if at capacity for a long time.
+		if (spawnTimer > spawnInterval * 3f) spawnTimer = spawnInterval * 3f;
 
 		// Update existing particles
 		Iterator<ParticleInstance> it = activeParticles.iterator();
