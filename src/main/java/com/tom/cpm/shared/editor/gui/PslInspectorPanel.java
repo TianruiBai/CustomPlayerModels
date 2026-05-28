@@ -9,6 +9,7 @@ import com.tom.cpl.gui.util.TabbedPanelManager;
 import com.tom.cpl.math.Box;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.psl.PslElement;
+import com.tom.cpm.shared.psl.particle.ParticleEmitter;
 
 public class PslInspectorPanel extends Panel {
 	private final Editor editor;
@@ -95,7 +96,7 @@ public class PslInspectorPanel extends Panel {
 		boolean hasSelection = selected != null;
 		if(hasSelection) {
 			String name = selected.getName() != null && !selected.getName().isEmpty() ? selected.getName() : selected.getType().name();
-			selectedLabel.setText(gui.i18nFormat("label.cpm.psl.inspector.selected", selected.getType().name(), name));
+			selectedLabel.setText(gui.i18nFormat("label.cpm.psl.inspector.selected", selected.getType().name(), name) + describePreviewTarget(selected));
 			targetLabel.setText(gui.i18nFormat("label.cpm.psl.target", PslUiUtil.describeTarget(editor, selected.getElementId())));
 		} else {
 			selectedLabel.setText(gui.i18nFormat("label.cpm.psl.noSelection"));
@@ -106,5 +107,13 @@ public class PslInspectorPanel extends Panel {
 		settingsPanel.refresh();
 		triggerEditor.refresh();
 		interactivePanel.refresh();
+	}
+
+	private String describePreviewTarget(PslElement selected) {
+		if(!(selected instanceof ParticleEmitter))return "";
+		ParticleEmitter emitter = (ParticleEmitter) selected;
+		String particleId = emitter.isMinecraftParticle() ? emitter.getMinecraftParticle() : emitter.getTextureName();
+		if(particleId == null || particleId.isEmpty())particleId = gui.i18nFormat("label.cpm.psl.target.none");
+		return " [" + particleId + "]";
 	}
 }

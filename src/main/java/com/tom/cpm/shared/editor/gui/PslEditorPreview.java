@@ -50,7 +50,7 @@ public class PslEditorPreview {
 	}
 
 	public void render(MatrixStack stack, VBuffers buffers, ViewportPanel panel) {
-		if(!editor.pslPreviewEnabled || editor.pslSystem == null || editor.pslSystem.isEmpty())return;
+		if(!editor.pslTabActive || !editor.pslPreviewEnabled || editor.pslSystem == null || editor.pslSystem.isEmpty())return;
 		float dt = updateDelta();
 		if(editor.pslPreviewPlaying)editor.pslSystem.tickPreview(runtime, this::targetPosition, dt);
 
@@ -69,26 +69,30 @@ public class PslEditorPreview {
 	}
 
 	private void renderParticles(MatrixStack stack, VertexBuffer buffer) {
-		List<ParticleEmitter> emitters = editor.pslSystem.getElementsOfType(PslElementType.PARTICLE);
-		for(ParticleEmitter emitter : emitters) {
-			List<ParticleInstance> instances = editor.pslSystem.getParticleInstances(emitter);
-			if(instances.isEmpty())continue;
+		ParticleEmitter emitter = getSelectedParticleEmitter();
+		if(emitter == null)return;
 
-			TextureProvider tex = getTexture(emitter);
-			if(tex != null) {
-				tex.bind();
-				for(ParticleInstance particle : instances) {
-					float size = Math.max(0.35f, particle.scale * 0.45f);
-					PslParticlePreviewStyle.drawWorldTexturedSprite(stack, buffer, emitter, particle.position, size, particle.alpha, particle.rotation * 0.017453292f);
-				}
-			} else {
-				// Minimal colored-quad fallback — real texture preferred
-				for(ParticleInstance particle : instances) {
-					float size = Math.max(0.35f, particle.scale * 0.45f);
-					PslParticlePreviewStyle.drawWorldFallbackSprite(stack, buffer, particle.position, size, particle.color, particle.alpha, particle.rotation * 0.017453292f);
-				}
+		List<ParticleInstance> instances = editor.pslSystem.getParticleInstances(emitter);
+		if(instances.isEmpty())return;
+
+		TextureProvider tex = getTexture(emitter);
+		if(tex != null) {
+			tex.bind();
+			for(ParticleInstance particle : instances) {
+				float size = Math.max(0.35f, particle.scale * 0.45f);
+				PslParticlePreviewStyle.drawWorldTexturedSprite(stack, buffer, emitter, particle.position, size, particle.alpha, particle.rotation * 0.017453292f);
+			}
+		} else {
+			// Minimal colored-quad fallback — real texture preferred
+			for(ParticleInstance particle : instances) {
+				float size = Math.max(0.35f, particle.scale * 0.45f);
+				PslParticlePreviewStyle.drawWorldFallbackSprite(stack, buffer, particle.position, size, particle.color, particle.alpha, particle.rotation * 0.017453292f);
 			}
 		}
+	}
+
+	private ParticleEmitter getSelectedParticleEmitter() {
+		return editor.selectedPslElement instanceof ParticleEmitter ? (ParticleEmitter) editor.selectedPslElement : null;
 	}
 
 	private TextureProvider getTexture(ParticleEmitter emitter) {

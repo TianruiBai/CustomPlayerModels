@@ -239,6 +239,7 @@ public class Editor {
 	public final PslEditorPreview pslPreview = new PslEditorPreview(this);
 	public boolean pslPreviewEnabled = true;
 	public boolean pslPreviewPlaying = true;
+	public boolean pslTabActive;
 
 	/** Currently selected PSL element in the editor. */
 	public com.tom.cpm.shared.psl.PslElement selectedPslElement;

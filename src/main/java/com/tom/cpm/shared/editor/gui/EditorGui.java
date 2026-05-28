@@ -167,6 +167,11 @@ public class EditorGui extends Frame {
 		} else r.run();
 	}
 
+	private void setViewType(ViewType type) {
+		viewType = type;
+		editor.pslTabActive = type == ViewType.PSL;
+	}
+
 	@Override
 	public void initFrame(int width, int height) {
 		int scale = ModConfig.getCommonConfig().getInt(ConfigKeys.EDITOR_SCALE, -1);
@@ -183,7 +188,7 @@ public class EditorGui extends Frame {
 		}
 
 		editor.reinit();
-		viewType = ViewType.MODEL;
+		setViewType(ViewType.MODEL);
 
 		tabs = new TabbedPanelManager(gui);
 		tabs.setBounds(new Box(0, 20, width, height - 20));
@@ -287,7 +292,7 @@ public class EditorGui extends Frame {
 		sp.setBounds(new Box(0, 0, 170, height - 20));
 		sp.setScrollBarSide(true);
 		mainPanel.addElement(sp);
-		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.model"), mainPanel, () -> viewType = ViewType.MODEL));
+		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.model"), mainPanel, () -> setViewType(ViewType.MODEL)));
 
 		mainPanel.addElement(new TreePanel(gui, this, width, height - 20, true));
 
@@ -302,7 +307,7 @@ public class EditorGui extends Frame {
 	private void initTexturePanel(int width, int height) {
 		Panel textureEditor = new Panel(gui);
 		textureEditor.setBounds(new Box(0, 0, width, height - 20));
-		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.texture"), textureEditor, () -> viewType = ViewType.TEXTURE));
+		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.texture"), textureEditor, () -> setViewType(ViewType.TEXTURE)));
 
 		ViewportPaintPanel viewT = new ViewportPaintPanel(this, editor);
 		viewT.setBounds(new Box(0, 0, width - height / 2, height - 20));
@@ -359,7 +364,7 @@ public class EditorGui extends Frame {
 	private void initAssetsPanel(int width, int height) {
 		Panel assetsEditor = new Panel(gui);
 		assetsEditor.setBounds(new Box(0, 0, width, height - 20));
-		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.assets"), assetsEditor, () -> viewType = ViewType.ASSETS));
+		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.assets"), assetsEditor, () -> setViewType(ViewType.ASSETS)));
 
 		AssetsPanel assetsPanel = new AssetsPanel(gui, this, width, height - 20);
 		assetsPanel.setBounds(new Box(0, 0, width, height - 20));
@@ -398,7 +403,7 @@ public class EditorGui extends Frame {
 		mainPanel.addElement(animPanelTabs);
 		mainPanel.addElement(buttonsPanel);
 
-		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.animation"), mainPanel, () -> viewType = ViewType.ANIMATION));
+		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.animation"), mainPanel, () -> setViewType(ViewType.ANIMATION)));
 
 		TreePanel treePanel = new TreePanel(gui, this, width, fullH, false) {
 
@@ -456,7 +461,7 @@ public class EditorGui extends Frame {
 		sp.setScrollBarSide(true);
 		mainPanel.addElement(sp);
 
-		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.psl"), mainPanel, () -> viewType = ViewType.PSL));
+		topPanel.add(tabs.createTab(gui.i18nFormat("tab.cpm.psl"), mainPanel, () -> setViewType(ViewType.PSL)));
 
 		// Center: Viewport, leaving the familiar model tree on the right for target picking.
 		ViewportPanel view = new ViewportPanel(this, editor);
