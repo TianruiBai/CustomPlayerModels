@@ -157,6 +157,39 @@ public class PslClientRuntime implements IPslRuntime {
 	}
 
 	@Override
+	public void autoDetectParticleAnimation(ParticleEmitter emitter) {
+		if(mc.level == null || emitter == null || !emitter.isMinecraftParticle())return;
+		try {
+			var atlas = mc.getTextureManager().getTexture(TextureAtlas.LOCATION_PARTICLES);
+			if(!(atlas instanceof TextureAtlas ta))return;
+			var sprite = ta.getSprite(ResourceLocation.parse(emitter.getMinecraftParticle()));
+			if(sprite == null || sprite.contents() == null)return;
+			var contents = sprite.contents();
+			if(contents.createTicker() == null)return;
+			int frameW = contents.width();
+			int frameH = contents.height();
+			var img = contents.getOriginalImage();
+			int totalW = img.getWidth();
+			int totalH = img.getHeight();
+			int framesPerRow = totalW / Math.max(1, frameW);
+			int framesPerCol = totalH / Math.max(1, frameH);
+			int frameCount = framesPerRow * framesPerCol;
+			if(frameCount > 1) {
+				emitter.setFrameCount(frameCount);
+				emitter.setFrameTimeMs(50);
+				emitter.setAnimHorizontal(true);
+				emitter.setSpriteWidth(frameW);
+				emitter.setSpriteHeight(frameH);
+				emitter.setSpriteTexW(totalW);
+				emitter.setSpriteTexH(totalH);
+				emitter.setSpriteU(0);
+				emitter.setSpriteV(0);
+			}
+		} catch (Exception ignored) {
+		}
+	}
+
+	@Override
 	public void spawnBuiltinParticle(String particleId, float x, float y, float z, float vx, float vy, float vz) {
 		spawnBuiltinParticle(particleId, x, y, z, vx, vy, vz, 1f);
 	}

@@ -167,6 +167,12 @@ public class PslParticlePickerPopup extends PopupPanel {
 				synth.setSpriteHeight(texH);
 				synth.setSpriteTexW(texW);
 				synth.setSpriteTexH(texH);
+				// Try auto-detecting vanilla animation for preview
+				if(selected.source == ParticleSource.MINECRAFT_BUILTIN) {
+					try {
+						com.tom.cpm.shared.MinecraftClientAccess.get().getPslRuntime().autoDetectParticleAnimation(synth);
+					} catch (Exception ignored) {}
+				}
 				PslParticlePreviewStyle.drawGuiTexturePreview(gui, bounds.x + 8, bounds.y + 38, bounds.w - 16, bounds.h - 46, tex, synth);
 			} else {
 				String msg = gui.i18nFormat("label.cpm.psl.noPreview");

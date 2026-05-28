@@ -4,6 +4,7 @@ import java.io.InputStream;
 
 import com.tom.cpl.math.Vec3f;
 import com.tom.cpl.util.Image;
+import com.tom.cpm.shared.psl.particle.ParticleEmitter;
 import com.tom.cpm.shared.psl.sound.SoundEmitter;
 
 /**
@@ -104,6 +105,13 @@ public interface IPslRuntime {
 	default boolean previewVanillaParticlesWithSharedRenderer() {
 		return false;
 	}
+
+	/**
+	 * Auto-detect animation parameters from a vanilla Minecraft particle's sprite sheet.
+	 * Sets frameCount, frameTimeMs, animHorizontal, spriteWidth/Height, spriteTexW/H on the emitter.
+	 * No-op for platforms without atlas access.
+	 */
+	default void autoDetectParticleAnimation(ParticleEmitter emitter) {}
 
 	/**
 	 * Called by the PSL tick when a system is about to be updated.

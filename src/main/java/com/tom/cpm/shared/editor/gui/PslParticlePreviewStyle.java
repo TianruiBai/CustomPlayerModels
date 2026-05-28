@@ -21,6 +21,26 @@ final class PslParticlePreviewStyle {
 		if(provider == null)return;
 		provider.bind();
 
+		float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+		if(emitter.isAnimated()) {
+			int texW = Math.max(1, emitter.getSpriteTexW());
+			int texH = Math.max(1, emitter.getSpriteTexH());
+			int fw = Math.max(1, (int) emitter.getSpriteWidth());
+			int fh = Math.max(1, (int) emitter.getSpriteHeight());
+			int framesPerRow = texW / fw;
+			int totalFrames = emitter.getFrameCount();
+			int frame = (int)((System.currentTimeMillis() / Math.max(1, emitter.getFrameTimeMs())) % totalFrames);
+			if(emitter.isAnimHorizontal()) {
+				u0 = (frame % framesPerRow) * fw / (float) texW;
+				v0 = (frame / framesPerRow) * fh / (float) texH;
+			} else {
+				u0 = (frame / (totalFrames / Math.max(1, framesPerRow))) * fw / (float) texW;
+				v0 = (frame % (totalFrames / Math.max(1, framesPerRow))) * fh / (float) texH;
+			}
+			u1 = u0 + fw / (float) texW;
+			v1 = v0 + fh / (float) texH;
+		}
+
 		float aspect = image.getWidth() / (float)Math.max(1, image.getHeight());
 		float boxAspect = w / (float)Math.max(1, h);
 		int drawW;
@@ -32,7 +52,7 @@ final class PslParticlePreviewStyle {
 			drawH = h;
 			drawW = Math.max(1, (int)(h * aspect));
 		}
-		gui.drawTexture(x + (w - drawW) / 2, y + (h - drawH) / 2, drawW, drawH, 0, 0, 1, 1);
+		gui.drawTexture(x + (w - drawW) / 2, y + (h - drawH) / 2, drawW, drawH, u0, v0, u1, v1);
 	}
 
 	static void drawWorldTexturedSprite(MatrixStack stack, VertexBuffer buffer, ParticleEmitter emitter, Vec3f pos, float size, float alpha, float rotation) {

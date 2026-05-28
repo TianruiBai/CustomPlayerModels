@@ -101,11 +101,14 @@ public class ParticleRenderer {
 		if (cached != null) return cached;
 
 		if (def.isMinecraftParticle()) {
-			ParticleTexture atlasTexture = getMinecraftParticleTexture(def.getMinecraftParticle());
-			if (atlasTexture != null) {
-				textureCache.put(key, atlasTexture);
-				logTextureOnce(key, "atlas " + def.getMinecraftParticle());
-				return atlasTexture;
+			// For vanilla animated particles, skip atlas (single-frame) and load full sheet
+			if (!isVanillaSpriteAnimated(def.getMinecraftParticle())) {
+				ParticleTexture atlasTexture = getMinecraftParticleTexture(def.getMinecraftParticle());
+				if (atlasTexture != null) {
+					textureCache.put(key, atlasTexture);
+					logTextureOnce(key, "atlas " + def.getMinecraftParticle());
+					return atlasTexture;
+				}
 			}
 		}
 
@@ -137,6 +140,11 @@ public class ParticleRenderer {
 			v0 = def.getSpriteV() / (float) texH;
 			u1 = (def.getSpriteU() + def.getSpriteWidth()) / (float) texW;
 			v1 = (def.getSpriteV() + def.getSpriteHeight()) / (float) texH;
+		}
+
+		// Auto-detect vanilla animation parameters
+		if (def.isMinecraftParticle() && def.getFrameCount() <= 1) {
+			MinecraftClientAccess.get().getPslRuntime().autoDetectParticleAnimation(def);
 		}
 
 		ParticleTexture texture = new ParticleTexture(rl, u0, v0, u1, v1);
@@ -180,6 +188,18 @@ public class ParticleRenderer {
 	private static TextureAtlas getParticleAtlas() {
 		AbstractTexture texture = Minecraft.getInstance().getTextureManager().getTexture(TextureAtlas.LOCATION_PARTICLES);
 		return texture instanceof TextureAtlas atlas ? atlas : null;
+	}
+
+	private boolean isVanillaSpriteAnimated(String particleId) {
+		try {
+			TextureAtlas atlas = getParticleAtlas();
+			if (atlas == null) return false;
+			TextureAtlasSprite sprite = atlas.getSprite(ResourceLocation.parse(particleId));
+			if (sprite == null || sprite.contents() == null) return false;
+			return sprite.contents().createTicker() != null;
+		} catch (Exception ignored) {
+			return false;
+		}
 	}
 
 	private static ParticleTexture getAtlasParticleTexture(TextureAtlas atlas, ResourceLocation spriteId) {
