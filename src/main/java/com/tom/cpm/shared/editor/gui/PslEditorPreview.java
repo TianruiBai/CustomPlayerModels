@@ -103,7 +103,7 @@ public class PslEditorPreview {
 		VertexBuffer buffer = buffers.getBuffer(nrt);
 		for(ParticleInstance particle : instances) {
 			float size = Math.max(0.35f, particle.scale * 0.45f);
-			float rotRad = particle.rotation * 0.017453292f;
+			float rotRad = particle.rotZ * 0.017453292f;
 			PslParticlePreviewStyle.drawWorldBillboardSprite(stack, buffer, emitter, particle.position, camRight, camUp, size, particle.alpha, rotRad);
 		}
 	}

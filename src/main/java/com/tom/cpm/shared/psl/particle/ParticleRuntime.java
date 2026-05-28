@@ -29,6 +29,8 @@ public class ParticleRuntime {
 	 */
 	public void tick(ParticleEmitter def, Vec3f worldPos, float dt, IPslRuntime runtime) {
 		if (def == null || runtime == null) return;
+		// Apply playback speed to delta time
+		float pdt = dt * def.getPlaybackSpeed();
 		Vec3f targetDelta = null;
 		if(lastWorldPos != null) {
 			targetDelta = new Vec3f(worldPos.x - lastWorldPos.x, worldPos.y - lastWorldPos.y, worldPos.z - lastWorldPos.z);
@@ -44,7 +46,7 @@ public class ParticleRuntime {
 		}
 
 		// Spawn new particles
-		spawnTimer += dt;
+		spawnTimer += pdt;
 		float spawnInterval = rate > 0 ? 1.0f / rate : Float.MAX_VALUE;
 		while (spawnTimer >= spawnInterval && activeParticles.size() < maxParticles) {
 			spawnTimer -= spawnInterval;
@@ -58,7 +60,7 @@ public class ParticleRuntime {
 		Iterator<ParticleInstance> it = activeParticles.iterator();
 		while (it.hasNext()) {
 			ParticleInstance p = it.next();
-			p.age += dt;
+			p.age += pdt;
 
 			if (p.age >= p.maxAge) {
 				it.remove();
@@ -72,19 +74,21 @@ public class ParticleRuntime {
 			}
 
 			// Velocity integration with gravity
-			p.velocity.y -= def.getGravity() * 9.8f * dt; // gravity in m/s²
+			p.velocity.y -= def.getGravity() * 9.8f * pdt; // gravity in m/s²
 
-		// Wind influence
-		if (def.getWindInfluence() > 0.001f) {
-			Vec3f wind = runtime.getWindDirection();
-			float wi = def.getWindInfluence();
-			p.velocity.x += wind.x * wi * dt;
-			p.velocity.y += wind.y * wi * dt;
-			p.velocity.z += wind.z * wi * dt;
-		}
-			p.position.x += p.velocity.x * dt;
-			p.position.y += p.velocity.y * dt;
-			p.position.z += p.velocity.z * dt;
+			// Wind: local emitter wind direction * strength
+			if (def.getWindStrength() > 0.001f) {
+				Vec3f wd = def.getWindDirection();
+				float ws = def.getWindStrength();
+				p.velocity.x += wd.x * ws * pdt;
+				p.velocity.y += wd.y * ws * pdt;
+				p.velocity.z += wd.z * ws * pdt;
+			}
+
+			// Apply velocity
+			p.position.x += p.velocity.x * pdt;
+			p.position.y += p.velocity.y * pdt;
+			p.position.z += p.velocity.z * pdt;
 
 			// Block collision (if enabled and runtime supports it)
 			if (def.isCollision() && runtime.checkBlockCollision(p.position.x, p.position.y, p.position.z)) {
@@ -98,15 +102,19 @@ public class ParticleRuntime {
 			p.scale = lerp(def.getScaleStart(), def.getScaleEnd(), progress);
 			p.alpha = lerp(def.getAlphaStart(), def.getAlphaEnd(), progress);
 
-		// Rotation
+		// Rotation (XYZ)
 		switch (def.getRotationMode()) {
 			case NONE:
 				break;
 			case LINEAR:
-				p.rotation = lerp(def.getRotationStart(), def.getRotationEnd(), progress);
+				p.rotX = lerp(def.getRotationStartX(), def.getRotationEndX(), progress);
+				p.rotY = lerp(def.getRotationStartY(), def.getRotationEndY(), progress);
+				p.rotZ = lerp(def.getRotationStartZ(), def.getRotationEndZ(), progress);
 				break;
 			case SPIN:
-				p.rotation += p.rotationSpeed * dt;
+				p.rotX += p.rotSpeedX * pdt;
+				p.rotY += p.rotSpeedY * pdt;
+				p.rotZ += p.rotSpeedZ * pdt;
 				break;
 		}
 			if(def.getPathMode() == ParticleEmitter.PathMode.ANIMATION_PATH) {
@@ -175,16 +183,19 @@ public class ParticleRuntime {
 		p.alpha = def.getAlphaStart();
 		p.color = def.getColorStart();
 
-		// Initial rotation
-		float baseRotation = def.getRotationStart();
+		// Initial rotation (XYZ)
 		if (def.isRandomRotationStart()) {
-			baseRotation = random.nextFloat() * 360f;
+			p.rotX = random.nextFloat() * 360f;
+			p.rotY = random.nextFloat() * 360f;
+			p.rotZ = random.nextFloat() * 360f;
+		} else {
+			p.rotX = def.getRotationStartX();
+			p.rotY = def.getRotationStartY();
+			p.rotZ = def.getRotationStartZ();
 		}
-		p.rotation = baseRotation;
-		p.rotationSpeed = def.getRotationSpeed();
-		if (def.getRotationMode() == ParticleEmitter.RotationMode.LINEAR) {
-			p.rotation = baseRotation;
-		}
+		p.rotSpeedX = def.getRotationSpeedX();
+		p.rotSpeedY = def.getRotationSpeedY();
+		p.rotSpeedZ = def.getRotationSpeedZ();
 
 		if(def.isMinecraftParticle() && runtime.useBuiltinParticleRenderer()) {
 			runtime.spawnBuiltinParticle(def.getMinecraftParticle(), p.position.x, p.position.y, p.position.z, p.velocity.x, p.velocity.y, p.velocity.z);

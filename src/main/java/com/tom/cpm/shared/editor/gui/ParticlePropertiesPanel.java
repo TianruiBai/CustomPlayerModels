@@ -100,8 +100,8 @@ public class ParticlePropertiesPanel extends Panel {
 
 		// Rotation
 		addLabel("label.cpm.psl.particle.rotation");
-		rotStartSpinner = addSpinnerFloat(0, 360, 0, 1, v -> get().setRotationStart(v));
-		rotEndSpinner = addSpinnerFloat(0, 360, 360, 1, v -> get().setRotationEnd(v));
+		rotStartSpinner = addSpinnerFloat(0, 360, 0, 1, v -> get().setRotationStartZ(v));
+		rotEndSpinner = addSpinnerFloat(0, 360, 360, 1, v -> get().setRotationEndZ(v));
 
 		// Billboard mode
 		addLabel("label.cpm.psl.particle.billboard");
@@ -149,8 +149,8 @@ public class ParticlePropertiesPanel extends Panel {
 		scaleEndSpinner.setEnabled(en); if (en) scaleEndSpinner.setValue(p.getScaleEnd());
 		alphaStartSpinner.setEnabled(en); if (en) alphaStartSpinner.setValue(p.getAlphaStart());
 		alphaEndSpinner.setEnabled(en); if (en) alphaEndSpinner.setValue(p.getAlphaEnd());
-		rotStartSpinner.setEnabled(en); if (en) rotStartSpinner.setValue(p.getRotationStart());
-		rotEndSpinner.setEnabled(en); if (en) rotEndSpinner.setValue(p.getRotationEnd());
+		rotStartSpinner.setEnabled(en); if (en) rotStartSpinner.setValue(p.getRotationStartZ());
+		rotEndSpinner.setEnabled(en); if (en) rotEndSpinner.setValue(p.getRotationEndZ());
 		collisionCb.setEnabled(en); if (en) collisionCb.setSelected(p.isCollision());
 		respectGfxCb.setEnabled(en); if (en) respectGfxCb.setSelected(p.isRespectGraphicsSetting());
 	}

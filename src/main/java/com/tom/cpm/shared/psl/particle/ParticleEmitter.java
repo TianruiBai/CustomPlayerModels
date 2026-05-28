@@ -88,10 +88,10 @@ public class ParticleEmitter extends PslElement {
 	private int colorEnd = 0x00FFFFFF;
 	private float alphaStart = 1;
 	private float alphaEnd;
-	private float rotationStart;
-	private float rotationEnd = 360;
+	private float rotationStartX, rotationStartY, rotationStartZ;
+	private float rotationEndX, rotationEndY = 360, rotationEndZ;
 	private RotationMode rotationMode = RotationMode.NONE;
-	private float rotationSpeed;
+	private float rotationSpeedX, rotationSpeedY, rotationSpeedZ;
 	private boolean randomRotationStart;
 	private boolean collision;
 	private BillboardMode billboard = BillboardMode.CENTER;
@@ -101,7 +101,9 @@ public class ParticleEmitter extends PslElement {
 	private String pathAnimation;
 	private boolean inheritTargetMotion = true;
 	private Vec3f offset = new Vec3f(0, 0, 0);
-	private float windInfluence;
+	private float windStrength;
+	private Vec3f windDirection = new Vec3f(-0.3f, 0.05f, 0.2f);
+	private float playbackSpeed = 1;
 
 	public ParticleEmitter() {
 	}
@@ -143,8 +145,12 @@ public class ParticleEmitter extends PslElement {
 		out.writeInt(colorEnd);
 		out.writeFloat(alphaStart);
 		out.writeFloat(alphaEnd);
-		out.writeFloat(rotationStart);
-		out.writeFloat(rotationEnd);
+		out.writeFloat(rotationStartX);
+		out.writeFloat(rotationStartY);
+		out.writeFloat(rotationStartZ);
+		out.writeFloat(rotationEndX);
+		out.writeFloat(rotationEndY);
+		out.writeFloat(rotationEndZ);
 		out.writeBoolean(collision);
 		out.writeVarInt(billboard.ordinal());
 		out.writeVarInt(blendMode.ordinal());
@@ -157,10 +163,16 @@ public class ParticleEmitter extends PslElement {
 		out.writeFloat(offset.x);
 		out.writeFloat(offset.y);
 		out.writeFloat(offset.z);
-		out.writeFloat(windInfluence);
+		out.writeFloat(windStrength);
+		out.writeFloat(windDirection.x);
+		out.writeFloat(windDirection.y);
+		out.writeFloat(windDirection.z);
 		out.writeVarInt(rotationMode.ordinal());
-		out.writeFloat(rotationSpeed);
+		out.writeFloat(rotationSpeedX);
+		out.writeFloat(rotationSpeedY);
+		out.writeFloat(rotationSpeedZ);
 		out.writeBoolean(randomRotationStart);
+		out.writeFloat(playbackSpeed);
 	}
 
 	@Override
@@ -188,8 +200,12 @@ public class ParticleEmitter extends PslElement {
 		colorEnd = in.readInt();
 		alphaStart = in.readFloat();
 		alphaEnd = in.readFloat();
-		rotationStart = in.readFloat();
-		rotationEnd = in.readFloat();
+		rotationStartX = in.readFloat();
+		rotationStartY = in.readFloat();
+		rotationStartZ = in.readFloat();
+		rotationEndX = in.readFloat();
+		rotationEndY = in.readFloat();
+		rotationEndZ = in.readFloat();
 		collision = in.readBoolean();
 		billboard = BillboardMode.VALUES[in.readVarInt()];
 		blendMode = BlendMode.VALUES[in.readVarInt()];
@@ -203,10 +219,14 @@ public class ParticleEmitter extends PslElement {
 			if (pathAnimation.isEmpty()) pathAnimation = null;
 			inheritTargetMotion = in.readBoolean();
 			offset = new Vec3f(in.readFloat(), in.readFloat(), in.readFloat());
-			windInfluence = in.readFloat();
+			windStrength = in.readFloat();
+			windDirection = new Vec3f(in.readFloat(), in.readFloat(), in.readFloat());
 			rotationMode = readEnum(RotationMode.VALUES, in.readVarInt(), RotationMode.NONE);
-			rotationSpeed = in.readFloat();
+			rotationSpeedX = in.readFloat();
+			rotationSpeedY = in.readFloat();
+			rotationSpeedZ = in.readFloat();
 			randomRotationStart = in.readBoolean();
+			playbackSpeed = in.readFloat();
 		} catch (IOException ignored) {
 			particleSource = ParticleSource.CUSTOM_SPRITE;
 			minecraftParticle = "minecraft:flame";
@@ -214,10 +234,14 @@ public class ParticleEmitter extends PslElement {
 			pathAnimation = null;
 			inheritTargetMotion = true;
 			offset = new Vec3f(0, 0, 0);
-			windInfluence = 0;
+			windStrength = 0;
+			windDirection = new Vec3f(-0.3f, 0.05f, 0.2f);
 			rotationMode = RotationMode.NONE;
-			rotationSpeed = 0;
+			rotationSpeedX = 0;
+			rotationSpeedY = 0;
+			rotationSpeedZ = 0;
 			randomRotationStart = false;
+			playbackSpeed = 1;
 		}
 	}
 
@@ -276,10 +300,18 @@ public class ParticleEmitter extends PslElement {
 	public void setAlphaStart(float alphaStart) { this.alphaStart = alphaStart; }
 	public float getAlphaEnd() { return alphaEnd; }
 	public void setAlphaEnd(float alphaEnd) { this.alphaEnd = alphaEnd; }
-	public float getRotationStart() { return rotationStart; }
-	public void setRotationStart(float rotationStart) { this.rotationStart = rotationStart; }
-	public float getRotationEnd() { return rotationEnd; }
-	public void setRotationEnd(float rotationEnd) { this.rotationEnd = rotationEnd; }
+	public float getRotationStartX() { return rotationStartX; }
+	public void setRotationStartX(float v) { this.rotationStartX = v; }
+	public float getRotationStartY() { return rotationStartY; }
+	public void setRotationStartY(float v) { this.rotationStartY = v; }
+	public float getRotationStartZ() { return rotationStartZ; }
+	public void setRotationStartZ(float v) { this.rotationStartZ = v; }
+	public float getRotationEndX() { return rotationEndX; }
+	public void setRotationEndX(float v) { this.rotationEndX = v; }
+	public float getRotationEndY() { return rotationEndY; }
+	public void setRotationEndY(float v) { this.rotationEndY = v; }
+	public float getRotationEndZ() { return rotationEndZ; }
+	public void setRotationEndZ(float v) { this.rotationEndZ = v; }
 	public boolean isCollision() { return collision; }
 	public void setCollision(boolean collision) { this.collision = collision; }
 	public BillboardMode getBillboard() { return billboard; }
@@ -296,12 +328,20 @@ public class ParticleEmitter extends PslElement {
 	public void setInheritTargetMotion(boolean inheritTargetMotion) { this.inheritTargetMotion = inheritTargetMotion; }
 	public Vec3f getOffset() { return offset; }
 	public void setOffset(Vec3f offset) { this.offset = offset; }
-	public float getWindInfluence() { return windInfluence; }
-	public void setWindInfluence(float windInfluence) { this.windInfluence = windInfluence; }
 	public RotationMode getRotationMode() { return rotationMode; }
 	public void setRotationMode(RotationMode rotationMode) { this.rotationMode = rotationMode != null ? rotationMode : RotationMode.NONE; }
-	public float getRotationSpeed() { return rotationSpeed; }
-	public void setRotationSpeed(float rotationSpeed) { this.rotationSpeed = rotationSpeed; }
+	public float getRotationSpeedX() { return rotationSpeedX; }
+	public void setRotationSpeedX(float v) { this.rotationSpeedX = v; }
+	public float getRotationSpeedY() { return rotationSpeedY; }
+	public void setRotationSpeedY(float v) { this.rotationSpeedY = v; }
+	public float getRotationSpeedZ() { return rotationSpeedZ; }
+	public void setRotationSpeedZ(float v) { this.rotationSpeedZ = v; }
 	public boolean isRandomRotationStart() { return randomRotationStart; }
 	public void setRandomRotationStart(boolean randomRotationStart) { this.randomRotationStart = randomRotationStart; }
+	public Vec3f getWindDirection() { return windDirection; }
+	public void setWindDirection(Vec3f v) { this.windDirection = v; }
+	public float getWindStrength() { return windStrength; }
+	public void setWindStrength(float v) { this.windStrength = v; }
+	public float getPlaybackSpeed() { return playbackSpeed; }
+	public void setPlaybackSpeed(float v) { this.playbackSpeed = v; }
 }

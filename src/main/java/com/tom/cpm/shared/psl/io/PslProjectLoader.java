@@ -151,8 +151,12 @@ public class PslProjectLoader implements ProjectPartLoader {
 			p.setColorEnd(parseColor(map.getString("colorEnd", "#00FFFFFF")));
 			p.setAlphaStart(map.getFloat("alphaStart", 1));
 			p.setAlphaEnd(map.getFloat("alphaEnd", 0));
-			p.setRotationStart(map.getFloat("rotationStart", 0));
-			p.setRotationEnd(map.getFloat("rotationEnd", 360));
+			p.setRotationStartX(map.getFloat("rotationStartX", 0));
+			p.setRotationStartY(map.getFloat("rotationStartY", 0));
+			p.setRotationStartZ(map.getFloat("rotationStartZ", 0));
+			p.setRotationEndX(map.getFloat("rotationEndX", 0));
+			p.setRotationEndY(map.getFloat("rotationEndY", 360));
+			p.setRotationEndZ(map.getFloat("rotationEndZ", 0));
 			p.setCollision(map.getBoolean("collision", false));
 			p.setBillboard(parseEnum(ParticleEmitter.BillboardMode.VALUES, map.getString("billboard", "CENTER")));
 			p.setBlendMode(parseEnum(ParticleEmitter.BlendMode.VALUES, map.getString("blendMode", "ALPHA")));
@@ -161,10 +165,14 @@ public class PslProjectLoader implements ProjectPartLoader {
 			p.setPathAnimation(map.getString("pathAnimation", null));
 			p.setInheritTargetMotion(map.getBoolean("inheritTargetMotion", true));
 			p.setOffset(parseVec3f(map.getMap("offset")));
-			p.setWindInfluence(map.getFloat("windInfluence", 0));
+			p.setWindStrength(map.getFloat("windStrength", 0));
+			p.setWindDirection(parseVec3f(map.getMap("windDirection")));
 			p.setRotationMode(parseEnum(ParticleEmitter.RotationMode.VALUES, map.getString("rotationMode", "NONE")));
-			p.setRotationSpeed(map.getFloat("rotationSpeed", 0));
+			p.setRotationSpeedX(map.getFloat("rotationSpeedX", 0));
+			p.setRotationSpeedY(map.getFloat("rotationSpeedY", 0));
+			p.setRotationSpeedZ(map.getFloat("rotationSpeedZ", 0));
 			p.setRandomRotationStart(map.getBoolean("randomRotationStart", false));
+			p.setPlaybackSpeed(map.getFloat("playbackSpeed", 1));
 		} else if (elem instanceof PhysicsBone) {
 			PhysicsBone b = (PhysicsBone) elem;
 			b.setParentElementId(map.getInt("parentElementId", -1));
@@ -300,8 +308,12 @@ public class PslProjectLoader implements ProjectPartLoader {
 			map.put("colorEnd", colorToString(p.getColorEnd()));
 			map.put("alphaStart", p.getAlphaStart());
 			map.put("alphaEnd", p.getAlphaEnd());
-			map.put("rotationStart", p.getRotationStart());
-			map.put("rotationEnd", p.getRotationEnd());
+			map.put("rotationStartX", p.getRotationStartX());
+			map.put("rotationStartY", p.getRotationStartY());
+			map.put("rotationStartZ", p.getRotationStartZ());
+			map.put("rotationEndX", p.getRotationEndX());
+			map.put("rotationEndY", p.getRotationEndY());
+			map.put("rotationEndZ", p.getRotationEndZ());
 			map.put("collision", p.isCollision());
 			map.put("billboard", p.getBillboard().name());
 			map.put("blendMode", p.getBlendMode().name());
@@ -310,10 +322,14 @@ public class PslProjectLoader implements ProjectPartLoader {
 			if (p.getPathAnimation() != null) map.put("pathAnimation", p.getPathAnimation());
 			map.put("inheritTargetMotion", p.isInheritTargetMotion());
 			map.put("offset", vec3fToMap(p.getOffset()).asMap());
-			map.put("windInfluence", p.getWindInfluence());
+			map.put("windStrength", p.getWindStrength());
+			map.put("windDirection", vec3fToMap(p.getWindDirection()).asMap());
 			map.put("rotationMode", p.getRotationMode().name());
-			map.put("rotationSpeed", p.getRotationSpeed());
+			map.put("rotationSpeedX", p.getRotationSpeedX());
+			map.put("rotationSpeedY", p.getRotationSpeedY());
+			map.put("rotationSpeedZ", p.getRotationSpeedZ());
 			map.put("randomRotationStart", p.isRandomRotationStart());
+			map.put("playbackSpeed", p.getPlaybackSpeed());
 		} else if (elem instanceof PhysicsBone) {
 			PhysicsBone b = (PhysicsBone) elem;
 			map.put("parentElementId", b.getParentElementId());

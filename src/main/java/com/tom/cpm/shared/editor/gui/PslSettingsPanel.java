@@ -102,15 +102,14 @@ public class PslSettingsPanel extends Panel {
 		checkRow("label.cpm.psl.particle.inheritTargetMotion", p.isInheritTargetMotion(), p::setInheritTargetMotion, null, false, null);
 		vec3("label.cpm.psl.particle.velocity", p.getVelocity());
 		constrainedNumberRow("label.cpm.psl.particle.velocityVar", p.getVelocityVariation(), 2, 0f, null, p::setVelocityVariation, "label.cpm.psl.particle.gravity", p.getGravity(), 2, 0f, null, p::setGravity);
-		constrainedNumberRow("label.cpm.psl.particle.windInfluence", p.getWindInfluence(), 2, (Float)0f, (Float)1f, (java.util.function.Consumer<Float>)p::setWindInfluence, (String)null, 0f, 0, (Float)null, (Float)null, (java.util.function.Consumer<Float>)null);
 		checkRow("label.cpm.psl.particle.collision", p.isCollision(), p::setCollision, "label.cpm.psl.particle.respectGfx", p.isRespectGraphicsSetting(), p::setRespectGraphicsSetting);
 
 		section("label.cpm.psl.section.appearance");
 		constrainedNumberRow("label.cpm.psl.particle.scaleStart", p.getScaleStart(), 2, 0f, null, p::setScaleStart, "label.cpm.psl.particle.scaleEnd", p.getScaleEnd(), 2, 0f, null, p::setScaleEnd);
 		constrainedNumberRow("label.cpm.psl.particle.alphaStart", p.getAlphaStart(), 2, 0f, 1f, p::setAlphaStart, "label.cpm.psl.particle.alphaEnd", p.getAlphaEnd(), 2, 0f, 1f, p::setAlphaEnd);
-		enumRow("label.cpm.psl.particle.rotationMode", p.getRotationMode().ordinal(), ParticleEmitter.RotationMode.VALUES, v -> p.setRotationMode(ParticleEmitter.RotationMode.VALUES[v]), null, 0, null, null);
-		constrainedNumberRow("label.cpm.psl.particle.rotationStart", p.getRotationStart(), 1, null, null, p::setRotationStart, "label.cpm.psl.particle.rotationEnd", p.getRotationEnd(), 1, null, null, p::setRotationEnd);
-		constrainedNumberRow("label.cpm.psl.particle.rotationSpeed", p.getRotationSpeed(), 1, (Float)0f, (Float)null, (java.util.function.Consumer<Float>)p::setRotationSpeed, "label.cpm.psl.particle.randomRotationStart", p.isRandomRotationStart() ? 1f : 0f, 0, (Float)0f, (Float)1f, (java.util.function.Consumer<Float>)(v -> p.setRandomRotationStart(v >= 0.5f)));
+		buttonRow("label.cpm.psl.particle.rotationConfig", () -> frm.openPopup(new PslRotationPopup(frm, p, () -> editor.markDirty())));
+		buttonRow("label.cpm.psl.particle.windConfig", () -> frm.openPopup(new PslWindPopup(frm, p, () -> editor.markDirty())));
+		constrainedNumberRow("label.cpm.psl.particle.playbackSpeed", p.getPlaybackSpeed(), 2, 0.1f, 10f, p::setPlaybackSpeed, null, 0f, 0, null, null, null);
 		colorRow("label.cpm.psl.particle.colorStart", p.getColorStart(), c -> p.setColorStart(c));
 		colorRow("label.cpm.psl.particle.colorEnd", p.getColorEnd(), c -> p.setColorEnd(c));
 	}
@@ -241,6 +240,13 @@ public class PslSettingsPanel extends Panel {
 		row.setBounds(new Box(0, 0, formWidth, 22));
 		addElement(row);
 		return row;
+	}
+
+	private void buttonRow(String key, Runnable action) {
+		Panel row = row();
+		Button btn = new Button(gui, gui.i18nFormat(key), action);
+		btn.setBounds(new Box(4, 2, formWidth - 12, 18));
+		row.addElement(btn);
 	}
 
 	private int fieldWidth() {

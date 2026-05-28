@@ -82,9 +82,9 @@ public class ParticleRenderer {
 			PoseStack particleStack = new PoseStack();
 			particleStack.translate(px, py, pz);
 			particleStack.mulPose(camera.rotation());
-			if (p.rotation != 0) {
-				particleStack.mulPose(Axis.ZP.rotationDegrees(p.rotation));
-			}
+			if (p.rotX != 0) particleStack.mulPose(Axis.XP.rotationDegrees(p.rotX));
+			if (p.rotY != 0) particleStack.mulPose(Axis.YP.rotationDegrees(p.rotY));
+			if (p.rotZ != 0) particleStack.mulPose(Axis.ZP.rotationDegrees(p.rotZ));
 			var pose = particleStack.last();
 			var mat = pose.pose();
 
