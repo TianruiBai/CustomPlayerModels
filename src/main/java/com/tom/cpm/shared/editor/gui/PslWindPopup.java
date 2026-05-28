@@ -23,19 +23,19 @@ public class PslWindPopup extends PopupPanel {
 		super(frame.getGui());
 		this.emitter = emitter;
 		this.onChanged = onChanged;
-		setBounds(new Box(0, 0, 300, 150));
+		setBounds(new Box(0, 0, 380, 145));
 
 		Label title = new Label(gui, gui.i18nFormat("label.cpm.psl.popup.windTitle"));
-		title.setBounds(new Box(8, 8, 280, 12));
+		title.setBounds(new Box(8, 8, 360, 12));
 		addElement(title);
 
 		// Wind strength
 		Label strLbl = new Label(gui, gui.i18nFormat("label.cpm.psl.particle.windStrength"));
-		strLbl.setBounds(new Box(8, 30, 100, 12));
+		strLbl.setBounds(new Box(8, 30, 112, 12));
 		addElement(strLbl);
-		strengthSpinner = mkSpinner(116, 28, emitter.getWindStrength(), v -> emitter.setWindStrength(v));
+		strengthSpinner = mkSpinner(140, 28, emitter.getWindStrength(), v -> emitter.setWindStrength(Math.max(0, v)));
 		Label strHint = new Label(gui, "(m/s)");
-		strHint.setBounds(new Box(190, 30, 100, 12));
+		strHint.setBounds(new Box(210, 30, 100, 12));
 		addElement(strHint);
 
 		// Direction X/Y/Z
@@ -47,30 +47,30 @@ public class PslWindPopup extends PopupPanel {
 
 		// Close
 		Button close = new Button(gui, gui.i18nFormat("button.cpm.ok"), this::close);
-		close.setBounds(new Box(110, 100, 80, 20));
+		close.setBounds(new Box(150, 100, 80, 20));
 		addElement(close);
 	}
 
 	private void addDirRow(String labelKey, int y, float x, float yv, float z,
 			Consumer<Float> setX, Consumer<Float> setY, Consumer<Float> setZ) {
 		Label lbl = new Label(gui, gui.i18nFormat(labelKey));
-		lbl.setBounds(new Box(8, y + 3, 100, 12));
+		lbl.setBounds(new Box(8, y + 3, 112, 12));
 		addElement(lbl);
 
 		Label xl = new Label(gui, "X");
-		xl.setBounds(new Box(116, y + 3, 12, 12));
+		xl.setBounds(new Box(128, y + 3, 12, 12));
 		addElement(xl);
-		dirX = mkSpinner(120, y, x, setX);
+		dirX = mkSpinner(140, y, x, setX);
 
 		Label yl = new Label(gui, "Y");
-		yl.setBounds(new Box(184, y + 3, 12, 12));
+		yl.setBounds(new Box(208, y + 3, 12, 12));
 		addElement(yl);
-		dirY = mkSpinner(188, y, yv, setY);
+		dirY = mkSpinner(220, y, yv, setY);
 
 		Label zl = new Label(gui, "Z");
-		zl.setBounds(new Box(252, y + 3, 12, 12));
+		zl.setBounds(new Box(288, y + 3, 12, 12));
 		addElement(zl);
-		dirZ = mkSpinner(256, y, z, setZ);
+		dirZ = mkSpinner(300, y, z, setZ);
 	}
 
 	private Spinner mkSpinner(int x, int y, float value, Consumer<Float> setter) {

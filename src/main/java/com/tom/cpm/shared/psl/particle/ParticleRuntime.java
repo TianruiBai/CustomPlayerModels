@@ -102,21 +102,21 @@ public class ParticleRuntime {
 			p.scale = lerp(def.getScaleStart(), def.getScaleEnd(), progress);
 			p.alpha = lerp(def.getAlphaStart(), def.getAlphaEnd(), progress);
 
-		// Rotation (XYZ)
-		switch (def.getRotationMode()) {
-			case NONE:
-				break;
-			case LINEAR:
-				p.rotX = lerp(def.getRotationStartX(), def.getRotationEndX(), progress);
-				p.rotY = lerp(def.getRotationStartY(), def.getRotationEndY(), progress);
-				p.rotZ = lerp(def.getRotationStartZ(), def.getRotationEndZ(), progress);
-				break;
-			case SPIN:
-				p.rotX += p.rotSpeedX * pdt;
-				p.rotY += p.rotSpeedY * pdt;
-				p.rotZ += p.rotSpeedZ * pdt;
-				break;
-		}
+			// Rotation (XYZ)
+			switch (def.getRotationMode()) {
+				case NONE:
+					break;
+				case LINEAR:
+					p.rotX = lerp(p.rotStartX, p.rotEndX, progress);
+					p.rotY = lerp(p.rotStartY, p.rotEndY, progress);
+					p.rotZ = lerp(p.rotStartZ, p.rotEndZ, progress);
+					break;
+				case SPIN:
+					p.rotX += p.rotSpeedX * pdt;
+					p.rotY += p.rotSpeedY * pdt;
+					p.rotZ += p.rotSpeedZ * pdt;
+					break;
+			}
 			if(def.getPathMode() == ParticleEmitter.PathMode.ANIMATION_PATH) {
 				Vec3f nextOffset = copy(runtime.sampleParticlePath(def.getPathAnimation(), progress));
 				p.position.x += nextOffset.x - p.pathOffset.x;
@@ -185,14 +185,23 @@ public class ParticleRuntime {
 
 		// Initial rotation (XYZ)
 		if (def.isRandomRotationStart()) {
-			p.rotX = random.nextFloat() * 360f;
-			p.rotY = random.nextFloat() * 360f;
-			p.rotZ = random.nextFloat() * 360f;
+			p.rotStartX = random.nextFloat() * 360f;
+			p.rotStartY = random.nextFloat() * 360f;
+			p.rotStartZ = random.nextFloat() * 360f;
+			p.rotEndX = p.rotStartX + (def.getRotationEndX() - def.getRotationStartX());
+			p.rotEndY = p.rotStartY + (def.getRotationEndY() - def.getRotationStartY());
+			p.rotEndZ = p.rotStartZ + (def.getRotationEndZ() - def.getRotationStartZ());
 		} else {
-			p.rotX = def.getRotationStartX();
-			p.rotY = def.getRotationStartY();
-			p.rotZ = def.getRotationStartZ();
+			p.rotStartX = def.getRotationStartX();
+			p.rotStartY = def.getRotationStartY();
+			p.rotStartZ = def.getRotationStartZ();
+			p.rotEndX = def.getRotationEndX();
+			p.rotEndY = def.getRotationEndY();
+			p.rotEndZ = def.getRotationEndZ();
 		}
+		p.rotX = p.rotStartX;
+		p.rotY = p.rotStartY;
+		p.rotZ = p.rotStartZ;
 		p.rotSpeedX = def.getRotationSpeedX();
 		p.rotSpeedY = def.getRotationSpeedY();
 		p.rotSpeedZ = def.getRotationSpeedZ();

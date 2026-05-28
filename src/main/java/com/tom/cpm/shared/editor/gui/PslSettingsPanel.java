@@ -93,6 +93,7 @@ public class PslSettingsPanel extends Panel {
 		section("label.cpm.psl.section.emission");
 		constrainedNumberRow("label.cpm.psl.particle.rate", p.getRate(), 1, 0f, null, p::setRate, "label.cpm.psl.particle.maxParticles", p.getMaxParticles(), 0, 1f, null, v -> p.setMaxParticles((int) v.floatValue()));
 		constrainedNumberRow("label.cpm.psl.particle.lifeMin", p.getLifeMin(), 1, 0f, null, v -> p.setLifeMin(Math.min(v, p.getLifeMax())), "label.cpm.psl.particle.lifeMax", p.getLifeMax(), 1, 0f, null, v -> p.setLifeMax(Math.max(v, p.getLifeMin())));
+		constrainedNumberRow("label.cpm.psl.particle.playbackSpeed", p.getPlaybackSpeed(), 2, 0.1f, 10f, p::setPlaybackSpeed, null, 0f, 0, null, null, null);
 		vec3("label.cpm.psl.particle.emitterSize", p.getEmitterSize(), 0f, null, null);
 		vec3("label.cpm.psl.particle.offset", p.getOffset());
 
@@ -102,14 +103,13 @@ public class PslSettingsPanel extends Panel {
 		checkRow("label.cpm.psl.particle.inheritTargetMotion", p.isInheritTargetMotion(), p::setInheritTargetMotion, null, false, null);
 		vec3("label.cpm.psl.particle.velocity", p.getVelocity());
 		constrainedNumberRow("label.cpm.psl.particle.velocityVar", p.getVelocityVariation(), 2, 0f, null, p::setVelocityVariation, "label.cpm.psl.particle.gravity", p.getGravity(), 2, 0f, null, p::setGravity);
+		buttonRow("label.cpm.psl.particle.windConfig", () -> frm.openPopup(new PslWindPopup(frm, p, () -> editor.markDirty())));
 		checkRow("label.cpm.psl.particle.collision", p.isCollision(), p::setCollision, "label.cpm.psl.particle.respectGfx", p.isRespectGraphicsSetting(), p::setRespectGraphicsSetting);
 
 		section("label.cpm.psl.section.appearance");
 		constrainedNumberRow("label.cpm.psl.particle.scaleStart", p.getScaleStart(), 2, 0f, null, p::setScaleStart, "label.cpm.psl.particle.scaleEnd", p.getScaleEnd(), 2, 0f, null, p::setScaleEnd);
 		constrainedNumberRow("label.cpm.psl.particle.alphaStart", p.getAlphaStart(), 2, 0f, 1f, p::setAlphaStart, "label.cpm.psl.particle.alphaEnd", p.getAlphaEnd(), 2, 0f, 1f, p::setAlphaEnd);
 		buttonRow("label.cpm.psl.particle.rotationConfig", () -> frm.openPopup(new PslRotationPopup(frm, p, () -> editor.markDirty())));
-		buttonRow("label.cpm.psl.particle.windConfig", () -> frm.openPopup(new PslWindPopup(frm, p, () -> editor.markDirty())));
-		constrainedNumberRow("label.cpm.psl.particle.playbackSpeed", p.getPlaybackSpeed(), 2, 0.1f, 10f, p::setPlaybackSpeed, null, 0f, 0, null, null, null);
 		colorRow("label.cpm.psl.particle.colorStart", p.getColorStart(), c -> p.setColorStart(c));
 		colorRow("label.cpm.psl.particle.colorEnd", p.getColorEnd(), c -> p.setColorEnd(c));
 	}

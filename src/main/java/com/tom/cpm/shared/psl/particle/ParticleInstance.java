@@ -15,6 +15,8 @@ public class ParticleInstance {
 	public float scale = 1;
 	public int color = 0xFFFFFFFF;
 	public float alpha = 1;
+	public float rotStartX, rotStartY, rotStartZ;
+	public float rotEndX, rotEndY, rotEndZ;
 	public float rotX, rotY, rotZ;
 	public float rotSpeedX, rotSpeedY, rotSpeedZ;
 }

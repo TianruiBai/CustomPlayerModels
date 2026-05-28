@@ -56,7 +56,7 @@ final class PslParticlePreviewStyle {
 		drawTexturedQuad(stack, buffer, pos.x, pos.y, pos.z, s * 0.72f, Math.min(1f, a * 1.15f), -rotation * 0.6f, u0, v0, u1, v1, true);
 	}
 
-	static void drawWorldBillboardSprite(MatrixStack stack, VertexBuffer buffer, ParticleEmitter emitter, Vec3f pos, Vec3f camRight, Vec3f camUp, float size, float alpha, float rotation) {
+	static void drawWorldBillboardSprite(MatrixStack stack, VertexBuffer buffer, ParticleEmitter emitter, Vec3f pos, Vec3f camRight, Vec3f camUp, float size, float alpha, float rotXDeg, float rotYDeg, float rotZDeg) {
 		float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
 		if(!emitter.isMinecraftParticle()) {
 			int texW = Math.max(1, emitter.getSpriteTexW());
@@ -69,25 +69,51 @@ final class PslParticlePreviewStyle {
 
 		float s = Math.max(0.2f, size);
 		float a = Math.max(0.18f, Math.min(1f, alpha));
-		float cos = (float)Math.cos(rotation);
-		float sin = (float)Math.sin(rotation);
+		Vec3f right = camRight.copy();
+		Vec3f up = camUp.copy();
+		Vec3f forward = cross(right, up);
+		if(!forward.epsilon(0.0001f))forward.normalize();
 
-		// Rotate camera right/up around the view axis by the particle's rotation
-		float rx = camRight.x * cos - camUp.x * sin;
-		float ry = camRight.y * cos - camUp.y * sin;
-		float rz = camRight.z * cos - camUp.z * sin;
-		float ux = camRight.x * sin + camUp.x * cos;
-		float uy = camRight.y * sin + camUp.y * cos;
-		float uz = camRight.z * sin + camUp.z * cos;
+		if(rotXDeg != 0) {
+			up = rotateAroundAxis(up, right, rotXDeg * 0.017453292f);
+			forward = rotateAroundAxis(forward, right, rotXDeg * 0.017453292f);
+		}
+		if(rotYDeg != 0) {
+			right = rotateAroundAxis(right, up, rotYDeg * 0.017453292f);
+			forward = rotateAroundAxis(forward, up, rotYDeg * 0.017453292f);
+		}
+		if(rotZDeg != 0) {
+			right = rotateAroundAxis(right, forward, rotZDeg * 0.017453292f);
+			up = rotateAroundAxis(up, forward, rotZDeg * 0.017453292f);
+		}
 
 		Mat4f matrix = stack.getLast().getMatrix();
 		Mat3f normal = stack.getLast().getNormal();
 
 		// Single camera-facing quad: corners at ±right*s ± up*s (in rotated frame)
-		vertex(buffer, matrix, normal, pos.x - rx * s + ux * s, pos.y - ry * s + uy * s, pos.z - rz * s + uz * s, a, u0, v0);
-		vertex(buffer, matrix, normal, pos.x + rx * s + ux * s, pos.y + ry * s + uy * s, pos.z + rz * s + uz * s, a, u1, v0);
-		vertex(buffer, matrix, normal, pos.x + rx * s - ux * s, pos.y + ry * s - uy * s, pos.z + rz * s - uz * s, a, u1, v1);
-		vertex(buffer, matrix, normal, pos.x - rx * s - ux * s, pos.y - ry * s - uy * s, pos.z - rz * s - uz * s, a, u0, v1);
+		vertex(buffer, matrix, normal, pos.x - right.x * s + up.x * s, pos.y - right.y * s + up.y * s, pos.z - right.z * s + up.z * s, a, u0, v0);
+		vertex(buffer, matrix, normal, pos.x + right.x * s + up.x * s, pos.y + right.y * s + up.y * s, pos.z + right.z * s + up.z * s, a, u1, v0);
+		vertex(buffer, matrix, normal, pos.x + right.x * s - up.x * s, pos.y + right.y * s - up.y * s, pos.z + right.z * s - up.z * s, a, u1, v1);
+		vertex(buffer, matrix, normal, pos.x - right.x * s - up.x * s, pos.y - right.y * s - up.y * s, pos.z - right.z * s - up.z * s, a, u0, v1);
+	}
+
+	private static Vec3f cross(Vec3f a, Vec3f b) {
+		return new Vec3f(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+	}
+
+	private static Vec3f rotateAroundAxis(Vec3f v, Vec3f axis, float angle) {
+		Vec3f n = axis.copy();
+		if(n.epsilon(0.0001f))return v;
+		n.normalize();
+		float cos = (float)Math.cos(angle);
+		float sin = (float)Math.sin(angle);
+		float dot = v.x * n.x + v.y * n.y + v.z * n.z;
+		Vec3f cross = cross(n, v);
+		return new Vec3f(
+			v.x * cos + cross.x * sin + n.x * dot * (1 - cos),
+			v.y * cos + cross.y * sin + n.y * dot * (1 - cos),
+			v.z * cos + cross.z * sin + n.z * dot * (1 - cos)
+		);
 	}
 
 	private static void drawTexturedQuad(MatrixStack stack, VertexBuffer buffer, float x, float y, float z, float size, float alpha, float rotation, float u0, float v0, float u1, float v1, boolean crossPlane) {
