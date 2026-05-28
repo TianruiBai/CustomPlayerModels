@@ -174,6 +174,9 @@ public class PslProjectLoader implements ProjectPartLoader {
 			p.setRotationSpeedZ(map.getFloat("rotationSpeedZ", 0));
 			p.setRandomRotationStart(map.getBoolean("randomRotationStart", false));
 			p.setPlaybackSpeed(map.getFloat("playbackSpeed", 1));
+			p.setFrameCount(map.getInt("frameCount", 1));
+			p.setFrameTimeMs(map.getInt("frameTimeMs", 100));
+			p.setAnimHorizontal(map.getBoolean("animHorizontal", true));
 		} else if (elem instanceof PhysicsBone) {
 			PhysicsBone b = (PhysicsBone) elem;
 			b.setParentElementId(map.getInt("parentElementId", -1));
@@ -332,6 +335,9 @@ public class PslProjectLoader implements ProjectPartLoader {
 			map.put("rotationSpeedZ", p.getRotationSpeedZ());
 			map.put("randomRotationStart", p.isRandomRotationStart());
 			map.put("playbackSpeed", p.getPlaybackSpeed());
+			map.put("frameCount", p.getFrameCount());
+			map.put("frameTimeMs", p.getFrameTimeMs());
+			map.put("animHorizontal", p.isAnimHorizontal());
 		} else if (elem instanceof PhysicsBone) {
 			PhysicsBone b = (PhysicsBone) elem;
 			map.put("parentElementId", b.getParentElementId());

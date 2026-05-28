@@ -19,4 +19,6 @@ public class ParticleInstance {
 	public float rotEndX, rotEndY, rotEndZ;
 	public float rotX, rotY, rotZ;
 	public float rotSpeedX, rotSpeedY, rotSpeedZ;
+	/** Per-particle animated UV for the current frame (set by runtime each tick). */
+	public float frameU0, frameV0, frameU1, frameV1;
 }

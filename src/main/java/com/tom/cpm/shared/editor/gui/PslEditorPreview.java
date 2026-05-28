@@ -103,7 +103,11 @@ public class PslEditorPreview {
 		VertexBuffer buffer = buffers.getBuffer(nrt);
 		for(ParticleInstance particle : instances) {
 			float size = Math.max(0.02f, particle.scale * 0.5f);
-			PslParticlePreviewStyle.drawWorldBillboardSprite(stack, buffer, emitter, particle.position, camRight, camUp, size, particle.alpha, particle.rotX, particle.rotY, particle.rotZ);
+			float u0 = emitter.isAnimated() ? particle.frameU0 : 0;
+			float v0 = emitter.isAnimated() ? particle.frameV0 : 0;
+			float u1 = emitter.isAnimated() ? particle.frameU1 : 1;
+			float v1 = emitter.isAnimated() ? particle.frameV1 : 1;
+			PslParticlePreviewStyle.drawWorldBillboardSpriteUv(stack, buffer, emitter, particle.position, camRight, camUp, size, particle.alpha, particle.rotX, particle.rotY, particle.rotZ, u0, v0, u1, v1);
 		}
 	}
 

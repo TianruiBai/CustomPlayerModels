@@ -112,6 +112,7 @@ public class PslSettingsPanel extends Panel {
 		constrainedNumberRow("label.cpm.psl.particle.scaleStart", p.getScaleStart(), 2, 0f, null, p::setScaleStart, "label.cpm.psl.particle.scaleEnd", p.getScaleEnd(), 2, 0f, null, p::setScaleEnd);
 		constrainedNumberRow("label.cpm.psl.particle.alphaStart", p.getAlphaStart(), 2, 0f, 1f, p::setAlphaStart, "label.cpm.psl.particle.alphaEnd", p.getAlphaEnd(), 2, 0f, 1f, p::setAlphaEnd);
 		buttonRow("label.cpm.psl.particle.rotationConfig", () -> frm.openPopup(new PslRotationPopup(frm, p, () -> editor.markDirty())));
+		buttonRow("label.cpm.psl.particle.animConfig", () -> frm.openPopup(new PslAnimPopup(frm, p, () -> editor.markDirty())));
 		colorRow("label.cpm.psl.particle.colorStart", p.getColorStart(), c -> p.setColorStart(c));
 		colorRow("label.cpm.psl.particle.colorEnd", p.getColorEnd(), c -> p.setColorEnd(c));
 	}

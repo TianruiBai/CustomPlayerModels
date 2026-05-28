@@ -104,6 +104,24 @@ public class ParticleRuntime {
 			p.scale = lerp(def.getScaleStart(), def.getScaleEnd(), progress);
 			p.alpha = lerp(def.getAlphaStart(), def.getAlphaEnd(), progress);
 
+			// Animated UV
+			if(def.isAnimated()) {
+				int texW = Math.max(1, def.getSpriteTexW());
+				int texH = Math.max(1, def.getSpriteTexH());
+				float fw = def.getSpriteWidth();
+				float fh = def.getSpriteHeight();
+				int frame = (int)(p.age * 1000f / def.getFrameTimeMs()) % def.getFrameCount();
+				if(def.isAnimHorizontal()) {
+					p.frameU0 = (def.getSpriteU() + frame * fw) / texW;
+					p.frameV0 = def.getSpriteV() / (float)texH;
+				} else {
+					p.frameU0 = def.getSpriteU() / (float)texW;
+					p.frameV0 = (def.getSpriteV() + frame * fh) / texH;
+				}
+				p.frameU1 = p.frameU0 + fw / texW;
+				p.frameV1 = p.frameV0 + fh / texH;
+			}
+
 			// Rotation (XYZ)
 			switch (def.getRotationMode()) {
 				case NONE:
@@ -184,6 +202,15 @@ public class ParticleRuntime {
 		p.scale = def.getScaleStart();
 		p.alpha = def.getAlphaStart();
 		p.color = def.getColorStart();
+		// Init animated UV to first frame
+		if(def.isAnimated()) {
+			int texW = Math.max(1, def.getSpriteTexW());
+			int texH = Math.max(1, def.getSpriteTexH());
+			p.frameU0 = def.getSpriteU() / (float)texW;
+			p.frameV0 = def.getSpriteV() / (float)texH;
+			p.frameU1 = p.frameU0 + def.getSpriteWidth() / (float)texW;
+			p.frameV1 = p.frameV0 + def.getSpriteHeight() / (float)texH;
+		}
 
 		// Initial rotation (XYZ)
 		if (def.isRandomRotationStart()) {

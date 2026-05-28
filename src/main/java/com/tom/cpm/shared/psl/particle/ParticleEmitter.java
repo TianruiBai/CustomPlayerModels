@@ -114,9 +114,15 @@ public class ParticleEmitter extends PslElement {
 	private float windStrength;
 	private Vec3f windDirection = new Vec3f(-0.3f, 0.05f, 0.2f);
 	private float playbackSpeed = 1;
+	private int frameCount = 1;
+	private int frameTimeMs = 100;
+	private boolean animHorizontal = true;
 
 	public ParticleEmitter() {
 	}
+
+	/** True when this emitter uses multi-frame animation. */
+	public boolean isAnimated() { return frameCount > 1; }
 
 	public ParticleEmitter(long id, int elementId) {
 		super(id, elementId);
@@ -184,6 +190,9 @@ public class ParticleEmitter extends PslElement {
 		out.writeBoolean(randomRotationStart);
 		out.writeFloat(playbackSpeed);
 		out.writeVarInt(movementMode.ordinal());
+		out.writeVarInt(frameCount);
+		out.writeVarInt(frameTimeMs);
+		out.writeBoolean(animHorizontal);
 	}
 
 	@Override
@@ -239,6 +248,9 @@ public class ParticleEmitter extends PslElement {
 			randomRotationStart = in.readBoolean();
 			playbackSpeed = in.readFloat();
 			movementMode = readEnum(MovementMode.VALUES, in.readVarInt(), MovementMode.PSL_DEFINED);
+			frameCount = in.readVarInt();
+			frameTimeMs = in.readVarInt();
+			animHorizontal = in.readBoolean();
 		} catch (IOException ignored) {
 		}
 	}
@@ -345,4 +357,10 @@ public class ParticleEmitter extends PslElement {
 	public void setWindStrength(float v) { this.windStrength = v; }
 	public float getPlaybackSpeed() { return playbackSpeed; }
 	public void setPlaybackSpeed(float v) { this.playbackSpeed = v; }
+	public int getFrameCount() { return frameCount; }
+	public void setFrameCount(int v) { this.frameCount = Math.max(1, v); }
+	public int getFrameTimeMs() { return frameTimeMs; }
+	public void setFrameTimeMs(int v) { this.frameTimeMs = Math.max(1, v); }
+	public boolean isAnimHorizontal() { return animHorizontal; }
+	public void setAnimHorizontal(boolean v) { this.animHorizontal = v; }
 }

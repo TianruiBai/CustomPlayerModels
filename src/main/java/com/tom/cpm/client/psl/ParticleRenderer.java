@@ -74,10 +74,10 @@ public class ParticleRenderer {
 			int bb = p.color & 0xFF;
 			int aa = (int)(p.alpha * 255f);
 
-			float u0 = texture.u0;
-			float v0 = texture.v0;
-			float u1 = texture.u1;
-			float v1 = texture.v1;
+			float u0 = def.isAnimated() ? p.frameU0 : texture.u0;
+			float v0 = def.isAnimated() ? p.frameV0 : texture.v0;
+			float u1 = def.isAnimated() ? p.frameU1 : texture.u1;
+			float v1 = def.isAnimated() ? p.frameV1 : texture.v1;
 
 			PoseStack particleStack = new PoseStack();
 			particleStack.translate(px, py, pz);

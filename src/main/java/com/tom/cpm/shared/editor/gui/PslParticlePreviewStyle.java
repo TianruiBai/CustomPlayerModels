@@ -97,6 +97,36 @@ final class PslParticlePreviewStyle {
 		vertex(buffer, matrix, normal, pos.x - right.x * s - up.x * s, pos.y - right.y * s - up.y * s, pos.z - right.z * s - up.z * s, a, u0, v1);
 	}
 
+	static void drawWorldBillboardSpriteUv(MatrixStack stack, VertexBuffer buffer, ParticleEmitter emitter, Vec3f pos, Vec3f camRight, Vec3f camUp, float size, float alpha, float rotXDeg, float rotYDeg, float rotZDeg, float u0, float v0, float u1, float v1) {
+		float s = Math.max(0.2f, size);
+		float a = Math.max(0.18f, Math.min(1f, alpha));
+		Vec3f right = camRight.copy();
+		Vec3f up = camUp.copy();
+		Vec3f forward = cross(right, up);
+		if(!forward.epsilon(0.0001f))forward.normalize();
+
+		if(rotXDeg != 0) {
+			up = rotateAroundAxis(up, right, rotXDeg * 0.017453292f);
+			forward = rotateAroundAxis(forward, right, rotXDeg * 0.017453292f);
+		}
+		if(rotYDeg != 0) {
+			right = rotateAroundAxis(right, up, rotYDeg * 0.017453292f);
+			forward = rotateAroundAxis(forward, up, rotYDeg * 0.017453292f);
+		}
+		if(rotZDeg != 0) {
+			right = rotateAroundAxis(right, forward, rotZDeg * 0.017453292f);
+			up = rotateAroundAxis(up, forward, rotZDeg * 0.017453292f);
+		}
+
+		Mat4f matrix = stack.getLast().getMatrix();
+		Mat3f normal = stack.getLast().getNormal();
+
+		vertex(buffer, matrix, normal, pos.x - right.x * s + up.x * s, pos.y - right.y * s + up.y * s, pos.z - right.z * s + up.z * s, a, u0, v0);
+		vertex(buffer, matrix, normal, pos.x + right.x * s + up.x * s, pos.y + right.y * s + up.y * s, pos.z + right.z * s + up.z * s, a, u1, v0);
+		vertex(buffer, matrix, normal, pos.x + right.x * s - up.x * s, pos.y + right.y * s - up.y * s, pos.z + right.z * s - up.z * s, a, u1, v1);
+		vertex(buffer, matrix, normal, pos.x - right.x * s - up.x * s, pos.y - right.y * s - up.y * s, pos.z - right.z * s - up.z * s, a, u0, v1);
+	}
+
 	private static Vec3f cross(Vec3f a, Vec3f b) {
 		return new Vec3f(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
 	}
