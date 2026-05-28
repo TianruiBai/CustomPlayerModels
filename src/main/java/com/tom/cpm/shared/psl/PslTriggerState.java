@@ -30,11 +30,8 @@ public interface PslTriggerState {
 	boolean isKeyframeTriggered();
 
 	/**
-	 * Check if a specific gesture parameter bit is set.
-	 * This is used by LAYER_TOGGLE triggers to read CPM layer toggle state.
-	 * @param param the gesture parameter byte index
-	 * @param mask  the bit mask within that byte
-	 * @return true if (gestureData[param] & mask) != 0
+	 * Check if a named CPM layer toggle (BoolParameterToggleButtonData) is currently ON.
+	 * Looks up the toggle by name and reads its gesture parameter bit.
 	 */
-	boolean getGestureParam(int param, int mask);
+	boolean isLayerToggleActive(String layerToggleName);
 }

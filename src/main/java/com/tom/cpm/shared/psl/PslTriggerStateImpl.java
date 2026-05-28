@@ -3,6 +3,7 @@ package com.tom.cpm.shared.psl;
 import com.tom.cpm.shared.animation.AnimationEngine;
 import com.tom.cpm.shared.animation.AnimationState;
 import com.tom.cpm.shared.parts.anim.menu.AbstractGestureButtonData;
+import com.tom.cpm.shared.parts.anim.menu.BoolParameterToggleButtonData;
 import com.tom.cpm.shared.parts.anim.menu.CustomPoseGestureButtonData;
 import com.tom.cpm.shared.animation.AnimationRegistry;
 
@@ -124,9 +125,15 @@ public class PslTriggerStateImpl implements PslTriggerState {
 	}
 
 	@Override
-	public boolean getGestureParam(int param, int mask) {
-		if (engine == null || param < 0) return false;
-		byte val = engine.getGestureValue(param);
-		return (val & mask) != 0;
+	public boolean isLayerToggleActive(String layerToggleName) {
+		if (layerToggleName == null || engine == null) return false;
+		for (AbstractGestureButtonData btn : registry.getNamedActions()) {
+			if (btn instanceof BoolParameterToggleButtonData && layerToggleName.equals(btn.getName())) {
+				BoolParameterToggleButtonData toggle = (BoolParameterToggleButtonData) btn;
+				byte val = engine.getGestureValue(toggle.parameter);
+				return (val & toggle.mask) != 0;
+			}
+		}
+		return false;
 	}
 }

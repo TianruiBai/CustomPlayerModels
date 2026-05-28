@@ -39,8 +39,7 @@ public class PslTrigger {
 	private float paramMin;
 	private float paramMax;
 	private String eventName;
-	private int layerParam;
-	private int layerMask;
+	private String layerToggleName;
 
 	public PslTrigger() {
 		this.type = TriggerType.ALWAYS;
@@ -60,8 +59,7 @@ public class PslTrigger {
 		this.paramMin = 0;
 		this.paramMax = 0;
 		this.eventName = null;
-		this.layerParam = 0;
-		this.layerMask = 0;
+		this.layerToggleName = null;
 	}
 
 	public TriggerType getType() {
@@ -124,20 +122,12 @@ public class PslTrigger {
 		this.eventName = eventName;
 	}
 
-	public int getLayerParam() {
-		return layerParam;
+	public String getLayerToggleName() {
+		return layerToggleName;
 	}
 
-	public void setLayerParam(int layerParam) {
-		this.layerParam = layerParam;
-	}
-
-	public int getLayerMask() {
-		return layerMask;
-	}
-
-	public void setLayerMask(int layerMask) {
-		this.layerMask = layerMask;
+	public void setLayerToggleName(String layerToggleName) {
+		this.layerToggleName = layerToggleName;
 	}
 
 	/**
@@ -167,8 +157,7 @@ public class PslTrigger {
 				return animName != null && animName.equals(state.getCurrentAnimation())
 					&& state.isKeyframeTriggered();
 			case LAYER_TOGGLE:
-				if (layerMask == 0) return true; // unconfigured = always on
-				return state.getGestureParam(layerParam, layerMask);
+				return layerToggleName != null && state.isLayerToggleActive(layerToggleName);
 			default:
 				return false;
 		}
@@ -196,8 +185,7 @@ public class PslTrigger {
 				out.writeUTF(eventName != null ? eventName : "");
 				break;
 			case LAYER_TOGGLE:
-				out.writeVarInt(layerParam);
-				out.write(layerMask);
+				out.writeUTF(layerToggleName != null ? layerToggleName : "");
 				break;
 			default:
 				break;
@@ -233,8 +221,8 @@ public class PslTrigger {
 				if (trigger.eventName.isEmpty()) trigger.eventName = null;
 				break;
 			case LAYER_TOGGLE:
-				trigger.layerParam = in.readVarInt();
-				trigger.layerMask = in.readUnsignedByte();
+				trigger.layerToggleName = in.readUTF();
+				if (trigger.layerToggleName.isEmpty()) trigger.layerToggleName = null;
 				break;
 			default:
 				break;
@@ -253,7 +241,7 @@ public class PslTrigger {
 			case VALUE_RANGE: return paramName + " [" + paramMin + "-" + paramMax + "]";
 			case GAME_EVENT: return "Event: " + eventName;
 			case KEYFRAME: return "Keyframe: " + animName;
-			case LAYER_TOGGLE: return "Layer: p" + layerParam + " m" + layerMask;
+			case LAYER_TOGGLE: return "Layer: " + layerToggleName;
 			default: return type.name();
 		}
 	}

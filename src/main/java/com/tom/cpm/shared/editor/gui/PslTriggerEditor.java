@@ -27,9 +27,9 @@ public class PslTriggerEditor extends Panel {
 
 	private DropDownBox<NamedElement<TriggerType>> typeDropDown;
 	private List<NamedElement<TriggerType>> triggerTypes;
-	private TextField animField, gestureField, poseField, paramField, eventField;
+	private TextField animField, gestureField, poseField, paramField, eventField, layerToggleField;
 	private Spinner paramMinSpinner, paramMaxSpinner;
-	private Label animLbl, gestureLbl, poseLbl, paramLbl, eventLbl, paramMinLbl, paramMaxLbl;
+	private Label animLbl, gestureLbl, poseLbl, paramLbl, eventLbl, paramMinLbl, paramMaxLbl, layerToggleLbl;
 
 	public PslTriggerEditor(IGui gui, EditorGui e) {
 		this(gui, e, 360);
@@ -75,6 +75,9 @@ public class PslTriggerEditor extends Panel {
 
 		eventLbl = mkLbl("label.cpm.psl.trigger.event");
 		eventField = mkTf(v -> trg().setEventName(v));
+
+		layerToggleLbl = mkLbl("label.cpm.psl.trigger.layerToggle");
+		layerToggleField = mkTf(v -> trg().setLayerToggleName(v));
 	}
 
 	private PslTrigger trg() { return editor.selectedPslElement != null ? editor.selectedPslElement.getTrigger() : null; }
@@ -146,6 +149,10 @@ public class PslTriggerEditor extends Panel {
 				eventLbl.setVisible(true); eventField.setVisible(true);
 				eventField.setText(t.getEventName() != null ? t.getEventName() : "");
 				break;
+			case LAYER_TOGGLE:
+				layerToggleLbl.setVisible(true); layerToggleField.setVisible(true);
+				layerToggleField.setText(t.getLayerToggleName() != null ? t.getLayerToggleName() : "");
+				break;
 			default: break;
 		}
 		layout.reflow();
@@ -159,5 +166,6 @@ public class PslTriggerEditor extends Panel {
 		paramMinLbl.setVisible(false); paramMinSpinner.setVisible(false);
 		paramMaxLbl.setVisible(false); paramMaxSpinner.setVisible(false);
 		eventLbl.setVisible(false); eventField.setVisible(false);
+		layerToggleLbl.setVisible(false); layerToggleField.setVisible(false);
 	}
 }

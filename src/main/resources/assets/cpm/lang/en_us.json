@@ -487,6 +487,7 @@
   "label.cpm.psl.trigger.paramMin": "Min Value",
   "label.cpm.psl.trigger.paramMax": "Max Value",
   "label.cpm.psl.trigger.event": "Event Name",
+  "label.cpm.psl.trigger.layerToggle": "Layer Toggle Name",
   "label.cpm.psl.particlePicker": "Particle Browser",
   "label.cpm.psl.noPreview": "No preview available",
   "label.cpm.psl.asset.empty": "No matching assets.",
