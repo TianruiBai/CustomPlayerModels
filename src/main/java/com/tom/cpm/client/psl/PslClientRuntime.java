@@ -34,6 +34,7 @@ import com.tom.cpm.shared.psl.PslSystem;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter;
 import com.tom.cpm.shared.psl.particle.ParticleInstance;
 import com.tom.cpm.shared.psl.sound.SoundEmitter;
+import com.tom.cpm.shared.util.Log;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.renderer.MultiBufferSource;
@@ -51,6 +52,7 @@ public class PslClientRuntime implements IPslRuntime {
 	private PslSystem currentPslSystem;
 	private ProjectFile projectCache;
 	private String projectCachePath;
+	private long lastParticleDebugLogNanos;
 
 	public PslClientRuntime() {
 		this.mc = Minecraft.getInstance();
@@ -72,14 +74,27 @@ public class PslClientRuntime implements IPslRuntime {
 
 	/** Render active particles for the currently bound PSL system. Called from the render event handler. */
 	public void renderCurrentParticles(PoseStack poseStack, MultiBufferSource bufferSource) {
-		if (currentPslSystem == null || currentPslSystem.isEmpty()) return;
+		if (currentPslSystem == null || currentPslSystem.isEmpty()) {
+			logParticleDebug("no active PSL system");
+			return;
+		}
 		net.minecraft.client.Camera camera = mc.gameRenderer.getMainCamera();
 		List<ParticleEmitter> emitters = currentPslSystem.getElementsOfType(PslElementType.PARTICLE);
+		int totalInstances = 0;
 		for (ParticleEmitter emitter : emitters) {
 			List<ParticleInstance> instances = currentPslSystem.getParticleInstances(emitter);
+			totalInstances += instances.size();
 			if (instances.isEmpty()) continue;
 			particleRenderer.render(instances, emitter, bufferSource, camera);
 		}
+		logParticleDebug("emitters=" + emitters.size() + " instances=" + totalInstances);
+	}
+
+	private void logParticleDebug(String message) {
+		long now = System.nanoTime();
+		if(now - lastParticleDebugLogNanos < 2_000_000_000L)return;
+		lastParticleDebugLogNanos = now;
+		Log.info("PSL particles: " + message);
 	}
 
 	@Override
