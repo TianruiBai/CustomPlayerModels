@@ -99,7 +99,8 @@ public class PslSettingsPanel extends Panel {
 		vec3("label.cpm.psl.particle.offset", p.getOffset());
 
 		section("label.cpm.psl.section.motion");
-		enumRow("label.cpm.psl.particle.movementMode", p.getMovementMode().ordinal(), MovementMode.VALUES, v -> p.setMovementMode(MovementMode.VALUES[v]), "label.cpm.psl.particle.pathMode", p.getPathMode().ordinal(), PathMode.VALUES, v -> p.setPathMode(PathMode.VALUES[v]));
+		enumRow("label.cpm.psl.particle.movementMode", p.getMovementMode().ordinal(), MovementMode.VALUES, v -> { p.setMovementMode(MovementMode.VALUES[v]); editor.updateGui.accept(null); }, "label.cpm.psl.particle.pathMode", p.getPathMode().ordinal(), PathMode.VALUES, v -> p.setPathMode(PathMode.VALUES[v]));
+		if(p.getMovementMode() == MovementMode.VANILLA_PARTICLE)hintLabel("label.cpm.psl.particle.vanillaPreviewHint");
 		text("label.cpm.psl.particle.pathAnimation", p.getPathAnimation(), p::setPathAnimation);
 		checkRow("label.cpm.psl.particle.inheritTargetMotion", p.isInheritTargetMotion(), p::setInheritTargetMotion, null, false, null);
 		vec3("label.cpm.psl.particle.velocity", p.getVelocity());
@@ -233,6 +234,13 @@ public class PslSettingsPanel extends Panel {
 	private void addLabel(String key) {
 		Label label = new Label(gui, gui.i18nFormat(key));
 		label.setBounds(new Box(4, 0, formWidth - 8, 12));
+		addElement(label);
+	}
+
+	private void hintLabel(String key) {
+		Label label = new Label(gui, gui.i18nFormat(key));
+		label.setBounds(new Box(8, 0, formWidth - 16, 12));
+		label.setColor(0xFF888888);
 		addElement(label);
 	}
 

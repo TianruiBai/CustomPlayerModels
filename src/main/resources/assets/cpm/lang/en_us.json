@@ -505,6 +505,7 @@
   "label.cpm.psl.particle.lifeMax": "Life Max",
   "label.cpm.psl.particle.velocity": "Velocity X/Y/Z",
   "label.cpm.psl.particle.movementMode": "Movement",
+  "label.cpm.psl.particle.vanillaPreviewHint": "Editor preview approximates vanilla particles.",
   "label.cpm.psl.particle.velocityVar": "Variation",
   "label.cpm.psl.particle.gravity": "Gravity",
   "label.cpm.psl.particle.scale": "Scale Start/End",
