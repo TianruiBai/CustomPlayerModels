@@ -226,6 +226,11 @@ public class PslEditorPreview {
 		}
 
 		@Override
+		public boolean previewVanillaParticlesWithSharedRenderer() {
+			return true;
+		}
+
+		@Override
 		public void playSound(SoundEmitter emitter, Vec3f worldPosition) {
 			PslPreviewUtil.previewSound(emitter);
 		}

@@ -158,22 +158,31 @@ public class PslClientRuntime implements IPslRuntime {
 
 	@Override
 	public void spawnBuiltinParticle(String particleId, float x, float y, float z, float vx, float vy, float vz) {
+		spawnBuiltinParticle(particleId, x, y, z, vx, vy, vz, 1f);
+	}
+
+	@Override
+	public void spawnBuiltinParticle(String particleId, float x, float y, float z, float vx, float vy, float vz, float scale) {
 		if(mc.level == null || particleId == null || particleId.isEmpty())return;
 		try {
 			var type = BuiltInRegistries.PARTICLE_TYPE.get(ResourceLocation.parse(particleId));
 			if(type instanceof SimpleParticleType) {
-				mc.level.addParticle((SimpleParticleType) type, x, y, z, vx, vy, vz);
+				var particle = mc.particleEngine.createParticle((SimpleParticleType) type, x, y, z, vx, vy, vz);
+				if(particle != null)particle.scale(Math.max(0f, scale));
 			} else {
-				spawnFallbackParticle(x, y, z, vx, vy, vz);
+				spawnFallbackParticle(x, y, z, vx, vy, vz, scale);
 			}
 		} catch (Exception ignored) {
-			spawnFallbackParticle(x, y, z, vx, vy, vz);
+			spawnFallbackParticle(x, y, z, vx, vy, vz, scale);
 		}
 	}
 
-	private void spawnFallbackParticle(float x, float y, float z, float vx, float vy, float vz) {
+	private void spawnFallbackParticle(float x, float y, float z, float vx, float vy, float vz, float scale) {
 		var fallback = BuiltInRegistries.PARTICLE_TYPE.get(ResourceLocation.parse("minecraft:poof"));
-		if(fallback instanceof SimpleParticleType)mc.level.addParticle((SimpleParticleType) fallback, x, y, z, vx, vy, vz);
+		if(fallback instanceof SimpleParticleType) {
+			var particle = mc.particleEngine.createParticle((SimpleParticleType) fallback, x, y, z, vx, vy, vz);
+			if(particle != null)particle.scale(Math.max(0f, scale));
+		}
 	}
 
 	@Override

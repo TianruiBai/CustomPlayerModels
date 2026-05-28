@@ -31,7 +31,8 @@ public class ParticleRuntime {
 		if (def == null || runtime == null) return;
 		// Apply playback speed to delta time
 		float pdt = dt * def.getPlaybackSpeed();
-		if(def.usesVanillaParticleMovement())activeParticles.clear();
+		boolean useNativeBuiltinParticles = useNativeBuiltinParticles(def, runtime);
+		if(useNativeBuiltinParticles)activeParticles.clear();
 		Vec3f targetDelta = null;
 		if(lastWorldPos != null) {
 			targetDelta = new Vec3f(worldPos.x - lastWorldPos.x, worldPos.y - lastWorldPos.y, worldPos.z - lastWorldPos.z);
@@ -49,7 +50,7 @@ public class ParticleRuntime {
 		// Spawn new particles
 		spawnTimer += pdt;
 		float spawnInterval = rate > 0 ? 1.0f / rate : Float.MAX_VALUE;
-		while (spawnTimer >= spawnInterval && (def.usesVanillaParticleMovement() || activeParticles.size() < maxParticles)) {
+		while (spawnTimer >= spawnInterval && (useNativeBuiltinParticles || activeParticles.size() < maxParticles)) {
 			spawnTimer -= spawnInterval;
 			spawnParticle(def, worldPos, runtime);
 		}
@@ -207,10 +208,10 @@ public class ParticleRuntime {
 		p.rotSpeedY = def.getRotationSpeedY();
 		p.rotSpeedZ = def.getRotationSpeedZ();
 
-		if(def.usesVanillaParticleMovement() || (def.isMinecraftParticle() && runtime.useBuiltinParticleRenderer())) {
-			runtime.spawnBuiltinParticle(def.getMinecraftParticle(), p.position.x, p.position.y, p.position.z, p.velocity.x, p.velocity.y, p.velocity.z);
+		if(useNativeBuiltinParticles(def, runtime)) {
+			runtime.spawnBuiltinParticle(def.getMinecraftParticle(), p.position.x, p.position.y, p.position.z, p.velocity.x, p.velocity.y, p.velocity.z, p.scale);
 		} else if(!def.isMinecraftParticle() && !runtime.useSharedParticleRenderer()) {
-			runtime.spawnBuiltinParticle("minecraft:poof", p.position.x, p.position.y, p.position.z, p.velocity.x, p.velocity.y, p.velocity.z);
+			runtime.spawnBuiltinParticle("minecraft:poof", p.position.x, p.position.y, p.position.z, p.velocity.x, p.velocity.y, p.velocity.z, p.scale);
 		} else {
 			activeParticles.add(p);
 		}
@@ -238,6 +239,14 @@ public class ParticleRuntime {
 
 	private static float lerp(float a, float b, float t) {
 		return a + (b - a) * t;
+	}
+
+	private static boolean useNativeBuiltinParticles(ParticleEmitter def, IPslRuntime runtime) {
+		if(def == null || runtime == null || !def.isMinecraftParticle())return false;
+		if(def.usesVanillaParticleMovement()) {
+			return !runtime.previewVanillaParticlesWithSharedRenderer();
+		}
+		return runtime.useBuiltinParticleRenderer();
 	}
 
 	private static int lerpColor(int a, int b, float t) {

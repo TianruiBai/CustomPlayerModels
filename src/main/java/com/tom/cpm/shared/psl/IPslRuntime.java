@@ -74,6 +74,14 @@ public interface IPslRuntime {
 	default void spawnBuiltinParticle(String particleId, float x, float y, float z, float vx, float vy, float vz) {
 	}
 
+	/**
+	 * Spawn a Minecraft-native particle with an explicit initial scale.
+	 * Implementations that can't resize native particles may ignore the scale.
+	 */
+	default void spawnBuiltinParticle(String particleId, float x, float y, float z, float vx, float vy, float vz, float scale) {
+		spawnBuiltinParticle(particleId, x, y, z, vx, vy, vz);
+	}
+
 	/** Convert a model-local PSL position into the runtime's coordinate space. */
 	default Vec3f toWorldPosition(Vec3f modelPosition) {
 		return modelPosition != null ? modelPosition : Vec3f.ZERO;
@@ -86,6 +94,14 @@ public interface IPslRuntime {
 
 	/** True when the shared particle list is going to be drawn by the caller. */
 	default boolean useSharedParticleRenderer() {
+		return false;
+	}
+
+	/**
+	 * Editor preview can opt vanilla-mode emitters back into the shared particle list
+	 * when the real native particle engine is not available in that viewport.
+	 */
+	default boolean previewVanillaParticlesWithSharedRenderer() {
 		return false;
 	}
 
