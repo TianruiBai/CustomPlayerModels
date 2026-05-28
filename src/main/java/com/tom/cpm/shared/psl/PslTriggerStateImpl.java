@@ -122,4 +122,11 @@ public class PslTriggerStateImpl implements PslTriggerState {
 		// Keyframe triggering not yet exposed from animation engine
 		return false;
 	}
+
+	@Override
+	public boolean getGestureParam(int param, int mask) {
+		if (engine == null || param < 0) return false;
+		byte val = engine.getGestureValue(param);
+		return (val & mask) != 0;
+	}
 }

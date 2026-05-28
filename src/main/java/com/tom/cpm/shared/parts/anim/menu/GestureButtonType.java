@@ -8,6 +8,7 @@ public enum GestureButtonType {
 	BOOL_PARAMETER_TOGGLE(BoolParameterToggleButtonData::new),
 	VALUE_PARAMETER_SLIDER(ValueParameterButtonData::new),
 	DROPDOWN(DropdownButtonData::new),
+	PSL_ELEMENT_TOGGLE(PslElementToggleButtonData::new),
 	//SUBMENU(null), //TODO
 	;
 	private final Supplier<AbstractGestureButtonData> factory;

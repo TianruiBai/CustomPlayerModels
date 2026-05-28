@@ -25,6 +25,8 @@ public class PslTrigger {
 		GAME_EVENT,
 		/** Triggered at specific animation keyframes (one-shot) */
 		KEYFRAME,
+		/** Active when a CPM layer toggle (BoolParameterToggleButtonData) is ON */
+		LAYER_TOGGLE,
 		;
 		public static final TriggerType[] VALUES = values();
 	}
@@ -37,6 +39,8 @@ public class PslTrigger {
 	private float paramMin;
 	private float paramMax;
 	private String eventName;
+	private int layerParam;
+	private int layerMask;
 
 	public PslTrigger() {
 		this.type = TriggerType.ALWAYS;
@@ -56,6 +60,8 @@ public class PslTrigger {
 		this.paramMin = 0;
 		this.paramMax = 0;
 		this.eventName = null;
+		this.layerParam = 0;
+		this.layerMask = 0;
 	}
 
 	public TriggerType getType() {
@@ -118,6 +124,22 @@ public class PslTrigger {
 		this.eventName = eventName;
 	}
 
+	public int getLayerParam() {
+		return layerParam;
+	}
+
+	public void setLayerParam(int layerParam) {
+		this.layerParam = layerParam;
+	}
+
+	public int getLayerMask() {
+		return layerMask;
+	}
+
+	public void setLayerMask(int layerMask) {
+		this.layerMask = layerMask;
+	}
+
 	/**
 	 * Evaluate whether this trigger is active given the current state.
 	 */
@@ -144,6 +166,9 @@ public class PslTrigger {
 			case KEYFRAME:
 				return animName != null && animName.equals(state.getCurrentAnimation())
 					&& state.isKeyframeTriggered();
+			case LAYER_TOGGLE:
+				if (layerMask == 0) return true; // unconfigured = always on
+				return state.getGestureParam(layerParam, layerMask);
 			default:
 				return false;
 		}
@@ -169,6 +194,10 @@ public class PslTrigger {
 				break;
 			case GAME_EVENT:
 				out.writeUTF(eventName != null ? eventName : "");
+				break;
+			case LAYER_TOGGLE:
+				out.writeVarInt(layerParam);
+				out.write(layerMask);
 				break;
 			default:
 				break;
@@ -203,6 +232,10 @@ public class PslTrigger {
 				trigger.eventName = in.readUTF();
 				if (trigger.eventName.isEmpty()) trigger.eventName = null;
 				break;
+			case LAYER_TOGGLE:
+				trigger.layerParam = in.readVarInt();
+				trigger.layerMask = in.readUnsignedByte();
+				break;
 			default:
 				break;
 		}
@@ -220,6 +253,7 @@ public class PslTrigger {
 			case VALUE_RANGE: return paramName + " [" + paramMin + "-" + paramMax + "]";
 			case GAME_EVENT: return "Event: " + eventName;
 			case KEYFRAME: return "Keyframe: " + animName;
+			case LAYER_TOGGLE: return "Layer: p" + layerParam + " m" + layerMask;
 			default: return type.name();
 		}
 	}

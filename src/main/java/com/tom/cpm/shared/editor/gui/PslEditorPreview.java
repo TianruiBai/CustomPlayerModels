@@ -93,7 +93,8 @@ public class PslEditorPreview {
 
 	private TextureProvider getTexture(ParticleEmitter emitter) {
 		String key = emitter.isMinecraftParticle() ? "mc:" + emitter.getMinecraftParticle() : "proj:" + emitter.getTextureName();
-		if(textureCache.containsKey(key))return textureCache.get(key);
+		TextureProvider cached = textureCache.get(key);
+		if(cached != null)return cached;
 
 		Image img = null;
 		if(emitter.isMinecraftParticle()) {
@@ -117,8 +118,7 @@ public class PslEditorPreview {
 			textureCache.put(key, tp);
 			return tp;
 		}
-		// Cache the miss so we don't retry every frame
-		textureCache.put(key, null);
+		// Do NOT cache null — retry next frame so late-binding atlases eventually succeed
 		return null;
 	}
 

@@ -54,6 +54,16 @@ public class PslSystem {
 	}
 
 	/**
+	 * Find a PSL element by its unique ID.
+	 */
+	public PslElement findElement(long id) {
+		for(PslElement e : elements) {
+			if(e.getId() == id)return e;
+		}
+		return null;
+	}
+
+	/**
 	 * Get an unmodifiable view of all PSL elements.
 	 */
 	public List<PslElement> getElements() {
@@ -189,6 +199,7 @@ public class PslSystem {
 		}
 
 		for(PslElement element : elements) {
+			if(!element.isEnabled())continue;
 			boolean active = forceActive || element.isActive(state);
 			Vec3f worldPos = runtime.toWorldPosition(positionLookup.apply(element.getElementId()));
 			switch (element.getType()) {

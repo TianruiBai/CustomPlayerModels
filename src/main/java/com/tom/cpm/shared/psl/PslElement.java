@@ -14,6 +14,7 @@ public abstract class PslElement {
 	protected String name;
 	protected int elementId;
 	protected PslTrigger trigger;
+	protected boolean enabled = true;
 
 	protected PslElement() {
 		this.trigger = new PslTrigger(PslTrigger.TriggerType.ALWAYS);
@@ -57,6 +58,14 @@ public abstract class PslElement {
 		this.trigger = trigger;
 	}
 
+	public boolean isEnabled() {
+		return enabled;
+	}
+
+	public void setEnabled(boolean enabled) {
+		this.enabled = enabled;
+	}
+
 	public boolean isActive(PslTriggerState state) {
 		return trigger.isActive(state);
 	}
@@ -85,6 +94,7 @@ public abstract class PslElement {
 		out.writeUTF(name != null ? name : "");
 		out.writeVarInt(elementId);
 		trigger.write(out);
+		out.writeBoolean(enabled);
 		writeData(out);
 	}
 
@@ -122,6 +132,9 @@ public abstract class PslElement {
 		elem.name = name.isEmpty() ? null : name;
 		elem.elementId = elementId;
 		elem.trigger = trigger;
+		if(in.available() > 0) {
+			elem.enabled = in.readBoolean();
+		}
 		elem.readData(in);
 		return elem;
 	}

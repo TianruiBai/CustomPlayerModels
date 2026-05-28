@@ -8,6 +8,7 @@ import com.tom.cpm.shared.parts.anim.menu.AbstractGestureButtonData;
 import com.tom.cpm.shared.parts.anim.menu.BoolParameterToggleButtonData;
 import com.tom.cpm.shared.parts.anim.menu.CustomPoseGestureButtonData;
 import com.tom.cpm.shared.parts.anim.menu.GestureButtonType;
+import com.tom.cpm.shared.parts.anim.menu.PslElementToggleButtonData;
 import com.tom.cpm.shared.parts.anim.menu.ValueParameterButtonData;
 
 public enum GestureGuiButtons {
@@ -16,6 +17,7 @@ public enum GestureGuiButtons {
 	BOOL_PARAMETER_TOGGLE(GestureButtonType.BOOL_PARAMETER_TOGGLE, BoolParameterToggleButtonData.class, GestureToggleButton::new),
 	VALUE_PARAMETER_SLIDER(GestureButtonType.VALUE_PARAMETER_SLIDER, ValueParameterButtonData.class, GestureValueSlider::new),
 	DROPDOWN(GestureButtonType.DROPDOWN, AbstractDropdownButtonData.class, GestureDropdown::new),
+	PSL_TOGGLE(GestureButtonType.PSL_ELEMENT_TOGGLE, PslElementToggleButtonData.class, GestureToggleButton::new),
 	;
 	private final GestureButtonType type;
 	private final Factory<AbstractGestureButtonData, ? extends GuiElement> factory;

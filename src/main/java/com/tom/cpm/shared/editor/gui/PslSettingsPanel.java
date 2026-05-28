@@ -22,6 +22,8 @@ import com.tom.cpl.util.NamedElement;
 import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.editor.gui.popup.ColorButton;
+import com.tom.cpm.shared.parts.anim.menu.AbstractGestureButtonData;
+import com.tom.cpm.shared.parts.anim.menu.PslElementToggleButtonData;
 import com.tom.cpm.shared.psl.PslElement;
 import com.tom.cpm.shared.psl.light.LightEmitter;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter;
@@ -67,6 +69,15 @@ public class PslSettingsPanel extends Panel {
 		else if(selected instanceof SoundEmitter)sound((SoundEmitter) selected);
 		else if(selected instanceof MidiEmitter)midi((MidiEmitter) selected);
 		else if(selected instanceof LightEmitter)light((LightEmitter) selected);
+
+		section("label.cpm.psl.section.general");
+		checkRow("label.cpm.psl.element.enabled", selected.isEnabled(), v -> {
+			selected.setEnabled(v);
+			editor.markDirty();
+		}, "label.cpm.psl.element.gestureToggle", isGestureToggleRegistered(selected), v -> {
+			setGestureToggle(selected, v);
+			editor.markDirty();
+		});
 
 		layout.reflow();
 	}
@@ -426,5 +437,28 @@ public class PslSettingsPanel extends Panel {
 		Label label = new Label(gui, gui.i18nFormat(key, value));
 		label.setBounds(new Box(x + 4, 5, width - 8, 12));
 		row.addElement(label);
+	}
+
+	private boolean isGestureToggleRegistered(PslElement element) {
+		for(AbstractGestureButtonData btn : editor.definition.getAnimations().getNamedActions()) {
+			if(btn instanceof PslElementToggleButtonData && ((PslElementToggleButtonData) btn).pslElementId == element.getId()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void setGestureToggle(PslElement element, boolean add) {
+		if(add) {
+			if(!isGestureToggleRegistered(element)) {
+				PslElementToggleButtonData btn = new PslElementToggleButtonData();
+				btn.setPslElement(element);
+				editor.definition.getAnimations().register(btn);
+			}
+		} else {
+			editor.definition.getAnimations().getNamedActions().removeIf(btn ->
+				btn instanceof PslElementToggleButtonData && ((PslElementToggleButtonData) btn).pslElementId == element.getId());
+		}
+		editor.updateGui.accept(null);
 	}
 }
