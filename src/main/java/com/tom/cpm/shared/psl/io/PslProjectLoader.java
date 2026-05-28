@@ -161,6 +161,7 @@ public class PslProjectLoader implements ProjectPartLoader {
 			p.setBillboard(parseEnum(ParticleEmitter.BillboardMode.VALUES, map.getString("billboard", "CENTER")));
 			p.setBlendMode(parseEnum(ParticleEmitter.BlendMode.VALUES, map.getString("blendMode", "ALPHA")));
 			p.setRespectGraphicsSetting(map.getBoolean("respectGraphicsSetting", true));
+			p.setMovementMode(parseEnum(ParticleEmitter.MovementMode.VALUES, map.getString("movementMode", "PSL_DEFINED")));
 			p.setPathMode(parseEnum(ParticleEmitter.PathMode.VALUES, map.getString("pathMode", "ATTACHED")));
 			p.setPathAnimation(map.getString("pathAnimation", null));
 			p.setInheritTargetMotion(map.getBoolean("inheritTargetMotion", true));
@@ -318,6 +319,7 @@ public class PslProjectLoader implements ProjectPartLoader {
 			map.put("billboard", p.getBillboard().name());
 			map.put("blendMode", p.getBlendMode().name());
 			map.put("respectGraphicsSetting", p.isRespectGraphicsSetting());
+			map.put("movementMode", p.getMovementMode().name());
 			map.put("pathMode", p.getPathMode().name());
 			if (p.getPathAnimation() != null) map.put("pathAnimation", p.getPathAnimation());
 			map.put("inheritTargetMotion", p.isInheritTargetMotion());

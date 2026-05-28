@@ -30,6 +30,7 @@ import com.tom.cpm.shared.psl.particle.ParticleEmitter;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter.BillboardMode;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter.BlendMode;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter.EmitterType;
+import com.tom.cpm.shared.psl.particle.ParticleEmitter.MovementMode;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter.ParticleSource;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter.PathMode;
 import com.tom.cpm.shared.psl.physics.PhysicsBone;
@@ -98,7 +99,7 @@ public class PslSettingsPanel extends Panel {
 		vec3("label.cpm.psl.particle.offset", p.getOffset());
 
 		section("label.cpm.psl.section.motion");
-		enumRow("label.cpm.psl.particle.pathMode", p.getPathMode().ordinal(), PathMode.VALUES, v -> p.setPathMode(PathMode.VALUES[v]), null, 0, null, null);
+		enumRow("label.cpm.psl.particle.movementMode", p.getMovementMode().ordinal(), MovementMode.VALUES, v -> p.setMovementMode(MovementMode.VALUES[v]), "label.cpm.psl.particle.pathMode", p.getPathMode().ordinal(), PathMode.VALUES, v -> p.setPathMode(PathMode.VALUES[v]));
 		text("label.cpm.psl.particle.pathAnimation", p.getPathAnimation(), p::setPathAnimation);
 		checkRow("label.cpm.psl.particle.inheritTargetMotion", p.isInheritTargetMotion(), p::setInheritTargetMotion, null, false, null);
 		vec3("label.cpm.psl.particle.velocity", p.getVelocity());
@@ -327,7 +328,18 @@ public class PslSettingsPanel extends Panel {
 	private String enumName(Enum<?>[] values, int value) {
 		if(values == null || values.length == 0)return "";
 		int idx = Math.max(0, Math.min(values.length - 1, value));
-		return values[idx].name();
+		return readableEnumName(values[idx].name());
+	}
+
+	private String readableEnumName(String name) {
+		String[] parts = name.toLowerCase().split("_");
+		StringBuilder out = new StringBuilder();
+		for(String part : parts) {
+			if(part.isEmpty())continue;
+			if(out.length() > 0)out.append(' ');
+			out.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
+		}
+		return out.toString();
 	}
 
 	private void checkRow(String keyA, boolean valueA, Consumer<Boolean> setterA, String keyB, boolean valueB, Consumer<Boolean> setterB) {

@@ -53,6 +53,15 @@ public class ParticleEmitter extends PslElement {
 		public static final PathMode[] VALUES = values();
 	}
 
+	public enum MovementMode {
+		/** PSL simulates and renders the particle using the configured motion, rotation, wind, and color settings. */
+		PSL_DEFINED,
+		/** Minecraft's native particle engine handles built-in particle behavior. Custom sprites fall back to PSL_DEFINED. */
+		VANILLA_PARTICLE,
+		;
+		public static final MovementMode[] VALUES = values();
+	}
+
 	public enum RotationMode {
 		/** No rotation – particle always faces the camera. */
 		NONE,
@@ -97,6 +106,7 @@ public class ParticleEmitter extends PslElement {
 	private BillboardMode billboard = BillboardMode.CENTER;
 	private BlendMode blendMode = BlendMode.ALPHA;
 	private boolean respectGraphicsSetting = true;
+	private MovementMode movementMode = MovementMode.PSL_DEFINED;
 	private PathMode pathMode = PathMode.ATTACHED;
 	private String pathAnimation;
 	private boolean inheritTargetMotion = true;
@@ -173,6 +183,7 @@ public class ParticleEmitter extends PslElement {
 		out.writeFloat(rotationSpeedZ);
 		out.writeBoolean(randomRotationStart);
 		out.writeFloat(playbackSpeed);
+		out.writeVarInt(movementMode.ordinal());
 	}
 
 	@Override
@@ -227,21 +238,8 @@ public class ParticleEmitter extends PslElement {
 			rotationSpeedZ = in.readFloat();
 			randomRotationStart = in.readBoolean();
 			playbackSpeed = in.readFloat();
+			movementMode = readEnum(MovementMode.VALUES, in.readVarInt(), MovementMode.PSL_DEFINED);
 		} catch (IOException ignored) {
-			particleSource = ParticleSource.CUSTOM_SPRITE;
-			minecraftParticle = "minecraft:flame";
-			pathMode = PathMode.ATTACHED;
-			pathAnimation = null;
-			inheritTargetMotion = true;
-			offset = new Vec3f(0, 0, 0);
-			windStrength = 0;
-			windDirection = new Vec3f(-0.3f, 0.05f, 0.2f);
-			rotationMode = RotationMode.NONE;
-			rotationSpeedX = 0;
-			rotationSpeedY = 0;
-			rotationSpeedZ = 0;
-			randomRotationStart = false;
-			playbackSpeed = 1;
 		}
 	}
 
@@ -320,6 +318,9 @@ public class ParticleEmitter extends PslElement {
 	public void setBlendMode(BlendMode blendMode) { this.blendMode = blendMode; }
 	public boolean isRespectGraphicsSetting() { return respectGraphicsSetting; }
 	public void setRespectGraphicsSetting(boolean respectGraphicsSetting) { this.respectGraphicsSetting = respectGraphicsSetting; }
+	public MovementMode getMovementMode() { return movementMode; }
+	public void setMovementMode(MovementMode movementMode) { this.movementMode = movementMode != null ? movementMode : MovementMode.PSL_DEFINED; }
+	public boolean usesVanillaParticleMovement() { return movementMode == MovementMode.VANILLA_PARTICLE && isMinecraftParticle(); }
 	public PathMode getPathMode() { return pathMode; }
 	public void setPathMode(PathMode pathMode) { this.pathMode = pathMode != null ? pathMode : PathMode.ATTACHED; }
 	public String getPathAnimation() { return pathAnimation; }

@@ -31,6 +31,7 @@ public class ParticleRuntime {
 		if (def == null || runtime == null) return;
 		// Apply playback speed to delta time
 		float pdt = dt * def.getPlaybackSpeed();
+		if(def.usesVanillaParticleMovement())activeParticles.clear();
 		Vec3f targetDelta = null;
 		if(lastWorldPos != null) {
 			targetDelta = new Vec3f(worldPos.x - lastWorldPos.x, worldPos.y - lastWorldPos.y, worldPos.z - lastWorldPos.z);
@@ -48,7 +49,7 @@ public class ParticleRuntime {
 		// Spawn new particles
 		spawnTimer += pdt;
 		float spawnInterval = rate > 0 ? 1.0f / rate : Float.MAX_VALUE;
-		while (spawnTimer >= spawnInterval && activeParticles.size() < maxParticles) {
+		while (spawnTimer >= spawnInterval && (def.usesVanillaParticleMovement() || activeParticles.size() < maxParticles)) {
 			spawnTimer -= spawnInterval;
 			spawnParticle(def, worldPos, runtime);
 		}
@@ -206,7 +207,7 @@ public class ParticleRuntime {
 		p.rotSpeedY = def.getRotationSpeedY();
 		p.rotSpeedZ = def.getRotationSpeedZ();
 
-		if(def.isMinecraftParticle() && runtime.useBuiltinParticleRenderer()) {
+		if(def.usesVanillaParticleMovement() || (def.isMinecraftParticle() && runtime.useBuiltinParticleRenderer())) {
 			runtime.spawnBuiltinParticle(def.getMinecraftParticle(), p.position.x, p.position.y, p.position.z, p.velocity.x, p.velocity.y, p.velocity.z);
 		} else if(!def.isMinecraftParticle() && !runtime.useSharedParticleRenderer()) {
 			runtime.spawnBuiltinParticle("minecraft:poof", p.position.x, p.position.y, p.position.z, p.velocity.x, p.velocity.y, p.velocity.z);
