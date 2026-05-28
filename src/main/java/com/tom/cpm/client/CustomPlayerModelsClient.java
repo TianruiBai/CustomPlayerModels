@@ -68,8 +68,12 @@ public class CustomPlayerModelsClient extends ClientBase {
 
 	@SubscribeEvent
 	public void playerRenderPost(RenderPlayerEvent.Post event) {
-		playerRenderPost(event.getMultiBufferSource(), event.getRenderer().getModel());
+		// flush + tick PSL (sets currentPslSystem via onPslSystemTick)
+		manager.unbindFlush(event.getRenderer().getModel());
+		// render PSL particles while currentPslSystem is still set
 		mc.getClientPslRuntime().renderCurrentParticles(event.getPoseStack(), event.getMultiBufferSource());
+		// release player state
+		mc.getClientPslRuntime().endPlayer();
 	}
 
 	@SubscribeEvent

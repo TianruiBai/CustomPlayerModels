@@ -5,8 +5,10 @@ import java.util.List;
 import java.util.Map;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.platform.TextureUtil;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
@@ -30,8 +32,7 @@ public class ParticleRenderer {
 	private final Map<String, ResourceLocation> textureCache = new HashMap<>();
 
 	public void render(List<ParticleInstance> particles, ParticleEmitter def,
-	                   PoseStack poseStack, MultiBufferSource bufferSource,
-	                   Camera camera) {
+	                   MultiBufferSource bufferSource, Camera camera) {
 		if (particles.isEmpty() || def == null) return;
 
 		ResourceLocation texLoc = getParticleTexture(def);
@@ -64,21 +65,18 @@ public class ParticleRenderer {
 			float u1 = (def.getSpriteU() + def.getSpriteWidth()) / (float) Math.max(1, def.getSpriteTexW());
 			float v1 = (def.getSpriteV() + def.getSpriteHeight()) / (float) Math.max(1, def.getSpriteTexH());
 
-			float rotRad = p.rotation * 0.017453292f;
-			float cos = (float)Math.cos(rotRad);
-			float sin = (float)Math.sin(rotRad);
+			PoseStack particleStack = new PoseStack();
+			particleStack.translate(px, py, pz);
+			particleStack.mulPose(camera.rotation());
+			if (p.rotation != 0) {
+				particleStack.mulPose(Axis.ZP.rotationDegrees(p.rotation));
+			}
+			var mat = particleStack.last().pose();
 
-			poseStack.pushPose();
-			poseStack.translate(px, py, pz);
-			var mat = poseStack.last().pose();
-
-			// Billboarded quad with rotation in screen space
-			vc.addVertex(mat, -hw * cos - -hh * sin, -hw * sin + -hh * cos, 0).setColor(rr, gg, bb, aa).setUv(u0, v1);
-			vc.addVertex(mat,  hw * cos - -hh * sin,  hw * sin + -hh * cos, 0).setColor(rr, gg, bb, aa).setUv(u1, v1);
-			vc.addVertex(mat,  hw * cos -  hh * sin,  hw * sin +  hh * cos, 0).setColor(rr, gg, bb, aa).setUv(u1, v0);
-			vc.addVertex(mat, -hw * cos -  hh * sin, -hw * sin +  hh * cos, 0).setColor(rr, gg, bb, aa).setUv(u0, v0);
-
-			poseStack.popPose();
+			vc.addVertex(mat, -hw, -hh, 0).setColor(rr, gg, bb, aa).setUv(u0, v1);
+			vc.addVertex(mat,  hw, -hh, 0).setColor(rr, gg, bb, aa).setUv(u1, v1);
+			vc.addVertex(mat,  hw,  hh, 0).setColor(rr, gg, bb, aa).setUv(u1, v0);
+			vc.addVertex(mat, -hw,  hh, 0).setColor(rr, gg, bb, aa).setUv(u0, v0);
 		}
 	}
 
@@ -88,13 +86,10 @@ public class ParticleRenderer {
 		if (cached != null) return cached;
 
 		Image img = null;
-		if (def.isMinecraftParticle()) {
-			try {
-				img = MinecraftClientAccess.get().getPslRuntime().loadParticleImage(def.getMinecraftParticle());
-			} catch (Exception ignored) {}
-		}
-		// Custom sprite loading from embedded model data is not yet implemented;
-		// for now only MC particles receive their real textures.
+		try {
+			String particleId = def.isMinecraftParticle() ? def.getMinecraftParticle() : def.getTextureName();
+			img = MinecraftClientAccess.get().getPslRuntime().loadParticleImage(particleId);
+		} catch (Exception ignored) {}
 
 		if (img == null) return null;
 
@@ -117,6 +112,9 @@ public class ParticleRenderer {
 				}
 			}
 			DynamicTexture dynTex = new DynamicTexture(ni);
+			dynTex.setPixels(ni);
+			TextureUtil.prepareImage(dynTex.getId(), ni.getWidth(), ni.getHeight());
+			dynTex.upload();
 			ResourceLocation loc = ResourceLocation.fromNamespaceAndPath("cpm", prefix + "/" + Math.abs(key.hashCode()));
 			Minecraft.getInstance().getTextureManager().register(loc, dynTex);
 			return loc;

@@ -1,5 +1,7 @@
 package com.tom.cpm.client.psl;
 
+import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
@@ -23,6 +25,9 @@ import com.tom.cpl.math.Vec3f;
 import com.tom.cpl.util.Image;
 import com.tom.cpl.util.ImageIO;
 import com.tom.cpm.client.ClientBase;
+import com.tom.cpm.shared.config.ConfigKeys;
+import com.tom.cpm.shared.config.ModConfig;
+import com.tom.cpm.shared.editor.project.ProjectFile;
 import com.tom.cpm.shared.psl.IPslRuntime;
 import com.tom.cpm.shared.psl.PslElementType;
 import com.tom.cpm.shared.psl.PslSystem;
@@ -44,6 +49,8 @@ public class PslClientRuntime implements IPslRuntime {
 	private final ParticleRenderer particleRenderer = new ParticleRenderer();
 	private Player currentPlayer;
 	private PslSystem currentPslSystem;
+	private ProjectFile projectCache;
+	private String projectCachePath;
 
 	public PslClientRuntime() {
 		this.mc = Minecraft.getInstance();
@@ -71,14 +78,21 @@ public class PslClientRuntime implements IPslRuntime {
 		for (ParticleEmitter emitter : emitters) {
 			List<ParticleInstance> instances = currentPslSystem.getParticleInstances(emitter);
 			if (instances.isEmpty()) continue;
-			particleRenderer.render(instances, emitter, poseStack, bufferSource, camera);
+			particleRenderer.render(instances, emitter, bufferSource, camera);
 		}
 	}
 
 	@Override
 	public InputStream getResource(String path) {
-		// Phase 3+: Load from model's project cache
-		return null;
+		if (path == null || path.isEmpty()) return null;
+		try {
+			ProjectFile project = getProjectCache();
+			if (project == null) return null;
+			byte[] data = project.getEntry(path);
+			return data != null ? new ByteArrayInputStream(data) : null;
+		} catch (Exception ignored) {
+			return null;
+		}
 	}
 
 	@Override
@@ -170,6 +184,10 @@ public class PslClientRuntime implements IPslRuntime {
 	@Override
 	public Image loadParticleImage(String particleId) {
 		if (particleId == null || particleId.isEmpty()) return null;
+		if (!particleId.contains(":")) {
+			Image projectImage = loadProjectParticleImage(particleId);
+			if (projectImage != null) return projectImage;
+		}
 		ResourceLocation rl = ResourceLocation.parse(particleId);
 
 		// 1. Try standalone particle PNG (most reliable, works for flame/smoke/bubble/etc.)
@@ -189,6 +207,14 @@ public class PslClientRuntime implements IPslRuntime {
 			if (desc != null) return desc;
 		}
 
+		return null;
+	}
+
+	private Image loadProjectParticleImage(String path) {
+		try (InputStream is = getResource(path)) {
+			if (is != null) return ImageIO.read(is);
+		} catch (IOException ignored) {
+		}
 		return null;
 	}
 
@@ -242,6 +268,25 @@ public class PslClientRuntime implements IPslRuntime {
 			// atlas not initialized yet
 		}
 		return null;
+	}
+
+	private ProjectFile getProjectCache() {
+		String projectPath = ModConfig.getCommonConfig().getString(ConfigKeys.REOPEN_PROJECT, null);
+		if (projectPath == null || projectPath.isEmpty()) return null;
+		if (projectPath.equals(projectCachePath) && projectCache != null) return projectCache;
+
+		File file = new File(projectPath);
+		if (!file.isFile()) {
+			projectCache = null;
+			projectCachePath = null;
+			return null;
+		}
+
+		ProjectFile project = new ProjectFile();
+		project.load(file).join();
+		projectCache = project;
+		projectCachePath = projectPath;
+		return projectCache;
 	}
 
 	/** Convert a NativeImage (ABGR) to a CPM Image (ARGB). */
