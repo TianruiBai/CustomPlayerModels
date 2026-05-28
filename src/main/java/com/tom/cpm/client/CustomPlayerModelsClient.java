@@ -69,6 +69,7 @@ public class CustomPlayerModelsClient extends ClientBase {
 	@SubscribeEvent
 	public void playerRenderPost(RenderPlayerEvent.Post event) {
 		playerRenderPost(event.getMultiBufferSource(), event.getRenderer().getModel());
+		mc.getClientPslRuntime().renderCurrentParticles(event.getPoseStack(), event.getMultiBufferSource());
 	}
 
 	@SubscribeEvent

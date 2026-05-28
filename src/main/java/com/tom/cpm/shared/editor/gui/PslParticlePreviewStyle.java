@@ -56,6 +56,40 @@ final class PslParticlePreviewStyle {
 		drawTexturedQuad(stack, buffer, pos.x, pos.y, pos.z, s * 0.72f, Math.min(1f, a * 1.15f), -rotation * 0.6f, u0, v0, u1, v1, true);
 	}
 
+	static void drawWorldBillboardSprite(MatrixStack stack, VertexBuffer buffer, ParticleEmitter emitter, Vec3f pos, Vec3f camRight, Vec3f camUp, float size, float alpha, float rotation) {
+		float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+		if(!emitter.isMinecraftParticle()) {
+			int texW = Math.max(1, emitter.getSpriteTexW());
+			int texH = Math.max(1, emitter.getSpriteTexH());
+			u0 = emitter.getSpriteU() / (float)texW;
+			v0 = emitter.getSpriteV() / (float)texH;
+			u1 = (emitter.getSpriteU() + emitter.getSpriteWidth()) / (float)texW;
+			v1 = (emitter.getSpriteV() + emitter.getSpriteHeight()) / (float)texH;
+		}
+
+		float s = Math.max(0.2f, size);
+		float a = Math.max(0.18f, Math.min(1f, alpha));
+		float cos = (float)Math.cos(rotation);
+		float sin = (float)Math.sin(rotation);
+
+		// Rotate camera right/up around the view axis by the particle's rotation
+		float rx = camRight.x * cos - camUp.x * sin;
+		float ry = camRight.y * cos - camUp.y * sin;
+		float rz = camRight.z * cos - camUp.z * sin;
+		float ux = camRight.x * sin + camUp.x * cos;
+		float uy = camRight.y * sin + camUp.y * cos;
+		float uz = camRight.z * sin + camUp.z * cos;
+
+		Mat4f matrix = stack.getLast().getMatrix();
+		Mat3f normal = stack.getLast().getNormal();
+
+		// Single camera-facing quad: corners at ±right*s ± up*s (in rotated frame)
+		vertex(buffer, matrix, normal, pos.x - rx * s + ux * s, pos.y - ry * s + uy * s, pos.z - rz * s + uz * s, a, u0, v0);
+		vertex(buffer, matrix, normal, pos.x + rx * s + ux * s, pos.y + ry * s + uy * s, pos.z + rz * s + uz * s, a, u1, v0);
+		vertex(buffer, matrix, normal, pos.x + rx * s - ux * s, pos.y + ry * s - uy * s, pos.z + rz * s - uz * s, a, u1, v1);
+		vertex(buffer, matrix, normal, pos.x - rx * s - ux * s, pos.y - ry * s - uy * s, pos.z - rz * s - uz * s, a, u0, v1);
+	}
+
 	private static void drawTexturedQuad(MatrixStack stack, VertexBuffer buffer, float x, float y, float z, float size, float alpha, float rotation, float u0, float v0, float u1, float v1, boolean crossPlane) {
 		Mat4f matrix = stack.getLast().getMatrix();
 		Mat3f normal = stack.getLast().getNormal();

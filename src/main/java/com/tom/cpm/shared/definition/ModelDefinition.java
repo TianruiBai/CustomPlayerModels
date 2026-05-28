@@ -294,6 +294,7 @@ public class ModelDefinition {
 		float dt = lastPslRuntimeNanos == 0 ? 1 / 20f : Math.min(0.1f, (now - lastPslRuntimeNanos) / 1_000_000_000f);
 		if(lastPslRuntimeNanos != 0 && dt < 0.005f)return;
 		lastPslRuntimeNanos = now;
+		runtime.onPslSystemTick(pslSystem);
 		com.tom.cpm.shared.psl.PslTriggerState triggerState = animState != null ? com.tom.cpm.shared.psl.PslTriggerStateImpl.from(animState, getAnimations(), MinecraftClientAccess.get().getPlayerRenderManager().getAnimationEngine()) : null;
 		pslSystem.tick(triggerState, runtime, id -> pslRuntimePositions.getOrDefault(id, Vec3f.ZERO), dt);
 	}

@@ -89,6 +89,12 @@ public interface IPslRuntime {
 		return false;
 	}
 
+	/**
+	 * Called by the PSL tick when a system is about to be updated.
+	 * Implementations can capture the system for later rendering (e.g., in a render event).
+	 */
+	default void onPslSystemTick(PslSystem system) {}
+
 	/** Play an attached SFX at the resolved world position. */
 	default void playSound(SoundEmitter emitter, Vec3f worldPosition) {
 	}

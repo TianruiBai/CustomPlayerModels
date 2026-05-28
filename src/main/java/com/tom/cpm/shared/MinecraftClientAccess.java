@@ -11,6 +11,7 @@ import com.tom.cpl.gui.IGui;
 import com.tom.cpl.gui.IKeybind;
 import com.tom.cpl.gui.elements.Panel;
 import com.tom.cpl.render.RenderTypeBuilder;
+import com.tom.cpl.render.VBuffers;
 import com.tom.cpl.tag.AllTagManagers;
 import com.tom.cpl.util.DynamicTexture.ITexture;
 import com.tom.cpl.util.ImageIO.IImageIO;
@@ -21,6 +22,7 @@ import com.tom.cpm.shared.model.SkinType;
 import com.tom.cpm.shared.network.ModelEventType;
 import com.tom.cpm.shared.network.NetHandler;
 import com.tom.cpm.shared.psl.IPslRuntime;
+import com.tom.cpm.shared.skin.TextureProvider;
 import com.tom.cpm.shared.util.MojangAPI;
 
 public interface MinecraftClientAccess {
@@ -67,6 +69,10 @@ public interface MinecraftClientAccess {
 	RenderTypeBuilder<?, ?> getRenderBuilder();
 
 	default IPslRuntime getPslRuntime() {
+		return null;
+	}
+
+	default VBuffers.NativeRenderType createTexturedRenderType(TextureProvider texture) {
 		return null;
 	}
 

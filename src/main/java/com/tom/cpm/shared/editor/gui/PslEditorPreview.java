@@ -17,6 +17,7 @@ import com.tom.cpl.util.ImageIO;
 import com.tom.cpm.shared.MinecraftClientAccess;
 import com.tom.cpm.shared.editor.Editor;
 import com.tom.cpm.shared.editor.elements.ModelElement;
+import com.tom.cpm.shared.gui.ViewportCamera;
 import com.tom.cpm.shared.model.render.BoxRender;
 import com.tom.cpm.shared.model.render.RenderMode;
 import com.tom.cpm.shared.psl.IPslRuntime;
@@ -34,6 +35,7 @@ public class PslEditorPreview {
 	final IPslRuntime runtime = new PreviewRuntime();
 	private long lastNanos;
 	private final Map<String, TextureProvider> textureCache = new HashMap<>();
+	private final Map<String, VBuffers.NativeRenderType> renderTypeCache = new HashMap<>();
 
 	public PslEditorPreview(Editor editor) {
 		this.editor = editor;
@@ -46,6 +48,7 @@ public class PslEditorPreview {
 			if(tp != null)tp.free();
 		}
 		textureCache.clear();
+		renderTypeCache.clear();
 		PslParticlePreviewStyle.TextureCache.clear();
 	}
 
@@ -54,9 +57,20 @@ public class PslEditorPreview {
 		float dt = updateDelta();
 		if(editor.pslPreviewPlaying)editor.pslSystem.tickPreview(runtime, this::targetPosition, dt);
 
-		VertexBuffer particleBuffer = buffers.getBuffer(panel.getRenderTypes(), RenderMode.COLOR);
+		// Compute camera orientation for particle billboarding
+		ViewportCamera cam = panel.getCamera();
+		Vec3f forward = new Vec3f(cam.look.x - cam.position.x, cam.look.y - cam.position.y, cam.look.z - cam.position.z);
+		forward.normalize();
+		Vec3f worldUp = new Vec3f(0, 1, 0);
+		Vec3f camRight = cross(forward, worldUp);
+		if(camRight.epsilon(0.0001f)) {
+			camRight = cross(forward, new Vec3f(1, 0, 0));
+		}
+		camRight.normalize();
+		Vec3f camUp = cross(camRight, forward);
+
 		VertexBuffer markerBuffer = buffers.getBuffer(panel.getRenderTypes(), RenderMode.OUTLINE);
-		renderParticles(stack, particleBuffer);
+		renderParticles(stack, buffers, camRight, camUp);
 		renderLights(stack, markerBuffer);
 		renderPhysics(stack, markerBuffer);
 	}
@@ -68,7 +82,7 @@ public class PslEditorPreview {
 		return dt;
 	}
 
-	private void renderParticles(MatrixStack stack, VertexBuffer buffer) {
+	private void renderParticles(MatrixStack stack, VBuffers buffers, Vec3f camRight, Vec3f camUp) {
 		ParticleEmitter emitter = getSelectedParticleEmitter();
 		if(emitter == null)return;
 
@@ -76,18 +90,21 @@ public class PslEditorPreview {
 		if(instances.isEmpty())return;
 
 		TextureProvider tex = getTexture(emitter);
-		if(tex != null) {
-			tex.bind();
-			for(ParticleInstance particle : instances) {
-				float size = Math.max(0.35f, particle.scale * 0.45f);
-				PslParticlePreviewStyle.drawWorldTexturedSprite(stack, buffer, emitter, particle.position, size, particle.alpha, particle.rotation * 0.017453292f);
-			}
-		} else {
-			// Minimal colored-quad fallback — real texture preferred
-			for(ParticleInstance particle : instances) {
-				float size = Math.max(0.35f, particle.scale * 0.45f);
-				PslParticlePreviewStyle.drawWorldFallbackSprite(stack, buffer, particle.position, size, particle.color, particle.alpha, particle.rotation * 0.017453292f);
-			}
+		if(tex == null)return; // no valid texture — don't draw misleading fallback
+
+		String key = emitter.isMinecraftParticle() ? "mc:" + emitter.getMinecraftParticle() : "proj:" + emitter.getTextureName();
+		VBuffers.NativeRenderType nrt = renderTypeCache.get(key);
+		if(nrt == null) {
+			nrt = MinecraftClientAccess.get().createTexturedRenderType(tex);
+			if(nrt == null)return;
+			renderTypeCache.put(key, nrt);
+		}
+
+		VertexBuffer buffer = buffers.getBuffer(nrt);
+		for(ParticleInstance particle : instances) {
+			float size = Math.max(0.35f, particle.scale * 0.45f);
+			float rotRad = particle.rotation * 0.017453292f;
+			PslParticlePreviewStyle.drawWorldBillboardSprite(stack, buffer, emitter, particle.position, camRight, camUp, size, particle.alpha, rotRad);
 		}
 	}
 
@@ -156,6 +173,14 @@ public class PslEditorPreview {
 			return new Vec3f(pos.x, pos.y, pos.z);
 		}
 		return Vec3f.ZERO;
+	}
+
+	private static Vec3f cross(Vec3f a, Vec3f b) {
+		return new Vec3f(
+			a.y * b.z - a.z * b.y,
+			a.z * b.x - a.x * b.z,
+			a.x * b.y - a.y * b.x
+		);
 	}
 
 	private static class PreviewRuntime implements IPslRuntime {

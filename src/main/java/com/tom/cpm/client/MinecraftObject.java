@@ -29,6 +29,7 @@ import com.tom.cpl.gui.Frame;
 import com.tom.cpl.gui.IGui;
 import com.tom.cpl.gui.IKeybind;
 import com.tom.cpl.render.RenderTypeBuilder;
+import com.tom.cpl.render.VBuffers;
 import com.tom.cpl.tag.AllTagManagers;
 import com.tom.cpl.util.DynamicTexture.ITexture;
 import com.tom.cpl.util.Image;
@@ -42,6 +43,7 @@ import com.tom.cpm.shared.model.render.RenderMode;
 import com.tom.cpm.shared.network.NetH;
 import com.tom.cpm.shared.network.NetHandler;
 import com.tom.cpm.shared.psl.IPslRuntime;
+import com.tom.cpm.shared.skin.TextureProvider;
 import com.tom.cpm.shared.util.MojangAPI;
 import com.tom.cpm.shared.util.SkinLayerCodec;
 import com.tom.cpm.client.psl.PslClientRuntime;
@@ -89,6 +91,18 @@ public class MinecraftObject implements MinecraftClientAccess {
 	@Override
 	public IPslRuntime getPslRuntime() {
 		return pslRuntime;
+	}
+
+	@Override
+	public VBuffers.NativeRenderType createTexturedRenderType(TextureProvider texture) {
+		if (texture != null) {
+			texture.bind();
+			ResourceLocation loc = DynTexture.getBoundLoc();
+			if (loc != null) {
+				return new VBuffers.NativeRenderType(RenderType.entityTranslucent(loc), 0);
+			}
+		}
+		return null;
 	}
 
 	public PslClientRuntime getClientPslRuntime() {

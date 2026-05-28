@@ -3,6 +3,7 @@ package com.tom.cpm.client.psl;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.util.List;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.particle.ParticleDescription;
@@ -23,7 +24,14 @@ import com.tom.cpl.util.Image;
 import com.tom.cpl.util.ImageIO;
 import com.tom.cpm.client.ClientBase;
 import com.tom.cpm.shared.psl.IPslRuntime;
+import com.tom.cpm.shared.psl.PslElementType;
+import com.tom.cpm.shared.psl.PslSystem;
+import com.tom.cpm.shared.psl.particle.ParticleEmitter;
+import com.tom.cpm.shared.psl.particle.ParticleInstance;
 import com.tom.cpm.shared.psl.sound.SoundEmitter;
+
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.renderer.MultiBufferSource;
 
 /**
  * NeoForge 1.21 client implementation of IPslRuntime.
@@ -33,7 +41,9 @@ public class PslClientRuntime implements IPslRuntime {
 
 	private final Minecraft mc;
 	private final SoundPlayer soundPlayer = new SoundPlayer();
+	private final ParticleRenderer particleRenderer = new ParticleRenderer();
 	private Player currentPlayer;
+	private PslSystem currentPslSystem;
 
 	public PslClientRuntime() {
 		this.mc = Minecraft.getInstance();
@@ -45,6 +55,24 @@ public class PslClientRuntime implements IPslRuntime {
 
 	public void endPlayer() {
 		currentPlayer = null;
+		currentPslSystem = null;
+	}
+
+	@Override
+	public void onPslSystemTick(PslSystem system) {
+		this.currentPslSystem = system;
+	}
+
+	/** Render active particles for the currently bound PSL system. Called from the render event handler. */
+	public void renderCurrentParticles(PoseStack poseStack, MultiBufferSource bufferSource) {
+		if (currentPslSystem == null || currentPslSystem.isEmpty()) return;
+		net.minecraft.client.Camera camera = mc.gameRenderer.getMainCamera();
+		List<ParticleEmitter> emitters = currentPslSystem.getElementsOfType(PslElementType.PARTICLE);
+		for (ParticleEmitter emitter : emitters) {
+			List<ParticleInstance> instances = currentPslSystem.getParticleInstances(emitter);
+			if (instances.isEmpty()) continue;
+			particleRenderer.render(instances, emitter, poseStack, bufferSource, camera);
+		}
 	}
 
 	@Override
@@ -87,6 +115,16 @@ public class PslClientRuntime implements IPslRuntime {
 	@Override
 	public boolean isDynamicLightSupported() {
 		return false; // Phase 5+
+	}
+
+	@Override
+	public boolean useBuiltinParticleRenderer() {
+		return false; // Use PSL's own particle simulation, not Minecraft's native engine
+	}
+
+	@Override
+	public boolean useSharedParticleRenderer() {
+		return true; // PSL ParticleRuntime will populate activeParticles for custom rendering
 	}
 
 	@Override
