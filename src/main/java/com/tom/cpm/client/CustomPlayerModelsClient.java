@@ -72,6 +72,8 @@ public class CustomPlayerModelsClient extends ClientBase {
 		manager.unbindFlush(event.getRenderer().getModel());
 		// render PSL particles while currentPslSystem is still set
 		mc.getClientPslRuntime().renderCurrentParticles(event.getPoseStack(), event.getMultiBufferSource());
+		// render PSL lights
+		mc.getClientPslRuntime().renderCurrentLights(event.getPoseStack(), event.getMultiBufferSource());
 		// release player state
 		mc.getClientPslRuntime().endPlayer();
 	}
