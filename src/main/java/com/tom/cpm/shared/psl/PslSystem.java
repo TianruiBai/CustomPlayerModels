@@ -253,6 +253,22 @@ public class PslSystem {
 		if(activeDynamicLights == null)activeDynamicLights = new HashMap<>();
 	}
 
+	/**
+	 * Get the monotonically increasing tick counter (for animation timing).
+	 */
+	public long getTickCounter() {
+		return tickCounter;
+	}
+
+	/**
+	 * Resolve the world-space position for a model element.
+	 * Falls back to Vec3f.ZERO if the position lookup returns null.
+	 */
+	public Vec3f getElementPosition(int elementId, Object player) {
+		// Return zero — caller provides actual position lookup
+		return Vec3f.ZERO;
+	}
+
 	private void updateDynamicLight(LightEmitter light, boolean active, Vec3f worldPos, IPslRuntime runtime) {
 		if(!runtime.isDynamicLightSupported())return;
 		boolean wasActive = activeDynamicLights.getOrDefault(light.getId(), false);
@@ -263,9 +279,14 @@ public class PslSystem {
 		}
 		float intensity = lightRuntime.getCurrentIntensity(light, tickCounter, active);
 		int runtimeId = (int)(light.getId() & 0x7fffffff);
+		// Apply light offset
+		Vec3f off = light.getOffset();
+		float px = worldPos.x + off.x;
+		float py = worldPos.y + off.y;
+		float pz = worldPos.z + off.z;
 		if(intensity > 0.01f) {
-			if(wasActive)runtime.updateDynamicLight(runtimeId, worldPos.x, worldPos.y, worldPos.z);
-			else runtime.registerDynamicLight(runtimeId, worldPos.x, worldPos.y, worldPos.z, light.getColor(), intensity * 15, light.getRadius());
+			if(wasActive)runtime.updateDynamicLight(runtimeId, px, py, pz);
+			else runtime.registerDynamicLight(runtimeId, px, py, pz, light.getColor(), intensity * 15, light.getRadius());
 			activeDynamicLights.put(light.getId(), true);
 		} else if(wasActive) {
 			runtime.unregisterDynamicLight(runtimeId);

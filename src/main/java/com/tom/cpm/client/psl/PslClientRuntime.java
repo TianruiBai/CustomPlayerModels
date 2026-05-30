@@ -31,6 +31,7 @@ import com.tom.cpm.shared.editor.project.ProjectFile;
 import com.tom.cpm.shared.psl.IPslRuntime;
 import com.tom.cpm.shared.psl.PslElementType;
 import com.tom.cpm.shared.psl.PslSystem;
+import com.tom.cpm.shared.psl.light.LightEmitter;
 import com.tom.cpm.shared.psl.particle.ParticleEmitter;
 import com.tom.cpm.shared.psl.particle.ParticleInstance;
 import com.tom.cpm.shared.psl.sound.SoundEmitter;
@@ -48,6 +49,7 @@ public class PslClientRuntime implements IPslRuntime {
 	private final Minecraft mc;
 	private final SoundPlayer soundPlayer = new SoundPlayer();
 	private final ParticleRenderer particleRenderer = new ParticleRenderer();
+	private final LightRenderer lightRenderer = new LightRenderer();
 	private Player currentPlayer;
 	private PslSystem currentPslSystem;
 	private ProjectFile projectCache;
@@ -95,6 +97,18 @@ public class PslClientRuntime implements IPslRuntime {
 		if(now - lastParticleDebugLogNanos < 2_000_000_000L)return;
 		lastParticleDebugLogNanos = now;
 		Log.info("PSL particles: " + message);
+	}
+
+	/** Render active lights for the currently bound PSL system. Called from the render event handler. */
+	public void renderCurrentLights(PoseStack poseStack, MultiBufferSource bufferSource) {
+		if (currentPslSystem == null || currentPslSystem.isEmpty()) return;
+		List<LightEmitter> lights = currentPslSystem.getElementsOfType(PslElementType.LIGHT);
+		if (lights.isEmpty()) return;
+		net.minecraft.client.Camera camera = mc.gameRenderer.getMainCamera();
+		long tc = currentPslSystem.getTickCounter();
+		lightRenderer.renderGlow(lights, poseStack, bufferSource, camera,
+			id -> currentPslSystem.getElementPosition(id, currentPlayer != null ? currentPlayer : mc.player),
+			tc, true);
 	}
 
 	@Override

@@ -47,6 +47,21 @@ public class CustomRenderTypes extends RenderType {
 				.createCompositeState(false));
 	}
 
+	/** PSL light glow render type: additive blend, no depth write, fullbright. */
+	public static RenderType pslLightAdditive(ResourceLocation texture) {
+		return create("cpm:psl_light_glow", DefaultVertexFormat.NEW_ENTITY, VertexFormat.Mode.QUADS, 256, false, true,
+			RenderType.CompositeState.builder()
+				.setShaderState(RENDERTYPE_ENTITY_TRANSLUCENT_EMISSIVE_SHADER)
+				.setTextureState(new RenderStateShard.TextureStateShard(texture, false, false))
+				.setTransparencyState(ADDITIVE_TRANSPARENCY)
+				.setCullState(NO_CULL)
+				.setLightmapState(LIGHTMAP)
+				.setOverlayState(OVERLAY)
+				.setDepthTestState(NO_DEPTH_TEST)
+				.setWriteMaskState(COLOR_WRITE)
+				.createCompositeState(false));
+	}
+
 	public CustomRenderTypes(String nameIn, VertexFormat formatIn, Mode drawModeIn, int bufferSizeIn,
 			boolean useDelegateIn, boolean needsSortingIn, Runnable setupTaskIn, Runnable clearTaskIn) {
 		super(nameIn, formatIn, drawModeIn, bufferSizeIn, useDelegateIn, needsSortingIn, setupTaskIn, clearTaskIn);
