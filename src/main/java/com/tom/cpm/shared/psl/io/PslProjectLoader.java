@@ -208,6 +208,7 @@ public class PslProjectLoader implements ProjectPartLoader {
 			s.setOneShot(map.getBoolean("oneShot", true));
 		} else if (elem instanceof LightEmitter) {
 			LightEmitter l = (LightEmitter) elem;
+			l.setLightType(parseEnum(LightEmitter.LightType.VALUES, map.getString("lightType", "POINT")));
 			l.setColor(parseColor(map.getString("color", "#FFFFFF")));
 			l.setIntensity(map.getFloat("intensity", 0.7f));
 			l.setRadius(map.getFloat("radius", 3));
@@ -216,6 +217,13 @@ public class PslProjectLoader implements ProjectPartLoader {
 			l.setFlickerAmount(map.getFloat("flickerAmount", 0.1f));
 			l.setDynamic(map.getBoolean("dynamic", true));
 			l.setCastShadows(map.getBoolean("castShadows", true));
+			l.setOffset(parseVec3f(map.getMap("offset")));
+			l.setRotation(parseVec3f(map.getMap("rotation")));
+			l.setSpotAngle(map.getFloat("spotAngle", 45));
+			l.setSpotSoftness(map.getFloat("spotSoftness", 0.2f));
+			l.setAreaWidth(map.getFloat("areaWidth", 1));
+			l.setAreaHeight(map.getFloat("areaHeight", 1));
+			l.setColorTemperature(map.getFloat("colorTemperature", 0.5f));
 		} else if (elem instanceof MidiEmitter) {
 			MidiEmitter m = (MidiEmitter) elem;
 			m.setMidiFile(map.getString("midiFile", null));
@@ -369,6 +377,7 @@ public class PslProjectLoader implements ProjectPartLoader {
 			map.put("oneShot", s.isOneShot());
 		} else if (elem instanceof LightEmitter) {
 			LightEmitter l = (LightEmitter) elem;
+			map.put("lightType", l.getLightType().name());
 			map.put("color", colorToString(l.getColor()));
 			map.put("intensity", l.getIntensity());
 			map.put("radius", l.getRadius());
@@ -377,6 +386,13 @@ public class PslProjectLoader implements ProjectPartLoader {
 			map.put("flickerAmount", l.getFlickerAmount());
 			map.put("dynamic", l.isDynamic());
 			map.put("castShadows", l.isCastShadows());
+			map.put("offset", vec3fToMap(l.getOffset()).asMap());
+			map.put("rotation", vec3fToMap(l.getRotation()).asMap());
+			map.put("spotAngle", l.getSpotAngle());
+			map.put("spotSoftness", l.getSpotSoftness());
+			map.put("areaWidth", l.getAreaWidth());
+			map.put("areaHeight", l.getAreaHeight());
+			map.put("colorTemperature", l.getColorTemperature());
 		} else if (elem instanceof MidiEmitter) {
 			MidiEmitter m = (MidiEmitter) elem;
 			if (m.getMidiFile() != null) map.put("midiFile", m.getMidiFile());

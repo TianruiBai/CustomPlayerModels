@@ -150,12 +150,85 @@ public class PslEditorPreview {
 		List<LightEmitter> lights = editor.pslSystem.getElementsOfType(PslElementType.LIGHT);
 		for(LightEmitter light : lights) {
 			Vec3f pos = targetPosition(light.getElementId());
-			float size = Math.max(0.08f, light.getRadius() * 0.035f);
+			pos.x += light.getOffset().x;
+			pos.y += light.getOffset().y;
+			pos.z += light.getOffset().z;
 			float r = ((light.getColor() >> 16) & 0xff) / 255f;
 			float g = ((light.getColor() >> 8) & 0xff) / 255f;
 			float b = (light.getColor() & 0xff) / 255f;
-			BoxRender.drawBoundingBox(stack, buffer, BoundingBox.create(pos.x - size, pos.y - size, pos.z - size, size * 2, size * 2, size * 2), r, g, b, Math.max(0.25f, light.getIntensity()));
+			float alpha = Math.max(0.25f, light.getIntensity());
+			float radius = Math.max(0.08f, light.getRadius() * 0.035f);
+
+			switch (light.getLightType()) {
+				case POINT: {
+					// Cross-shaped sphere representation: 3 rings in XY, XZ, YZ planes
+					int segments = 16;
+					for (int i = 0; i < segments; i++) {
+						float a1 = (float)(i * 2 * Math.PI / segments);
+						float a2 = (float)((i + 1) * 2 * Math.PI / segments);
+						// XY ring
+						float x1 = pos.x + (float)Math.cos(a1) * radius, y1 = pos.y + (float)Math.sin(a1) * radius;
+						float x2 = pos.x + (float)Math.cos(a2) * radius, y2 = pos.y + (float)Math.sin(a2) * radius;
+						drawLine(stack, buffer, x1, y1, pos.z, x2, y2, pos.z, r, g, b, alpha);
+						// XZ ring
+						drawLine(stack, buffer, pos.x + (float)Math.cos(a1) * radius, pos.y, pos.z + (float)Math.sin(a1) * radius, pos.x + (float)Math.cos(a2) * radius, pos.y, pos.z + (float)Math.sin(a2) * radius, r, g, b, alpha);
+						// YZ ring
+						drawLine(stack, buffer, pos.x, pos.y + (float)Math.cos(a1) * radius, pos.z + (float)Math.sin(a1) * radius, pos.x, pos.y + (float)Math.cos(a2) * radius, pos.z + (float)Math.sin(a2) * radius, r, g, b, alpha);
+					}
+					break;
+				}
+				case SPOT: {
+					// Cone: base circle + apex lines
+					float angle = (float)Math.toRadians(light.getSpotAngle() * 0.5f);
+					float coneLen = radius * 2f;
+					Vec3f dir = new Vec3f(0, -1, 0); // default downward direction
+					Vec3f apex = new Vec3f(pos.x + dir.x * coneLen, pos.y + dir.y * coneLen, pos.z + dir.z * coneLen);
+					float baseR = coneLen * (float)Math.tan(angle);
+					int segs = 12;
+					for (int i = 0; i < segs; i++) {
+						float a1 = (float)(i * 2 * Math.PI / segs);
+						float a2 = (float)((i + 1) * 2 * Math.PI / segs);
+						Vec3f p1 = circlePoint(pos, dir, baseR, a1);
+						Vec3f p2 = circlePoint(pos, dir, baseR, a2);
+						drawLine(stack, buffer, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, r, g, b, alpha);
+						drawLine(stack, buffer, apex.x, apex.y, apex.z, p1.x, p1.y, p1.z, r, g, b, alpha * 0.5f);
+					}
+					// Direction line
+					drawLine(stack, buffer, pos.x, pos.y, pos.z, apex.x, apex.y, apex.z, r, g, b, alpha * 0.6f);
+					break;
+				}
+				case AREA: {
+					// Rectangle wireframe
+					float hw = light.getAreaWidth() * 0.5f * radius * 0.5f;
+					float hh = light.getAreaHeight() * 0.5f * radius * 0.5f;
+					drawLine(stack, buffer, pos.x - hw, pos.y, pos.z - hh, pos.x + hw, pos.y, pos.z - hh, r, g, b, alpha);
+					drawLine(stack, buffer, pos.x + hw, pos.y, pos.z - hh, pos.x + hw, pos.y, pos.z + hh, r, g, b, alpha);
+					drawLine(stack, buffer, pos.x + hw, pos.y, pos.z + hh, pos.x - hw, pos.y, pos.z + hh, r, g, b, alpha);
+					drawLine(stack, buffer, pos.x - hw, pos.y, pos.z + hh, pos.x - hw, pos.y, pos.z - hh, r, g, b, alpha);
+					break;
+				}
+			}
 		}
+	}
+
+	private static void drawLine(MatrixStack stack, VertexBuffer buffer, float x1, float y1, float z1, float x2, float y2, float z2, float r, float g, float b, float a) {
+		buffer.pos(x1, y1, z1).color(r, g, b, a).endVertex();
+		buffer.pos(x2, y2, z2).color(r, g, b, a).endVertex();
+	}
+
+	private static Vec3f circlePoint(Vec3f center, Vec3f dir, float radius, float angle) {
+		Vec3f perp;
+		if(Math.abs(dir.x) < 0.9f)perp = new Vec3f(1, 0, 0);
+		else perp = new Vec3f(0, 1, 0);
+		Vec3f right = cross(dir, perp);
+		right.normalize();
+		Vec3f up = cross(right, dir);
+		up.normalize();
+		return new Vec3f(
+			center.x + right.x * radius * (float)Math.cos(angle) + up.x * radius * (float)Math.sin(angle),
+			center.y + right.y * radius * (float)Math.cos(angle) + up.y * radius * (float)Math.sin(angle),
+			center.z + right.z * radius * (float)Math.cos(angle) + up.z * radius * (float)Math.sin(angle)
+		);
 	}
 
 	private void renderPhysics(MatrixStack stack, VertexBuffer buffer) {

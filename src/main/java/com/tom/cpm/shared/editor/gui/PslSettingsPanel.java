@@ -166,9 +166,22 @@ public class PslSettingsPanel extends Panel {
 	}
 
 	private void light(LightEmitter l) {
+		section("label.cpm.psl.section.source");
+		enumRow("label.cpm.psl.light.type", l.getLightType().ordinal(), LightEmitter.LightType.VALUES, v -> { l.setLightType(LightEmitter.LightType.VALUES[v]); editor.updateGui.accept(null); }, null, 0, null, null);
+		vec3("label.cpm.psl.light.offset", l.getOffset());
+		vec3("label.cpm.psl.light.rotation", l.getRotation());
+
 		section("label.cpm.psl.section.emission");
 		colorRow("label.cpm.psl.light.color", l.getColor(), l::setColor);
+		constrainedNumberRow("label.cpm.psl.light.colorTemp", l.getColorTemperature(), 2, 0f, 1f, l::setColorTemperature, null, 0f, 0, null, null, null);
 		constrainedNumberRow("label.cpm.psl.light.intensity", l.getIntensity(), 2, 0f, 1f, l::setIntensity, "label.cpm.psl.light.radius", l.getRadius(), 1, 1f, 15f, l::setRadius);
+
+		section("label.cpm.psl.section.typeConfig");
+		if(l.getLightType() == LightEmitter.LightType.SPOT) {
+			constrainedNumberRow("label.cpm.psl.light.spotAngle", l.getSpotAngle(), 0, 1f, 179f, l::setSpotAngle, "label.cpm.psl.light.spotSoftness", l.getSpotSoftness(), 2, 0f, 1f, l::setSpotSoftness);
+		} else if(l.getLightType() == LightEmitter.LightType.AREA) {
+			constrainedNumberRow("label.cpm.psl.light.areaWidth", l.getAreaWidth(), 2, 0.1f, null, l::setAreaWidth, "label.cpm.psl.light.areaHeight", l.getAreaHeight(), 2, 0.1f, null, l::setAreaHeight);
+		}
 		checkRow("label.cpm.psl.light.dynamic", l.isDynamic(), l::setDynamic, "label.cpm.psl.light.shadows", l.isCastShadows(), l::setCastShadows);
 
 		section("label.cpm.psl.section.animation");
